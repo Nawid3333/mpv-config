@@ -68,11 +68,9 @@ suite checks every feature.
   songs.
 
 **Streams from the browser**
-- Works with a [FastStream fork](https://github.com/Nawid3333/FastStream) that
-  hands browser videos to mpv. The fork tells mpv whether a video is anime or
-  a film, so Auto picks the right upscaler.
-- mpv resumes where you left off (`Home` starts from the beginning), and the
-  page link appears in the source menu.
+- Works with a [FastStream fork](https://github.com/Nawid3333/FastStream) for
+  Firefox that hands browser videos to mpv. See
+  [Use with FastStream](#use-with-faststream).
 
 **Updates that are tested first**
 - [`mpv-build.json`](mpv-build.json) pins one of [shinchiro's mpv builds](https://github.com/shinchiro/mpv-winbuild-cmake).
@@ -104,8 +102,78 @@ cd "C:\Program Files\mpv"
 .\mpv-register.bat
 ```
 
+Play any video. The first time, a small banner top right shows the shaders
+compiling in the background (under a minute, once per PC and again after
+a driver update). Playback does not wait for it.
+
 The full runbook (what each script does, troubleshooting, the commit guard) is
 in [`RECREATE.md`](RECREATE.md).
+
+## Use with FastStream
+
+[Nawid3333/FastStream](https://github.com/Nawid3333/FastStream) is a Firefox
+fork of FastStream that hands a video playing in the browser to mpv. This
+config is built as its mpv side:
+
+- **Upscaling picks itself.** The fork tags every stream as anime or movie
+  (from your allowlist, see step 4). This config then applies Anime4K or the
+  Movie chain automatically. Local files stay without shaders until you pick
+  one.
+- **Resume.** A stream continues where you stopped, even though its address
+  changes on every visit. Saved positions last 7 days, and `Home` starts from
+  the beginning.
+- **Source button.** Shows the stream URL and the page it came from, ready to
+  copy or to open in the browser.
+- **One window.** The next episode replaces the current one in the same mpv
+  window and starts playing. A pause or a subtitle delay from the previous
+  episode does not carry over.
+- **Decoding.** Streams use Vulkan decoding (zero-copy); local files keep the
+  safer `d3d11va-copy`.
+- **Clear errors.** If a stream cannot be opened (for example, an expired
+  link), a banner says to reload the page instead of showing an empty window.
+
+### Setup (once)
+
+1. **Install this config** as above. The fork's helper looks for
+   `C:\Program Files\mpv\mpv.exe` first.
+2. **Install the extension.** Download the signed `.xpi` from the fork's
+   [Releases](https://github.com/Nawid3333/FastStream/releases) and open it in
+   Firefox 142 or newer. Firefox then updates it by itself.
+3. **Install the helper.** A browser extension cannot start programs by
+   itself, so a small helper is registered once. It needs
+   [Node.js](https://nodejs.org/) 22 or newer. Get the fork's source (Code ▸
+   Download ZIP, or `git clone`), then in PowerShell:
+
+   ```powershell
+   cd FastStream\native-host
+   powershell -ExecutionPolicy Bypass -File install.ps1
+   # mpv somewhere else? add:  -MpvPath "D:\Apps\mpv\mpv.exe"
+   ```
+
+   Then **restart Firefox**. No admin rights are needed; it only writes to
+   `%LOCALAPPDATA%\FastStreamMpvHost` and one registry key under `HKCU`.
+4. **Turn it on.** In FastStream's settings, go to **MPV Mode**:
+   - Tick **Open detected streams in mpv**.
+   - Click **Test mpv connection**. It should say **mpv found**.
+   - Add your sites to the **MPV Allowlist**, one per line. Sites count as
+     movies; put `@anime` after the anime ones:
+
+     ```
+     https://movies.example.com
+     https://anime.example.org @anime
+     ```
+
+### Use it
+
+- Open a video on an allowlisted site, and mpv takes over.
+- On any other site, use the player's **Open this stream in mpv** button. Right-click
+  that button to set Anime or Movie for one video.
+
+The fork's [MPV mode guide](https://github.com/Nawid3333/FastStream/blob/main/README-MPV.md)
+has every option, troubleshooting (a helper log you can switch on) and how to
+uninstall. Only the stream URL, the page address and three headers (`Referer`,
+`Origin`, `User-Agent`) go to mpv. Cookies stay in the browser, so a stream
+that needs a login session will not play in mpv.
 
 ## Keys
 
