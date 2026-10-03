@@ -93,7 +93,7 @@ tracks inside a video.
 ```powershell
 # 1. Clone the repository AS the mpv folder (mpv runs in portable mode next to portable_config\).
 #    Any folder works. Under Program Files this needs an admin prompt, and mpv needs write access:
-git clone https://github.com/Nawid3333/mpv.git "C:\Program Files\mpv"
+git clone https://github.com/Nawid3333/mpv-config.git "C:\Program Files\mpv"
 icacls "C:\Program Files\mpv" /grant "$($env:USERNAME):(OI)(CI)M"
 cd "C:\Program Files\mpv"
 
@@ -152,10 +152,13 @@ static + headless on every push. See [`tests/README.md`](tests/README.md).
 
 [`AGENTS.md`](AGENTS.md) holds detailed engineering notes: every feature,
 why it is built that way, what was measured and what was rejected.
-[`doc/history/`](doc/history/) has the session logs behind them. This
-repository was re-created on 2026-10-03 without its earlier history. Commit
-hashes and pull request numbers mentioned in those notes refer to that earlier
-repository.
+[`doc/history/`](doc/history/) has the session logs behind them.
+
+This repository is a published copy of a private workspace. It is updated
+automatically after each change passes the tests, and every update is checked
+for personal data first. Commit hashes and pull request numbers in the notes
+refer to that workspace. Issues are welcome; a pull request here is applied in
+the workspace by hand, because the next update would overwrite a merge.
 
 ## License
 

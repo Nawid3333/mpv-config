@@ -68,7 +68,8 @@ re-created by the scripts in `installer/`.
 #    side by side - mpv.exe arrives in step 2). git clone wants a new or empty folder;
 #    under Program Files that takes an admin prompt, and mpv then needs write access
 #    for its state and shader cache in portable_config\:
-git clone https://github.com/Nawid3333/mpv.git "C:\Program Files\mpv"
+git clone https://github.com/Nawid3333/mpv-config.git "C:\Program Files\mpv"
+#    (the owner clones the private workspace, github.com/Nawid3333/mpv, instead: AGENTS.md "Public copy")
 icacls "C:\Program Files\mpv" /grant "$($env:USERNAME):(OI)(CI)M"
 #    C:\Program Files\mpv\
 #      mpv.exe, mpv.com, d3dcompiler_43.dll   <- the player (step 2 installs it; not in git)

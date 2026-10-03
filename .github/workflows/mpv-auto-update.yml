@@ -391,6 +391,11 @@ jobs:
               exit 1
             fi
             echo "main pins $latest now ($landed)."
+            # A push by this workflow's own token starts no other workflow, so the
+            # public copy (publish.yml, in the workspace only) is started here.
+            if [ -f .github/workflows/publish.yml ]; then
+              gh workflow run publish.yml --ref main || echo "::warning::Could not start publish.yml - run it by hand."
+            fi
             # Failed builds' branches stay until a build passes; every mpv/*
             # branch can go once one has.
             refs=$(authgit ls-remote --heads origin 'refs/heads/mpv/*' | cut -f2)

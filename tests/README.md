@@ -52,10 +52,12 @@ and in Windows PowerShell 5.1 too); the commit guard in `.githooks` (in a throwa
 goes through, a forced add of mpv.exe or yt-dlp.exe is refused; a real name or e-mail as author, a forced-in private file,
 an added user folder path, private claude.ai link or private word is refused, a placeholder path goes through; post-merge
 says to run updater.bat after a pull that pins another mpv and says nothing when the installed one is it) and, outside CI,
-that this clone uses them (`core.hooksPath`) and commits under a public identity; privacy (the repository is public):
-`.gitignore` covers every kind of runtime state, no ignored file is tracked, no tracked file holds a user folder path, a
-private claude.ai link, a non-noreply e-mail or a word from `.git/info/private-words`, and every commit by the owner's
-noreply address carries the login as name - reported as file:line or commit hash only; the shader-cache files (incl. host.ps1) are in place, the warm-up is
+that this clone uses them (`core.hooksPath`) and commits under a public identity; privacy (the public copy,
+`tests/lib/privacy.ps1`, AGENTS.md "Public copy"): `.gitignore` covers every kind of runtime state, and no file that would
+be published is ignored or holds a user folder path, a private claude.ai link, a non-noreply e-mail or a word from
+`.git/info/private-words` (reported as file:line only); `.github/scripts/publish.ps1` between two throwaway repos (a clean
+copy becomes one commit without the .publishignore paths, nothing new = no commit, each kind of leak is refused without
+printing it, a private word in the commit subject is replaced, a public commit that names someone stops it); the shader-cache files (incl. host.ps1) are in place, the warm-up is
 not a top-level player script and the manual script runs it hidden; every `.ps1` parses; stylua (when installed).
 
 Headless (`headless/test-*.lua`):

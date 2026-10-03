@@ -34,11 +34,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
-      # lfs: false (default) - no LFS quota; install-mpv.ps1 finds the runner's 7-Zip.
-      # fetch-depth 0: the static tier checks the identity of EVERY commit (privacy).
+      # lfs: false (default) - no LFS quota; install-mpv.ps1 finds the runner's 7-Zip
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
 
       - name: Install the pinned mpv build (installer/install-mpv.ps1)
         shell: pwsh

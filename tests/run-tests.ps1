@@ -350,10 +350,9 @@ function Invoke-StaticCheck {
         Add-Result $t "the installed mpv.exe is the pinned build ($($buildJson.tag))" ($same ? 'PASS' : 'INFO') ($same ? '' : 'not yet - run updater.bat')
     }
 
-    # -- privacy: the repository is public (2026-10-03) ------------------------------
+    # -- privacy: this workspace is published to the public mpv-config (2026-10-03) ----
     # What mpv and the scripts write while you watch names what was watched - none of
-    # it may reach git. One sample path per kind (AGENTS.md, "The repository is public").
-    # A finding is reported as file:line or a commit hash, never the text: CI logs are public.
+    # it may reach git. One sample path per kind (AGENTS.md, "Public copy").
     $private = @(
         'portable_config/speed.json', 'portable_config/stream-resume.json', 'portable_config/movie-sharpness.json',
         'portable_config/shader-misses.log', 'portable_config/shader-cases.json', 'portable_config/speed.json.1234.tmp',
@@ -363,46 +362,17 @@ function Invoke-StaticCheck {
     )
     $notIgnored = @($private | Where-Object { & git -C $RepoRoot check-ignore -q --no-index -- $_; $LASTEXITCODE -ne 0 })
     Test-Check $t ".gitignore covers what mpv and the scripts write while you watch ($($private.Count) kinds)" ($notIgnored.Count -eq 0) ($notIgnored -join ', ')
-    $ignoredTracked = @(& git -C $RepoRoot ls-files -ci --exclude-standard)
-    Test-Check $t 'no tracked file is one .gitignore excludes' ($ignoredTracked.Count -eq 0) ($ignoredTracked -join ', ')
-    $leaks = @(& git -C $RepoRoot grep -I -n -E '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/' -- . |
-        ForEach-Object { ($_ -split ':', 3)[0..1] -join ':' })
-    Test-Check $t 'tracked files hold no user folder path (C:\Users\<name>) or private claude.ai link' ($leaks.Count -eq 0) ($leaks -join ', ')
-    $mails = @(& git -C $RepoRoot grep -I -n -o -E '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}' -- . ':!doc/manual.txt' |
-        Where-Object { $_ -notmatch '(noreply@anthropic\.com|@users\.noreply\.github\.com|@example\.(com|org))$' } |
-        ForEach-Object { ($_ -split ':', 3)[0..1] -join ':' })
-    Test-Check $t 'tracked files hold no e-mail address but noreply ones' ($mails.Count -eq 0) ($mails -join ', ')
+    # the same checks the publish job runs before every copy (tests/lib/privacy.ps1),
+    # over what would be published; reported as file:line, never the text
+    . (Join-Path $PSScriptRoot 'lib/privacy.ps1')
     $wordsFile = & git -C $RepoRoot rev-parse --path-format=absolute --git-path info/private-words 2>$null
-    if ($wordsFile -and (Test-Path $wordsFile) -and (Get-Item $wordsFile).Length -gt 0) {
-        $words = @(Get-Content $wordsFile | Where-Object { $_.Trim() -and -not $_.StartsWith('#') })
-        $wordHits = @(& git -C $RepoRoot grep -I -n -i -F @($words | ForEach-Object { '-e'; $_ }) -- . |
-            ForEach-Object { ($_ -split ':', 3)[0..1] -join ':' })
-        Test-Check $t "tracked files hold none of this clone's private words ($($words.Count), .git/info/private-words)" ($wordHits.Count -eq 0) ($wordHits -join ', ')
+    $words = ($wordsFile -and (Test-Path $wordsFile)) ? @(Get-Content $wordsFile) : @()
+    $findings = Get-PrivacyFinding -Root $RepoRoot -Words $words -Exclude (Get-PublishExclude $RepoRoot)
+    foreach ($kv in $findings.GetEnumerator()) {
+        Test-Check $t "published files: $($kv.Key)" ($kv.Value.Count -eq 0) ($kv.Value -join ', ')
     }
-    else {
-        Add-Result $t "tracked files hold none of this clone's private words" 'SKIP' 'no .git/info/private-words in this clone (CI has none)'
-    }
-    # The owner's commits carry the GitHub login as name, never a real one (git's global
-    # user.name often is the real name; the pre-commit hook stops it locally).
-    $owner = $env:GITHUB_REPOSITORY_OWNER
-    if (-not $owner) {
-        $origin = & git -C $RepoRoot remote get-url origin 2>$null
-        if ($origin -match 'github\.com[:/]([^/]+)/') { $owner = $Matches[1] }
-    }
-    if (-not $owner) {
-        Add-Result $t "the owner's commits use the GitHub login as name" 'SKIP' 'no GitHub origin to read the owner from'
-    }
-    else {
-        $suffix = "+$owner@users.noreply.github.com".ToLower()
-        $badCommits = @(& git -C $RepoRoot log --format='%h%x09%an%x09%ae%x09%cn%x09%ce' | ForEach-Object {
-                $f = $_ -split "`t"
-                if (($f[2].ToLower().EndsWith($suffix) -and $f[1] -ne $owner) -or ($f[4].ToLower().EndsWith($suffix) -and $f[3] -ne $owner)) { $f[0] }
-            })
-        $shallow = (& git -C $RepoRoot rev-parse --is-shallow-repository) -eq 'true'
-        Test-Check $t "the owner's commits use the GitHub login as name, never a real one$($shallow ? ' (shallow clone)' : '')" (
-            $badCommits.Count -eq 0) ($badCommits -join ', ')
-        $linked = @(& git -C $RepoRoot log --format='%h' -E -i '--grep=claude\.ai/(code|artifact|chat|share)/')
-        Add-Result $t 'commit messages hold no private claude.ai link' ($linked.Count -eq 0 ? 'PASS' : 'INFO') ($linked -join ', ')
+    if (-not ($findings.Keys -match 'private words')) {
+        Add-Result $t 'published files: none of the private words' 'SKIP' 'no .git/info/private-words in this clone (CI has none; the publish job checks the PRIVATE_WORDS secret)'
     }
 
     # -- installer/install-mpv.ps1, against a stand-in build (no download) --------------
@@ -507,12 +477,7 @@ function Invoke-StaticCheck {
         Test-Check $t 'this clone uses them (core.hooksPath = .githooks)' ($hooksPath -eq '.githooks') 'run: git config core.hooksPath .githooks'
         # the identity the hook demands (rule 2a); its text is not printed
         $ident = & git -C $RepoRoot var GIT_AUTHOR_IDENT 2>$null
-        $public = $false
-        if ($ident -match '^(.+?) <([^>]+)>') {
-            $n = $Matches[1]
-            $e = $Matches[2]
-            $public = ($e -eq 'noreply@anthropic.com' -and $n -eq 'Claude') -or ($e -match '^\d+\+([^@]+)@users\.noreply\.github\.com$' -and $n -eq $Matches[1])
-        }
+        $public = ($ident -match '^(.+?) <([^>]+)>') -and (Test-PublicIdentity $Matches[1] $Matches[2])
         Test-Check $t 'this clone commits under a public identity (GitHub login + its noreply address)' $public `
             'git config user.name <login>; git config user.email <id>+<login>@users.noreply.github.com'
     }
@@ -608,6 +573,69 @@ function Invoke-StaticCheck {
     }
     finally {
         Remove-Item $g -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # -- publish.ps1 (the public copy, 2026-10-03), between two throwaway repos ---------
+    # Leaks are built here, so this file holds none itself.
+    $pw = Join-Path $WorkDir 'publish-test'
+    if (Test-Path $pw) { Remove-Item $pw -Recurse -Force }
+    $ws = Join-Path $pw 'workspace'
+    $pub = Join-Path $pw 'public'
+    New-Item -ItemType Directory -Force (Join-Path $ws 'tests/lib'), (Join-Path $ws 'notes'), $pub | Out-Null
+    Copy-Item (Join-Path $RepoRoot 'tests/lib/privacy.ps1') (Join-Path $ws 'tests/lib')
+    Set-Content -LiteralPath (Join-Path $ws 'a.txt') 'hello'
+    Set-Content -LiteralPath (Join-Path $ws 'notes/private.md') 'by Jane Example'
+    Set-Content -LiteralPath (Join-Path $ws '.publishignore') 'notes/**'
+    Set-Content -LiteralPath (Join-Path $pub 'README.md') 'public'
+    $who = @('-c', 'user.name=guard-test', '-c', 'user.email=1+guard-test@users.noreply.github.com')
+    function Invoke-PubGit([string]$Dir) { & git -C $Dir @who @args 2>&1 | Out-Null }
+    foreach ($d in $ws, $pub) {
+        Invoke-PubGit $d init -q -b main
+        Invoke-PubGit $d add -A
+        Invoke-PubGit $d commit -q -m 'workspace'
+    }
+    $publish = Join-Path $RepoRoot '.github/scripts/publish.ps1'
+    function Invoke-Publish {
+        $out = & pwsh -NoProfile -File $publish -Workspace $ws -Public $pub -Name guard-test `
+            -Email '1+guard-test@users.noreply.github.com' -Words 'Jane Example' -NoPush 2>&1
+        [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($out -join ' ') }
+    }
+    try {
+        $r = Invoke-Publish
+        $tree = @(& git -C $pub ls-files)
+        Test-Check $t 'publish.ps1: a clean workspace becomes one commit by the public identity' (
+            $r.Code -eq 0 -and (& git -C $pub log -1 --format='%an|%s') -eq 'guard-test|workspace' -and 'a.txt' -in $tree -and 'README.md' -notin $tree) $r.Out
+        Test-Check $t '... without the .publishignore paths or the file itself' (-not ($tree -match '^(notes/|\.publishignore$)')) ($tree -join ', ')
+        $r = Invoke-Publish
+        Test-Check $t '... nothing new: no commit' ($r.Code -eq 0 -and $r.Out -match 'Nothing to publish' -and (& git -C $pub rev-list --count HEAD) -eq '2') $r.Out
+        $leaks = [ordered]@{
+            'a user folder path' = 'C:' + '\Users\' + 'someone\Videos'
+            'a private word'     = 'written by jane example'
+            'an e-mail address'  = 'mail jane' + '@example.net'
+        }
+        foreach ($kv in $leaks.GetEnumerator()) {
+            Set-Content -LiteralPath (Join-Path $ws 'a.txt') $kv.Value
+            Invoke-PubGit $ws commit -q -am 'leak'
+            $before = & git -C $pub rev-parse HEAD
+            $r = Invoke-Publish
+            Test-Check $t "publish.ps1: a copy holding $($kv.Key) is not published (and the text is not printed)" (
+                $r.Code -eq 1 -and $r.Out -match 'NOT published' -and (& git -C $pub rev-parse HEAD) -eq $before -and
+                -not $r.Out.Contains($kv.Value)) $r.Out
+            Invoke-PubGit $pub reset -q --hard
+        }
+        Set-Content -LiteralPath (Join-Path $ws 'a.txt') 'hello again'
+        Invoke-PubGit $ws commit -q -am 'notes from Jane Example'
+        $r = Invoke-Publish
+        Test-Check $t '... a commit subject with a private word is not published (generic message)' (
+            $r.Code -eq 0 -and (& git -C $pub log -1 --format='%s') -eq 'Publish from the workspace') $r.Out
+        Set-Content -LiteralPath (Join-Path $ws 'a.txt') 'hello once more'
+        Invoke-PubGit $ws commit -q -am 'more'
+        & git -C $pub -c 'user.name=Jane Example' -c 'user.email=jane@example.org' commit -q --allow-empty -m 'web edit' 2>&1 | Out-Null
+        $r = Invoke-Publish
+        Test-Check $t 'publish.ps1: nothing is published while a public commit names someone' ($r.Code -eq 1 -and $r.Out -match 'names no one') $r.Out
+    }
+    finally {
+        Remove-Item $pw -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     # -- shader cache: the startup check and the warm-up it starts stay wired --------
