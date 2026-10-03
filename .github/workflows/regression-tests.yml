@@ -1,0 +1,84 @@
+name: Regression tests
+
+# Runs tests/run-tests.ps1 - the static checks plus the headless tier (mpv with
+# --vo=null --ao=null: every feature driven through mpv's own input commands,
+# no window, no GPU) - on every push and pull request, so a config or script
+# edit that breaks a feature turns the run red. See tests/README.md.
+#
+# mpv's own files are not in git (pin only, 2026-10-03): the build
+# mpv-build.json pins is installed from shinchiro's public release by
+# installer/install-mpv.ps1 - the same script updater.bat runs on the PC, so
+# every run also proves the installer works on the real archive. If that release
+# has been pruned upstream, the latest build of the same arch is tested instead,
+# with a warning.
+#
+# The gpu tier (real renderer, shader cache, switching, frame pacing) needs the
+# PC's GPU and display; run it locally: pwsh tests/run-tests.ps1 -Tier gpu
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  headless:
+    name: static + headless
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      # lfs: false (default) - no LFS quota; install-mpv.ps1 finds the runner's 7-Zip.
+      # fetch-depth 0: the static tier checks the identity of EVERY commit (privacy).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install the pinned mpv build (installer/install-mpv.ps1)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bin = Join-Path $env:RUNNER_TEMP 'mpv'
+          New-Item -ItemType Directory -Force $bin | Out-Null
+          ./installer/install-mpv.ps1 -Root $bin -BuildJson ./mpv-build.json
+          $rc = $LASTEXITCODE
+          # Only a download that fails (exit 2) falls back to the latest build (shinchiro keeps
+          # about 30 days of releases): a file that is not the pinned one fails, and an update
+          # branch (mpv/<tag>, mpv-auto-update.yml) tests exactly the build it pins or nothing.
+          if ($rc -eq 2 -and $env:GITHUB_REF_NAME -notlike 'mpv/*') {
+            $build = Get-Content mpv-build.json -Raw | ConvertFrom-Json
+            Write-Output "::warning title=Pinned mpv build unavailable::$($build.tag) could not be downloaded - testing the latest $($build.arch) build instead."
+            $dir = Join-Path $env:RUNNER_TEMP 'mpv-download'
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            gh release download --repo shinchiro/mpv-winbuild-cmake --pattern "mpv-$($build.arch)-*-git-*.7z" --dir $dir
+            if ($LASTEXITCODE) { throw 'could not download any mpv build' }
+            $archive = (Get-ChildItem $dir -Filter *.7z | Select-Object -First 1).FullName
+            7z e -y "-o$bin" $archive mpv.exe | Out-Null
+            if ($LASTEXITCODE) { throw "7z failed ($LASTEXITCODE)" }
+            Write-Output "Testing $(Split-Path -Leaf $archive)"
+          }
+          elseif ($rc -ne 0) {
+            throw "install-mpv.ps1 failed (exit $rc)"
+          }
+          "MPV_EXE=$(Join-Path $bin 'mpv.exe')" >> $env:GITHUB_ENV
+
+      - name: Static + headless tests
+        shell: pwsh
+        run: ./tests/run-tests.ps1 -MpvExe $env:MPV_EXE -WorkDir (Join-Path $env:RUNNER_TEMP 'mpv-regression')
+
+      - name: Upload mpv logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mpv-regression-logs
+          path: ${{ runner.temp }}/mpv-regression/logs
+          if-no-files-found: ignore
+          retention-days: 14

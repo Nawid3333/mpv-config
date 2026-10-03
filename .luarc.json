@@ -1,0 +1,46 @@
+{
+    "runtime.version": "LuaJIT",
+    "runtime.nonstandardSymbol": [
+        "goto"
+    ],
+    "workspace": {
+        "library": [
+            "lua-api"
+        ],
+        "checkThirdParty": "Disable",
+        "ignoreDir": [
+            "installer",
+            "portable_config/cache",
+            ".git"
+        ]
+    },
+    "diagnostics": {
+        "globals": [
+            "mp",
+            "exit"
+        ],
+        "unusedLocalExclude": [
+            "_"
+        ],
+        "disable": [
+            "duplicate-doc-alias",
+            "duplicate-field",
+            "undefined-field",
+            "inject-field",
+            "param-type-mismatch",
+            "return-type-mismatch",
+            "cast-local-type",
+            "lowercase-global"
+        ]
+    },
+    "completion": {
+        "showWord": "Disable"
+    },
+    "hint": {
+        "enable": true,
+        "paramType": true
+    },
+    "telemetry": {
+        "enable": false
+    }
+}

@@ -1,0 +1,70 @@
+name: PowerShell lint
+
+# Lints every PowerShell script with PSScriptAnalyzer, Microsoft's linter, on Windows,
+# where the scripts run. An error fails the run; a warning is shown as an annotation on
+# its file and line without failing it. The rules and their exclusions are in
+# PSScriptAnalyzerSettings.psd1; the files of shinchiro's mpv archive are skipped (below).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: powershell-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: PSScriptAnalyzer
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # A fixed version, so a new release of the linter cannot turn the run red by itself.
+          $version = '1.25.0'
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer | Where-Object Version -eq $version)) {
+            # The PowerShell Gallery sometimes answers "No match was found" for a module it
+            # has: on 2026-09-25 this same install passed at 07:28 and failed at 15:35 UTC.
+            # Retry with a growing pause before calling the run failed.
+            for ($attempt = 1; ; $attempt++) {
+              try {
+                Install-Module PSScriptAnalyzer -RequiredVersion $version -Scope CurrentUser -Force
+                break
+              } catch {
+                if ($attempt -ge 4) { throw }
+                Write-Output "::warning title=Install-Module failed::Attempt $attempt of 4: $_"
+                Start-Sleep -Seconds (15 * $attempt)
+              }
+            }
+          }
+          Import-Module PSScriptAnalyzer -RequiredVersion $version
+          # A plain string replace, not a regex: in PowerShell single quotes '\' is one backslash.
+          function Get-RepoPath($r) { [System.IO.Path]::GetRelativePath((Get-Location).Path, $r.ScriptPath).Replace('\', '/') }
+          # shinchiro's own files (mpv-build.json's upstream_files) are not ours to fix: they come
+          # from his archive as they are (install-mpv.ps1 checks them byte for byte). None is in the
+          # repo since 2026-10-03 (pin only); this keeps it so should a build ever ship a script.
+          $upstream = @((Get-Content mpv-build.json -Raw | ConvertFrom-Json).upstream_files.PSObject.Properties.Name)
+          $all = @(Invoke-ScriptAnalyzer -Path . -Recurse -Settings ./PSScriptAnalyzerSettings.psd1)
+          $results = @($all | Where-Object { (Get-RepoPath $_) -notin $upstream })
+          foreach ($r in $results) {
+            $file = Get-RepoPath $r
+            $level = if ($r.Severity -eq 'Error') { 'error' } else { 'warning' }
+            # Workflow commands need %, CR and LF escaped in the message.
+            $message = $r.Message -replace '%', '%25' -replace "`r", '%0D' -replace "`n", '%0A'
+            Write-Output "::$level file=$file,line=$($r.Line),col=$($r.Column),title=$($r.RuleName)::$message"
+          }
+          $errors = @($results | Where-Object Severity -eq 'Error').Count
+          $warnings = @($results | Where-Object Severity -eq 'Warning').Count
+          "PSScriptAnalyzer $((Get-Module PSScriptAnalyzer).Version): $errors error(s), $warnings warning(s) ($($all.Count - $results.Count) in shinchiro's files not counted)" |
+            Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          if ($errors -gt 0) { exit 1 }

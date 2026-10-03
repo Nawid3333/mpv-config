@@ -1,0 +1,116 @@
+#!/bin/sh
+# Commit guard. Active per clone: git config core.hooksPath .githooks
+# (RECREATE.md). The git-lfs hooks live next to this file for the same reason.
+# A deliberate exception: git commit --no-verify
+#
+# 1. mpv's own files and yt-dlp.exe are not kept in git (2026-10-03).
+#    mpv-build.json pins the build; installer/install-mpv.ps1 (run by
+#    updater.bat) installs it, and CI moves the pin by itself. .gitignore keeps
+#    the files out of a plain `git add`; this stops a forced one (git add -f),
+#    which would put ~120 MB back into Git LFS. Removing them is fine.
+# 2. The repository is public (2026-10-03): nothing personal goes into it.
+#    a. Who: the author and the committer must be a GitHub noreply address
+#       whose name is its login (<id>+<login>@users.noreply.github.com), or
+#       Claude <noreply@anthropic.com> - never a real name or e-mail. Set it
+#       per clone: git config user.name <login>; git config user.email <noreply>.
+#    b. No ignored file is forced in (state that records viewing, cookies,
+#       screenshots, the shader cache ...: .gitignore lists them).
+#    c. No added line holds a user folder path (C:\Users\<name>) or a link to
+#       a private claude.ai session/artifact, nor any word listed in the
+#       clone's own .git/info/private-words (one per line: real name, user
+#       name, PC name, private paths) - that file is never committed.
+#
+# Until 2026-10-03 rule 1 was three rules for the binaries that WERE committed
+# (no deleting them, updates on main only, mpv-build.json refreshed to the
+# committed mpv.exe) - see doc/history/sessions-2026-09.md and -10.md.
+
+if git rev-parse --verify -q HEAD >/dev/null; then
+	against=HEAD
+else
+	against=$(git hash-object -t tree /dev/null)
+fi
+
+refuse() {
+	{
+		echo "Commit refused: $1"
+		shift
+		printf '%s\n' "$@"
+		echo "Meant: git commit --no-verify"
+	} >&2
+	exit 1
+}
+
+# -- 1 -------------------------------------------------------------------------
+json=$(git show :mpv-build.json 2>/dev/null || git show HEAD:mpv-build.json 2>/dev/null)
+files=$(
+	printf '%s\n' "$json" | tr -d '\r' |
+		sed -n 's/^ *"\([^"]*\)": *"[0-9a-f]\{64\}",\{0,1\} *$/\1/p' | grep -v '^sha256$'
+	printf '%s\n' yt-dlp.exe
+)
+
+# shellcheck disable=SC2086 # the list is split on purpose (no spaces in it)
+added=$(git diff --cached --name-only --no-renames --diff-filter=AMT "$against" -- $files)
+if [ -n "$added" ]; then
+	# shellcheck disable=SC2086
+	refuse "mpv's own files are not kept in git (since 2026-10-03):" \
+		"$(printf '  %s\n' $added)" \
+		"mpv-build.json pins the build; updater.bat installs it. Unstage them:" \
+		"  git restore --staged -- <file>"
+fi
+
+# -- 2a ------------------------------------------------------------------------
+# $1 = what git var prints: "Name <email> time zone"
+public_ident() {
+	name=${1%% <*}
+	email=${1#*<}
+	email=${email%%>*}
+	case $email in
+	noreply@anthropic.com) [ "$name" = Claude ] ;;
+	*@users.noreply.github.com)
+		login=${email%@users.noreply.github.com}
+		login=${login#*+}
+		[ "$name" = "$login" ]
+		;;
+	*) false ;;
+	esac
+}
+for who in AUTHOR COMMITTER; do
+	ident=$(git var "GIT_${who}_IDENT") || exit 1
+	if ! public_ident "$ident"; then
+		refuse "the $(echo "$who" | tr 'A-Z' 'a-z') is not a public identity:" \
+			"  ${ident% * *}" \
+			"Use your GitHub login and its noreply address in this clone:" \
+			"  git config user.name <login>" \
+			"  git config user.email <id>+<login>@users.noreply.github.com"
+	fi
+done
+
+# -- 2b ------------------------------------------------------------------------
+ignored=$(git diff --cached --name-only --no-renames --diff-filter=AMT "$against" |
+	git check-ignore --no-index --stdin)
+if [ -n "$ignored" ]; then
+	refuse ".gitignore keeps these out of git (private or generated):" \
+		"$(printf '  %s\n' "$ignored")" \
+		"Unstage them: git restore --staged -- <file>"
+fi
+
+# -- 2c ------------------------------------------------------------------------
+lines=$(git diff --cached --no-color --no-ext-diff -U0 "$against" | sed -n '/^+++ /d; s/^+//p')
+hits=$(printf '%s\n' "$lines" | grep -n -E '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/' | head -5)
+if [ -n "$hits" ]; then
+	refuse "an added line holds a user folder path or a private claude.ai link:" \
+		"$hits" \
+		"Write %LOCALAPPDATA%, ~~state or a placeholder like C:\\Users\\<name>."
+fi
+words=$(git rev-parse --git-path info/private-words)
+if [ -s "$words" ]; then
+	list=$(tr -d '\r' <"$words" | grep -v -e '^[[:space:]]*$' -e '^#')
+	names=$(git diff --cached --name-only --no-renames --diff-filter=AMT "$against")
+	if [ -n "$list" ]; then
+		hits=$(printf '%s\n%s\n' "$names" "$lines" | grep -n -i -F -e "$list" | head -5)
+		if [ -n "$hits" ]; then
+			refuse "an added line or file name holds a word from $words:" "$hits"
+		fi
+	fi
+fi
+exit 0

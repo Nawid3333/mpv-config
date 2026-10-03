@@ -1,0 +1,37 @@
+name: Lua style
+
+# Runs the same stylua check the editor applies on save (format-on-save in
+# .vscode/settings.json), so a change made outside the editor - another tool,
+# a quick edit on GitHub, an agent - cannot silently drift the code style.
+# Vendored Lua (uosc, thumbfast, autoload, lua-api) is excluded by .styluaignore.
+#
+# The stylua version is PINNED to the one used locally (stylua --version): an
+# unpinned "latest" can start formatting differently overnight and fail a push
+# for no reason of ours. To upgrade, bump it here and reformat locally together.
+# Runs on every push (no path filter since 2026-09-24, at the user's request).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-lua-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stylua:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Pinned to commit SHAs like the other workflows (see .github/dependabot.yml)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: JohnnyMorganz/stylua-action@76fd70c03e6340ceaf673366712db9b20560b402 # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: v2.5.2
+          args: --check .

@@ -1,0 +1,23 @@
+# Line endings: LF everywhere -- in the repository and in the working copy,
+# whatever core.autocrlf says (Git for Windows turns it on machine-wide).
+# .editorconfig (end_of_line = lf) asks for the same.
+* text=auto eol=lf
+
+# cmd.exe misreads LF-only batch files: they are checked out CRLF, on
+# purpose now rather than as a side effect of core.autocrlf.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Never text: git would rewrite a CRLF byte pair inside them (doc/manual.pdf was
+# classified as text, 2026-10-02).
+*.pdf binary
+*.dll binary
+*.com binary
+*.mp4 binary
+
+# Git LFS
+*.exe filter=lfs diff=lfs merge=lfs -text
+portable_config/Scripts/uosc/bin/* filter=lfs diff=lfs merge=lfs -text
+portable_config/fonts/* filter=lfs diff=lfs merge=lfs -text
+# the git hooks run in sh: CRLF (core.autocrlf on Windows) would break them
+.githooks/* text eol=lf

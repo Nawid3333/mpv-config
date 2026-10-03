@@ -1,0 +1,10 @@
+# Vendored/external Lua code — do not reformat to avoid merge conflicts on updates
+portable_config/Scripts/uosc/**
+portable_config/Scripts/thumbfast.lua
+# Upstream mpv's own autoload.lua, vendored unmodified. It uses 4-space indent
+# against this repo's indent_type = "Tabs", so one format-on-save (enabled in
+# .vscode/settings.json) would rewrite every indented line and destroy the
+# diff against upstream.
+portable_config/Scripts/autoload.lua
+# mpv API stubs for the language server - vendored/generated, not our style.
+lua-api/**
