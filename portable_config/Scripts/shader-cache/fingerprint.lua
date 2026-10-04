@@ -184,7 +184,9 @@ function M.write(name, fp, files, extra)
 	end
 	lines[#lines + 1] = 'written=' .. os.date('%Y-%m-%d %H:%M:%S')
 	local path = M.path(name)
-	local tmp = path .. '.tmp'
+	-- this process's own temp file: the players write .failed/.interrupted and
+	-- a warm-up the stamp, possibly at the same moment
+	local tmp = path .. '.' .. utils.getpid() .. '.tmp'
 	local f = io.open(tmp, 'w')
 	if not f then
 		return false
@@ -192,7 +194,11 @@ function M.write(name, fp, files, extra)
 	f:write(table.concat(lines, '\n'), '\n')
 	f:close()
 	os.remove(path) -- rename does not replace on Windows
-	return os.rename(tmp, path) == true
+	if os.rename(tmp, path) == true then
+		return true
+	end
+	os.remove(tmp)
+	return false
 end
 
 function M.remove(name)

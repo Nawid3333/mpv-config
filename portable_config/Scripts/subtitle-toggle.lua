@@ -64,16 +64,19 @@ local function find_subtitle_file()
 		return nil
 	end
 
-	-- prefer an exact <videoname>.<ext> match, then fuzzy, first found wins
+	-- prefer an exact <videoname>.<ext> match, then fuzzy, first found wins.
+	-- join_path, not dir .. entry: for a bare file name (mpv started from a
+	-- terminal with "mpv clip.mkv") split_path gives the dir "." with no
+	-- separator, and "." .. "clip.srt" named a file that does not exist.
 	local exact, fuzzy
 	for _, entry in ipairs(entries) do
 		local name, ext = entry:match('^(.+)%.(%w+)$')
 		if name and ext and SUB_EXTS[ext:lower()] then
 			local name_lower = name:lower()
 			if name_lower == base_lower and not exact then
-				exact = dir .. entry
+				exact = utils.join_path(dir, entry)
 			elseif name_lower:find(base_lower, 1, true) and not fuzzy then
-				fuzzy = dir .. entry
+				fuzzy = utils.join_path(dir, entry)
 			end
 		end
 	end
@@ -93,8 +96,15 @@ local function smart_toggle()
 		-- try to auto-load from the video's folder before giving up
 		local file = find_subtitle_file()
 		if file then
-			mp.commandv('sub-add', file, 'select')
 			local _, loaded_name = utils.split_path(file)
+			-- the command's own result (AGENTS.md validation item 3): a file mpv
+			-- cannot open or parse must not be announced as loaded
+			local ok, err = mp.commandv('sub-add', file, 'select')
+			if not ok then
+				notify('No subtitles', 'could not load ' .. loaded_name)
+				msg.warn('sub-add ' .. file .. ' failed: ' .. tostring(err))
+				return
+			end
 			notify('Subtitles on', 'loaded ' .. loaded_name)
 			msg.info('auto-loaded subtitle: ' .. file)
 			return

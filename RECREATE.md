@@ -39,8 +39,8 @@ re-created by the scripts in `installer/`.
 
 > `d3dcompiler_43.dll` is only used by mpv's D3D11/ANGLE render path, which
 > this config does not take (`gpu-context=winvk`). It is kept anyway: it ships
-> with the upstream build, it is what the `d3d11va-copy` entry in `hwdec`
-> falls back onto if Vulkan video decode ever regresses, and 4.4 MB is not
+> with the upstream build, `hwdec=d3d11va-copy` (every file since 2026-10-04,
+> when Vulkan video decoding lost the GPU device) may need it, and 4.4 MB is not
 > worth the risk of pruning a player DLL. Don't "clean it up".
 
 > Nothing needs Python or VapourSynth any more. A `.venv` folder next to

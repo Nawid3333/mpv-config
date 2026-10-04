@@ -81,8 +81,23 @@ function Copy-BuildFile([string]$Source, [string]$Target) {
     if (-not (Test-Path -LiteralPath $dir)) { $null = New-Item -ItemType Directory -Force -Path $dir }
     $tmp = "$Target.new"
     Copy-Item -LiteralPath $Source -Destination $tmp -Force
-    if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Force }
-    Move-Item -LiteralPath $tmp -Destination $Target
+    try {
+        if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Force }
+        Move-Item -LiteralPath $tmp -Destination $Target
+    }
+    catch {
+        # a target in use (a running mpv.exe) cannot be deleted: leave no <name>.new behind
+        Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        throw
+    }
+}
+
+# mpv.exe cannot be replaced while this folder's mpv runs
+function Assert-MpvNotRunning([string]$Root) {
+    $running = @(Get-Process mpv -ErrorAction SilentlyContinue | Where-Object {
+            $_.Path -and $_.Path.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)
+        })
+    if ($running.Count) { throw "mpv is running from $Root (pid $($running.Id -join ', ')) - close it and run this again" }
 }
 
 try {
@@ -111,11 +126,8 @@ try {
         exit 3
     }
 
-    # mpv.exe cannot be replaced while this folder's mpv runs
-    $running = @(Get-Process mpv -ErrorAction SilentlyContinue | Where-Object {
-            $_.Path -and $_.Path.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)
-        })
-    if ($running.Count) { throw "mpv is running from $Root (pid $($running.Id -join ', ')) - close it and run this again" }
+    # before the download, so a running player costs no download
+    Assert-MpvNotRunning $Root
 
     $work = Join-Path ([IO.Path]::GetTempPath()) ('mpv-install-' + [guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Path $work
@@ -149,6 +161,13 @@ try {
             if ($null -eq $sha) { throw "the archive has no $rel - nothing installed" }
             if ($sha -ne $files[$rel]) { throw "the archive's $rel is not the file mpv-build.json names - nothing installed" }
         }
+        # ... and again now: the download takes a while, and a player started meanwhile
+        # (FastStream, a double-click) locks mpv.exe after the files before it were replaced
+        Assert-MpvNotRunning $Root
+        # mpv.com and mpv.exe first, the files a player locks: a lock that slips through
+        # anyway stops the install before any other file changed
+        $exes = @('mpv.com', 'mpv.exe')
+        $differ = @($differ | Where-Object { $_ -in $exes }) + @($differ | Where-Object { $_ -notin $exes })
         foreach ($rel in $differ) {
             Copy-BuildFile (Join-Path $x $rel) (Join-Path $Root $rel)
             Write-Host "  $rel"

@@ -363,6 +363,11 @@ function Invoke-StaticCheck {
         "tracked: $($tracked -join ', ') - git rm --cached them"
     $notIgnored = @($ownFiles | Where-Object { & git -C $RepoRoot check-ignore -q --no-index -- $_; $LASTEXITCODE -ne 0 })
     Test-Check $t '.gitignore covers every file of the pinned build and yt-dlp.exe' ($notIgnored.Count -eq 0) ($notIgnored -join ', ')
+    # ... and what an install or download cut short leaves next to them (install-mpv.ps1's
+    # <name>.new, update.ps1's yt-dlp.exe.part): a git add -A took them in as plain blobs
+    $leftovers = @(@($ownFiles | ForEach-Object { "$_.new" }) + 'yt-dlp.exe.part')
+    $notIgnored = @($leftovers | Where-Object { & git -C $RepoRoot check-ignore -q --no-index -- $_; $LASTEXITCODE -ne 0 })
+    Test-Check $t '.gitignore covers what a cut-short install leaves (<file>.new, yt-dlp.exe.part)' ($notIgnored.Count -eq 0) ($notIgnored -join ', ')
     if (-not $env:GITHUB_ACTIONS) {
         # INFO, not FAIL: the folder may lag behind the pin until updater.bat runs
         $exe = Join-Path $RepoRoot 'mpv.exe'

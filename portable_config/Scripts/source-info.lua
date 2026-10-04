@@ -33,7 +33,8 @@
 -- is missing the user gets a failure banner instead of a silent no-op.
 --
 -- Opening: a stream URL re-opens it in THIS player (loadfile replace; the
--- player instance keeps its cache warm and its own resume state); a site URL
+-- player instance keeps its cache warm and its own resume state), with the
+-- request headers and title the file came with (reopen_options); a site URL
 -- opens in the default browser (Windows `rundll32 url.dll,FileProtocolHandler`,
 -- macOS `open`, else xdg-open). Explorer is asked to select the local file,
 -- like uosc's own "Show in directory".
@@ -346,12 +347,46 @@ local function folder_open(dir)
 	end
 end
 
+--- The per-file options "Open in mpv" gives the stream again: its request headers
+--- and its title. The FastStream host hands them over as per-file options of the
+--- one file (a --{ ... --} group, or loadfile's options), and ytdl_hook sets them
+--- file-local too, so a plain `loadfile <url> replace` opened the stream without
+--- them: no Referer/Origin/User-Agent, and a CDN that checks them refused it
+--- ("The stream could not be opened"); the title fell back to the URL's name.
+--- mpv's list syntax: ',' separates the items, '\,' is a comma inside one, and an
+--- item ending in '\' would swallow the separator after it (left out, as the host
+--- does: no real Referer, Origin or User-Agent ends in one).
+---@return table|nil options for loadfile, nil when there are none
+local function reopen_options()
+	local options, fields = {}, {}
+	for _, field in ipairs(mp.get_property_native('http-header-fields') or {}) do
+		if type(field) == 'string' and field ~= '' and field:sub(-1) ~= '\\' then
+			fields[#fields + 1] = (field:gsub(',', '\\,'))
+		end
+	end
+	if #fields > 0 then
+		options['http-header-fields'] = table.concat(fields, ',')
+	end
+	local title = mp.get_property('options/force-media-title') or ''
+	if title ~= '' then
+		options['force-media-title'] = title
+	end
+	return next(options) and options or nil
+end
+
 local function handle_activate(value)
 	local verb, payload = split_action(value)
 	if verb == 'copy' then
 		copy(payload)
 	elseif verb == 'open' then
-		mp.commandv('loadfile', payload, 'replace')
+		-- named arguments: loadfile's options come after its index (mpv 0.38+)
+		mp.command_native({
+			name = 'loadfile',
+			url = payload,
+			flags = 'replace',
+			index = -1,
+			options = reopen_options(),
+		})
 	elseif verb == 'browse' then
 		browser_open(payload)
 	elseif verb == 'show' then

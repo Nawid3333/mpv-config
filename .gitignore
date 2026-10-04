@@ -15,6 +15,12 @@
 /mpv-unregister.bat
 /mpv/
 /yt-dlp.exe
+# what an install or download cut short leaves next to them: install-mpv.ps1
+# copies each file in through <name>.new, update.ps1 downloads yt-dlp.exe to
+# yt-dlp.exe.part. Not ignored, a `git add -A` took them in as plain blobs
+# (*.exe.new is no *.exe for Git LFS: ~120 MB that GitHub refuses).
+*.new
+*.part
 # left by shinchiro's updater in installs from before 2026-10-03
 /installer/updater.ps1
 /updater.ps1

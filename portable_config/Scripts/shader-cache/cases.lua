@@ -157,7 +157,12 @@ function M.save(data)
 		end
 	end
 	json = json:gsub('}$', '') .. (json == '{}' and '' or ',') .. '"cases":[\n' .. table.concat(lines, ',\n') .. '\n]}'
-	local tmp = M.FILE .. '.tmp'
+	-- A temp file of this process's own (as remember-speed.lua, gpu-toggles.lua
+	-- and stream-resume.lua write theirs): every player learns into this one
+	-- file, and two players saving at once through one shared ".tmp" could
+	-- interleave their writes - unreadable JSON, which load() answers with an
+	-- empty list and the next save then makes permanent.
+	local tmp = M.FILE .. '.' .. utils.getpid() .. '.tmp'
 	local f = io.open(tmp, 'w')
 	if not f then
 		return false
@@ -165,7 +170,11 @@ function M.save(data)
 	f:write(json, '\n')
 	f:close()
 	os.remove(M.FILE) -- rename does not replace on Windows
-	return os.rename(tmp, M.FILE) == true
+	if os.rename(tmp, M.FILE) == true then
+		return true
+	end
+	os.remove(tmp)
+	return false
 end
 
 --- Adds (or counts again) cases; returns how many were NEW.

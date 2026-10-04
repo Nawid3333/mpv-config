@@ -7,6 +7,7 @@
 -- upscale tests stand in for the URL fragment. Button/menu rendering itself
 -- is uosc's; the wiring is asserted here and by the static checks.
 local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$') .. 'lib/harness.lua')
+local utils = require('mp.utils')
 
 local function menu_type()
 	return mp.get_property_native('user-data/uosc/menu/type')
@@ -201,6 +202,52 @@ H.run(function()
 	local resolved = mp.get_property_native('user-data/source-info/links') or {}
 	H.eq("its Stream URL is the pasted link, not yt-dlp's EDL", resolved.stream, page_link)
 	H.eq('and no Original URL entry repeats it', resolved.origin, nil)
+
+	-- "Open in mpv" gives the stream its headers and title again. The FastStream host
+	-- hands them over as per-file options of the one file (here loadfile's options, as
+	-- its reuse path sends them); a plain `loadfile <url> replace` dropped them, and a
+	-- CDN that checks the Referer refused the stream opened again. A comma inside a
+	-- header value survives the round trip (mpv's '\,' list escape).
+	local function headers_now()
+		return table.concat(mp.get_property_native('http-header-fields') or {}, ' | ')
+	end
+	local want_headers = 'Referer: https://site.example/watch?a=1,2 | User-Agent: Regression/1.0'
+	local fs_clip = H.media_path('fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv')
+	local loaded = H.expect_event('playback-restart')
+	mp.command_native({
+		name = 'loadfile',
+		url = fs_clip,
+		flags = 'replace',
+		index = -1,
+		options = {
+			['http-header-fields'] = 'Referer: https://site.example/watch?a=1\\,2,User-Agent: Regression/1.0',
+			['force-media-title'] = 'Episode 1',
+		},
+	})
+	H.check('a FastStream file loads with its headers and title', loaded(15))
+	H.eq('... its headers are in effect', headers_now(), want_headers)
+	H.eq('... and its title', mp.get_property('media-title'), 'Episode 1')
+	local reopened = H.expect_event('file-loaded')
+	-- format_json: the clip's path holds backslashes on Windows, which the hand-built
+	-- event JSON of activate() would turn into escapes
+	mp.commandv(
+		'script-message-to',
+		'source_info',
+		'menu-callback',
+		utils.format_json({ type = 'activate', value = 'open:' .. fs_clip })
+	)
+	H.check('Open in mpv loads the stream again', reopened(15))
+	H.wait_until(function()
+		return headers_now() == want_headers
+	end, 3)
+	H.eq('the stream opened again keeps its headers', headers_now(), want_headers)
+	H.eq('... and its title', mp.get_property('media-title'), 'Episode 1')
+	-- the same file, its separators aside: a local path comes back with Windows' backslashes
+	-- (a FastStream stream is an http URL, which keeps its slashes)
+	local function slashes(p)
+		return ((p or ''):gsub('\\', '/'))
+	end
+	H.eq('... and is the same stream, FastStream tags included', slashes(mp.get_property('path')), slashes(fs_clip))
 
 	-- A FastStream stream that does not open (a refused link; port 9 refuses at once)
 	-- says so in a banner, instead of an empty window.
