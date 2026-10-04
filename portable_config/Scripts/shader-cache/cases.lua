@@ -14,7 +14,8 @@
 -- which shaders run and nothing that names a file:
 --   w, h        source size                  pix, hwpix  pixel format (+ the
 --   matrix, primaries, gamma, levels         decoder's surface format)
---   hwdec       the decoder path really used ('d3d11va-copy', 'vulkan', 'no')
+--   hwdec       the decoder path really used ('d3d11va-copy', 'no'; 'vulkan' in
+--               cases recorded before 2026-10-04, replayed as d3d11va-copy)
 --   chain       'off' | 'anime' | 'movie', sharpen (Movie's curve_height)
 --   ratio       the displayed size / the source size (window, fullscreen,
 --               zoom - it picks scaler passes and their kernel size)

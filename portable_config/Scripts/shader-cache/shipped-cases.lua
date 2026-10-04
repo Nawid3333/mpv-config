@@ -72,7 +72,7 @@ local PNG_RGBA = { codec = 'png', pix = 'rgba' }
 local PNG_GRAY = { codec = 'png', pix = 'gray' }
 local GIF = { codec = 'gif', pix = 'bgra' }
 
-local D3D, VK, SW = 'd3d11va-copy', 'vulkan', 'no'
+local D3D, SW = 'd3d11va-copy', 'no'
 
 local cases = {}
 local function add(t)
@@ -118,12 +118,12 @@ add({ clip = clip(SDR8, 1080, 1920), hwdec = D3D, chain = 'movie' })
 -- shrink, and each new tap count is a new shader (an 8K film in a window at
 -- x0.31 compiled where fullscreen x0.33 did not). One ratio per tap step
 -- (hermite, mpv's dscale: 2*ceil(1/ratio) taps -> 6, 8, 10, 12, 16), for the
--- four surfaces real files come in. Off only: the chains run before it.
+-- three surfaces real files come in (a fourth, vulkan-decoded 8-bit, went with
+-- vulkan decoding on 2026-10-04). Off only: the chains run before it.
 for _, s in ipairs({
 	{ clip(SDR8, 1920, 1080), D3D },
 	{ clip(SDR10, 1920, 1080), D3D },
 	{ clip(HDR10, 1920, 1080), D3D },
-	{ clip(SDR8, 1920, 1080), VK },
 }) do
 	for _, ratio in ipairs({ 0.45, 0.3, 0.23, 0.18, 0.14 }) do
 		add({ clip = s[1], hwdec = s[2], chain = 'off', ratio = ratio })
@@ -144,11 +144,11 @@ chains(clip(P3, 1920, 1080), D3D, ALL)
 add({ clip = clip(P3, 1920, 1080), hwdec = D3D, chain = 'off', unscaled = true })
 
 -- HDR10 (tone-mapped to this SDR screen, with peak detection): 4K shrunk,
--- 1080p enlarged, the equalizer, and the FastStream decode path
+-- 1080p enlarged, the equalizer (the vulkan-decoded cases went on 2026-10-04,
+-- with vulkan decoding: mpv.conf's hwdec section)
 chains(clip(HDR10, 3840, 2160), D3D, ALL)
 add({ clip = clip(HDR10, 3840, 2160), hwdec = D3D, chain = 'off', eq = { gamma = 2 } })
 chains(clip(HDR10, 1920, 1080), D3D, ALL)
-chains(clip(HDR10, 1920, 1080), VK, { 'off', 'anime' })
 
 -- HLG (phones, broadcast)
 chains(clip(HLG, 3840, 2160), D3D, ALL)

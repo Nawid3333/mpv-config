@@ -43,18 +43,19 @@ local function measure(label, speed, seconds)
 	)
 end
 
--- label, file, upscale mode, expected hwdec-current: FastStream files decode
--- with vulkan, local files with d3d11va-copy (mpv.conf, 2026-09-16 bug)
+-- label, file, upscale mode, expected hwdec-current: d3d11va-copy for
+-- FastStream files and local files alike (vulkan decoding lost the GPU device
+-- on 2026-10-04 - mpv.conf's hwdec section)
 -- Anime at 1080p (1.33x on 1440p: the most common FastStream anime stream and
 -- the costliest Anime path) and at 480p (3x: the second Anime4K stage runs)
 -- next to 720p (exactly 2x), since 2026-10-03.
 local CASES = {
-	{ 'Anime @720p (Auto)', 'gpu/anime720/ep#fs-content=anime&fs-id=1111111111111111.mkv', '1', 'vulkan' },
-	{ 'Anime @1080p (Auto)', 'gpu/anime1080/ep#fs-content=anime&fs-id=4444444444444444.mkv', '1', 'vulkan' },
-	{ 'Anime @480p (Auto)', 'gpu/anime480/ep#fs-content=anime&fs-id=5555555555555555.mkv', '1', 'vulkan' },
-	{ 'Movie @720p', 'gpu/movie720/film#fs-content=movie&fs-id=2222222222222222.mkv', '3', 'vulkan' },
-	{ 'Movie @1080p', 'gpu/movie1080/film#fs-content=movie&fs-id=3333333333333333.mkv', '3', 'vulkan' },
-	{ 'Off @1080p', 'gpu/movie1080/film#fs-content=movie&fs-id=3333333333333333.mkv', '0', 'vulkan' },
+	{ 'Anime @720p (Auto)', 'gpu/anime720/ep#fs-content=anime&fs-id=1111111111111111.mkv', '1', 'd3d11va-copy' },
+	{ 'Anime @1080p (Auto)', 'gpu/anime1080/ep#fs-content=anime&fs-id=4444444444444444.mkv', '1', 'd3d11va-copy' },
+	{ 'Anime @480p (Auto)', 'gpu/anime480/ep#fs-content=anime&fs-id=5555555555555555.mkv', '1', 'd3d11va-copy' },
+	{ 'Movie @720p', 'gpu/movie720/film#fs-content=movie&fs-id=2222222222222222.mkv', '3', 'd3d11va-copy' },
+	{ 'Movie @1080p', 'gpu/movie1080/film#fs-content=movie&fs-id=3333333333333333.mkv', '3', 'd3d11va-copy' },
+	{ 'Off @1080p', 'gpu/movie1080/film#fs-content=movie&fs-id=3333333333333333.mkv', '0', 'd3d11va-copy' },
 	{ 'Movie @720p, local file', 'gpu/local720/film.mkv', '3', 'd3d11va-copy' },
 }
 

@@ -16,9 +16,13 @@
 -- not the video size - Anime at 1080p after 720p needed 1 new compile out of
 -- ~49. So the matrix covers each scale tier the chains branch on (Anime4K's
 -- x2/x4 AutoDownscalePre, Movie's FSRCNNX at >= 2x, no sharpening when not
--- enlarged), 8-bit and 10-bit sources, and both decode paths: d3d11va-copy
--- (local files) and vulkan (FastStream streams, mpv.conf [faststream-hwdec]).
--- Change the matrix -> bump fingerprint.lua's WARMUP_VERSION.
+-- enlarged), 8-bit and 10-bit sources, through d3d11va-copy, the one hardware
+-- decode path (since 2026-10-04 for FastStream streams too: vulkan decoding lost
+-- the GPU device, mpv.conf's hwdec section). No vulkan decoding here either -
+-- a case recorded with it (cases.lua) is replayed through d3d11va-copy.
+-- Change the matrix -> bump fingerprint.lua's WARMUP_VERSION (dropping the
+-- vulkan runs on 2026-10-04 needed no bump: every remaining run was already
+-- in the matrix, so a warm cache stays warm).
 --
 -- LEARNED cases (2026-10-02, cases.lua): after the matrix, a full warm-up also
 -- replays every case real playback needed and the matrix lacked - recorded by
@@ -229,7 +233,19 @@ end
 
 local H264 = { codec = 'libx264', pix = 'yuv420p', tag = 'h264 8-bit', bits = '8-bit' }
 local HEVC10 = { codec = 'libx265', pix = 'yuv420p10le', tag = 'hevc 10-bit', bits = '10-bit' }
-local PATHS = { vulkan = 'FastStream', ['d3d11va-copy'] = 'local file', no = 'software' }
+local PATHS = { ['d3d11va-copy'] = 'hardware', no = 'software' }
+
+-- The decoder a case is drawn with: what it recorded, except vulkan (any
+-- form), which this config no longer decodes with (see the header).
+local function decoder_for(hwdec)
+	if hwdec == nil or hwdec == '' then
+		return 'no'
+	end
+	if hwdec:find('vulkan', 1, true) then
+		return 'd3d11va-copy'
+	end
+	return hwdec
+end
 
 local runs = {}
 if o.matrix == 'test' then
@@ -238,22 +254,21 @@ if o.matrix == 'test' then
 	runs[2] = { hwdec = 'no', size = '320x180', fmt = H264 }
 else
 	-- The quick check (only shaders/presets changed) stops after these if they
-	-- compiled nothing: FastStream at 720p (Movie = FSRCNNX + SSimSuperRes) and
-	-- 1080p (Movie = SSimSuperRes alone), the local-file path in 10-bit, and
-	-- FastStream at 480p - the one size here at which Anime4K's
-	-- AutoDownscalePre_x4 runs on a 1440p screen (its WHEN wants a 2.4-4x
-	-- scale; added 2026-10-02, an edit to it compiled nothing in the others).
+	-- compiled nothing: 720p (Movie = FSRCNNX + SSimSuperRes) and 1080p (Movie =
+	-- SSimSuperRes alone), 10-bit, and 480p - the one size here at which
+	-- Anime4K's AutoDownscalePre_x4 runs on a 1440p screen (its WHEN wants a
+	-- 2.4-4x scale; added 2026-10-02, an edit to it compiled nothing in the others).
 	runs = {
-		{ hwdec = 'vulkan', size = '1280x720', fmt = H264 },
-		{ hwdec = 'vulkan', size = '1920x1080', fmt = H264 },
+		{ hwdec = 'd3d11va-copy', size = '1280x720', fmt = H264 },
+		{ hwdec = 'd3d11va-copy', size = '1920x1080', fmt = H264 },
 		{ hwdec = 'd3d11va-copy', size = '1280x720', fmt = HEVC10 },
-		{ hwdec = 'vulkan', size = '854x480', fmt = H264 },
+		{ hwdec = 'd3d11va-copy', size = '854x480', fmt = H264 },
 	}
 	local seen = {}
 	for _, r in ipairs(runs) do
 		seen[r.hwdec .. r.size .. r.fmt.codec] = true
 	end
-	for _, hwdec in ipairs({ 'd3d11va-copy', 'vulkan' }) do
+	for _, hwdec in ipairs({ 'd3d11va-copy' }) do
 		for _, size in ipairs({ '640x360', '854x480', '1280x720', '1920x1080', '3840x2160' }) do
 			for _, fmt in ipairs({ H264, HEVC10 }) do
 				if not seen[hwdec .. size .. fmt.codec] then
@@ -548,7 +563,7 @@ co = coroutine.create(function()
 				mp.set_property_number(p, (c.eq or {})[p] or 0)
 			end
 			mp.set_property_number('video-rotate', c.rotate or 0)
-			mp.set_property('hwdec', c.hwdec or 'no')
+			mp.set_property('hwdec', decoder_for(c.hwdec))
 			upscale('set-upscale', CHAIN_MODE[c.chain] or '0')
 			upscale('set-movie-sharpness', c.sharpen and tostring(c.sharpen) or 'auto')
 			mp.commandv('loadfile', path, 'replace')

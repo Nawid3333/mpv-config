@@ -127,8 +127,9 @@ config is built as its mpv side:
 - **One window.** The next episode replaces the current one in the same mpv
   window and starts playing. A pause or a subtitle delay from the previous
   episode does not carry over.
-- **Decoding.** Streams use Vulkan decoding (zero-copy); local files keep the
-  safer `d3d11va-copy`.
+- **Decoding.** Streams and local files both decode with `d3d11va-copy` on the
+  graphics card's video engine. Vulkan decoding is off since 2026-10-04: it lost
+  the graphics device on this AMD card.
 - **Clear errors.** If a stream cannot be opened (for example, an expired
   link), a banner says to reload the page instead of showing an empty window.
 
@@ -200,9 +201,10 @@ Every key and menu entry is in [`input.conf`](portable_config/input.conf).
   your display's peak or remove it.
 - `slang=de,en` / `alang=de,en`: German first, then English. Change them to
   your languages.
-- `hwdec`: local files decode with `d3d11va-copy`, and only streams use Vulkan
-  decoding. Vulkan decoding dropped frames on long local files with this AMD
-  driver. `mpv.conf` explains it.
+- `hwdec`: everything decodes with `d3d11va-copy`. Vulkan decoding dropped frames
+  on long local files with this AMD driver (2026-09-16) and lost the graphics
+  device on streams with the October 2026 builds (2026-10-04). `mpv.conf`
+  explains it, and the static tests refuse a vulkan or auto `hwdec`.
 
 ## Tests
 

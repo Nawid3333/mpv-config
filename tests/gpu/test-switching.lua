@@ -7,7 +7,7 @@
 -- does not grow from round to round.
 --
 -- Runs on a FastStream-marked 720p anime clip, so the decode path is the
--- streaming one (hwdec=vulkan via mpv.conf's [faststream-hwdec]).
+-- streaming one (both decode with d3d11va-copy since 2026-10-04).
 local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$') .. 'lib/harness.lua')
 local utils = require('mp.utils')
 

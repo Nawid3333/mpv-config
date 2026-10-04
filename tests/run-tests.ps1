@@ -264,7 +264,7 @@ function Invoke-StaticCheck {
     # Options each profile may set. A profile swallowing anything else is how
     # the 2026-09-21 bug happened (cache/buffer options scoped to FastStream
     # only). Adding a profile or an option to one: extend this list on purpose.
-    $profileAllow = @{ 'faststream-hwdec' = @('hwdec'); 'hdr-target-peak' = @('target-peak') }
+    $profileAllow = @{ 'hdr-target-peak' = @('target-peak') }
     $scopeBad = @()
     foreach ($p in $profiles.Keys) {
         if (-not $profileAllow.ContainsKey($p)) { $scopeBad += "unknown profile [$p] (add it to `$profileAllow in run-tests.ps1)"; continue }
@@ -272,6 +272,27 @@ function Invoke-StaticCheck {
         if ($extra) { $scopeBad += "[$p] also sets: $($extra -join ', ') - global options belong ABOVE the profile block" }
     }
     Test-Check $t 'mpv.conf: profile sections contain only their own options' ($scopeBad.Count -eq 0) ($scopeBad -join '; ')
+
+    # No vulkan video decoding anywhere (2026-10-04): with the daily builds from
+    # 20261002 on, hwdec=vulkan (then FastStream's [faststream-hwdec]) lost the
+    # GPU device on this RX 9070 XT - VK_ERROR_DEVICE_LOST, the window gone, the
+    # driver failed until a restart. "auto" picks vulkan on this Vulkan context.
+    # The warm-up decodes the way the player does, so it may not use vulkan either.
+    $vkConf = @($mpvConf | Where-Object { $_ -match '^\s*hwdec\s*=.*\b(vulkan|auto)' })
+    Test-Check $t 'mpv.conf: no hwdec with vulkan or auto (vulkan decoding lost the GPU device)' ($vkConf.Count -eq 0) ($vkConf -join ' | ')
+    $vkInput = @(($inputConf -split "`n") | Where-Object { $_ -notmatch '^\s*#' -and $_ -match '\bhwdec\b.*\b(vulkan|auto)\b' })
+    Test-Check $t 'input.conf: no binding sets hwdec to vulkan or auto' ($vkInput.Count -eq 0) ($vkInput -join ' | ')
+    $vkWarm = @()
+    foreach ($f in 'warmup.lua', 'shipped-cases.lua') {
+        $i = 0
+        foreach ($line in Get-Content (Join-Path $Cfg "Scripts/shader-cache/$f")) {
+            $i++
+            if ($line -match '^\s*--') { continue }
+            # any 'vulkan' string but warmup.lua's decoder_for(), which maps it away
+            if ($line -match "['""]vulkan['""]" -and $line -notmatch ':find\(') { $vkWarm += "${f}:$i" }
+        }
+    }
+    Test-Check $t 'shader warm-up: no case or run decodes with vulkan' ($vkWarm.Count -eq 0) ($vkWarm -join ', ')
 
     # -- input.conf specifics --------------------------------------------------
     Test-Check $t 'input.conf: no seek key flashes the timeline (seeks are silent)' ($inputConf -notmatch 'flash-timeline')
@@ -751,8 +772,7 @@ function Initialize-Clip {
 # encoder and reused. Each clip sits in its own folder so autoload.lua does not
 # queue its neighbours. A "#fs-content=...&fs-id=..." in a file name stands in
 # for the URL fragment the FastStream native host appends: gpu-toggles.lua,
-# stream-resume.lua and mpv.conf's [faststream-hwdec] profile all read it from
-# `path`, which is the same string either way.
+# and stream-resume.lua read it from `path`, which is the same string either way.
 $MediaVersion = 'v1'
 function Initialize-Media([string]$Exe, [bool]$Gpu) {
     $m = Join-Path $WorkDir "media-$MediaVersion"

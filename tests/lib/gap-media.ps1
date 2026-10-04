@@ -22,7 +22,7 @@ $GapExtras = @('fs-movie-low', 'fs-movie-high', 'deband-off', 'equalizer', 'eq-c
     'rotate', 'rotate-180', 'zoom-out', 'osd', 'rgba-overlay', 'pause', 'subs')
 
 # Size, pixel format, codec, encoder options, colour tags (mpv names -> FFmpeg
-# names below), SAR, and whether a FastStream copy (vulkan decode) is played too.
+# names below), SAR, and whether a FastStream copy (its Auto preset) is played too.
 $GapClips = @(
     # the matrix's own kinds, as a control: these must stay clean
     @{ Id = 'h264-1080'; Size = '1920x1080'; Pix = 'yuv420p'; Ovc = 'libx264'; Fs = $true; Conds = $GapWindows + $GapExtras }
@@ -141,8 +141,8 @@ function Initialize-GapMedia([string]$Exe, [string]$Dir, [string]$RealDir) {
         if (-not $path) { continue }
         $list.Add(@{ path = $path; label = $c.Id; conds = @($GapDefault + @($c["Conds"] ?? @())) })
         if ($c["Fs"]) {
-            # the FastStream path: the native host's marker in the name switches
-            # mpv.conf's [faststream-hwdec] profile on (vulkan decode)
+            # the FastStream path: the native host's marker in the name turns
+            # gpu-toggles' Auto preset on (decoded like any file since 2026-10-04)
             $fs = Join-Path $Dir "fs/$($c.Id)#fs-content=movie.mkv"
             if (-not (Test-Path -LiteralPath $fs)) { Copy-Item -LiteralPath $path -Destination $fs }
             $list.Add(@{ path = $fs; label = "$($c.Id) (FastStream)"; conds = @('fs-off', 'fs-anime', 'fs-movie') })

@@ -2,7 +2,9 @@
 -- Guards the 2026-09-21 bug: a profile section sitting mid-file silently
 -- scoped every option below it to FastStream streams only. Reads each option
 -- back from the running player for a local file, a #fs-content= file, and a
--- local file again (profile-restore=copy must put hwdec back).
+-- local file again. A FastStream file decodes like any other: d3d11va-copy,
+-- never vulkan (2026-10-04: vulkan decoding lost the GPU device - mpv.conf's
+-- hwdec section).
 local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$') .. 'lib/harness.lua')
 
 -- option -> expected value as mp.get_property() prints it. vo is not here: the
@@ -50,7 +52,7 @@ H.run(function()
 	check_all('local file', 'd3d11va-copy,no')
 	H.eq('SDR file: target-peak auto (full brightness)', peak(), 'auto')
 	H.load(H.media_path('fs-movie/film#fs-content=movie&fs-id=0f0f0f0f0f0f0f0f.mkv'))
-	check_all('FastStream file', 'vulkan,d3d11va-copy,no')
+	check_all('FastStream file', 'd3d11va-copy,no')
 	H.load(H.media_path('plain/clip.mkv'))
 	check_all('local file after FastStream', 'd3d11va-copy,no')
 
