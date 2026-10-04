@@ -137,8 +137,15 @@ mp.register_event('file-loaded', function()
 		local saved = load_speed()
 		if saved and saved > 0 then
 			set_speed(saved)
+		elseif last_kind == 'audio' then
+			set_speed(1) -- nothing saved yet: a song's speed is not the video speed
 		end
 		restored = true
+		-- Known from here on, also when nothing changes it: the speed observer
+		-- only learns it from a change, and with none (nothing saved, or saved =
+		-- what was already set) a speed picked on a song stayed for the next
+		-- video (until 2026-10-04).
+		video_speed = mp.get_property_native('speed', 1)
 	elseif last_kind and kind ~= last_kind then
 		if kind == 'audio' then
 			set_speed(audio_speed)

@@ -118,10 +118,20 @@ jobs:
             echo "Run this on main: it reads mpv-build.json there." >&2
             exit 1
           fi
+          # main as it is NOW, not the commit this run was queued for: a run that
+          # waited behind one that pinned a build (the concurrency group) read the old
+          # pin from its own checkout, found the pin branch already deleted, tested the
+          # same build again and then failed on "nothing to commit". A dry run reads
+          # main's pin as well.
+          authgit fetch -q origin main
+          if [ "$EVENT" != pull_request ]; then
+            git checkout -q --detach origin/main
+          fi
+          git show origin/main:mpv-build.json > "$RUNNER_TEMP/pinned.json"
 
           # --- the pin, and shinchiro's latest build --------------------------
-          pinned=$(jq -r .tag mpv-build.json)
-          arch=$(jq -r .arch mpv-build.json)
+          pinned=$(jq -r .tag "$RUNNER_TEMP/pinned.json")
+          arch=$(jq -r .arch "$RUNNER_TEMP/pinned.json")
           gh api "repos/$UPSTREAM/releases/latest" > "$RUNNER_TEMP/latest.json"
           latest=$(jq -r .tag_name "$RUNNER_TEMP/latest.json")
           jq --arg a "$arch" '[.assets[] | select(.name | test("^mpv-" + $a + "-[0-9]{8}-git-[0-9a-f]+[.]7z$"))]' \
@@ -392,9 +402,18 @@ jobs:
             fi
             echo "main pins $latest now ($landed)."
             # A push by this workflow's own token starts no other workflow, so the
-            # public copy (publish.yml, in the workspace only) is started here.
+            # public copy (publish.yml, in the workspace only) is started here -
+            # only when main is now exactly the commit the suite passed on. When
+            # main moved during the wait, the pin was re-made on top of commits
+            # whose own suite may have failed or still runs: publishing then
+            # would make them public untested. The next push to main is tested,
+            # and its green run publishes the pin with it.
             if [ -f .github/workflows/publish.yml ]; then
-              gh workflow run publish.yml --ref main || echo "::warning::Could not start publish.yml - run it by hand."
+              if [ "$landed" = "$commit" ]; then
+                gh workflow run publish.yml --ref main || echo "::warning::Could not start publish.yml - run it by hand."
+              else
+                echo "main moved during the suite run: the pin is published with the next tested push to main."
+              fi
             fi
             # Failed builds' branches stay until a build passes; every mpv/*
             # branch can go once one has.

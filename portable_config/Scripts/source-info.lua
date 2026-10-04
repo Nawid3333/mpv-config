@@ -415,11 +415,18 @@ end)
 -- After it, then: ytdl_hook's on_load runs at priority 10, and lower runs
 -- first (until 2026-10-02 this ran at 5, saw nothing rewritten yet, and the
 -- Original URL entry never appeared).
+-- Only a web address counts as what was opened. For a YouTube link (pasted into
+-- mpv directly - FastStream sends no YouTube) yt-dlp's separate audio and video
+-- formats arrive as an edl:// list, a playlist as memory:// - neither is an
+-- address another player or the browser can open, and the menu offered the EDL,
+-- thousands of characters of expiring googlevideo links, as the "Stream URL"
+-- (until 2026-10-04). Then the pasted link is the Stream URL, and "Open in mpv"
+-- runs yt-dlp on it again.
 mp.add_hook('on_load', 11, function()
 	local path = mp.get_property('path') or ''
 	state.loading = path
 	local opened = mp.get_property('stream-open-filename') or ''
-	if path:find('://', 1, true) and opened ~= '' and opened ~= path and opened:find('://', 1, true) then
+	if path:find('://', 1, true) and opened ~= path and opened:find('^https?://') then
 		state.opened = opened
 		state.origin = path
 	end

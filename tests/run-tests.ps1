@@ -628,6 +628,18 @@ function Invoke-StaticCheck {
         $r = Invoke-Publish
         Test-Check $t '... a commit subject with a private word is not published (generic message)' (
             $r.Code -eq 0 -and (& git -C $pub log -1 --format='%s') -eq 'Publish from the workspace') $r.Out
+        # The workspace's pull requests and branches stay private: a merge goes public
+        # as the pull request's title (the message body), a #<number> not at all.
+        Set-Content -LiteralPath (Join-Path $ws 'a.txt') 'hello merged'
+        Invoke-PubGit $ws commit -q -am 'Merge pull request #12 from guard-test/feature/x' -m 'feat: the merged change'
+        $r = Invoke-Publish
+        Test-Check $t '... a pull request merge goes public as its title, without its number and branch' (
+            $r.Code -eq 0 -and (& git -C $pub log -1 --format='%s') -eq 'feat: the merged change') $r.Out
+        Set-Content -LiteralPath (Join-Path $ws 'a.txt') 'hello numbered'
+        Invoke-PubGit $ws commit -q -am 'fix: what #12 left out'
+        $r = Invoke-Publish
+        Test-Check $t '... a subject naming a workspace #number is not published (generic message)' (
+            $r.Code -eq 0 -and (& git -C $pub log -1 --format='%s') -eq 'Publish from the workspace') $r.Out
         Set-Content -LiteralPath (Join-Path $ws 'a.txt') 'hello once more'
         Invoke-PubGit $ws commit -q -am 'more'
         & git -C $pub -c 'user.name=Jane Example' -c 'user.email=jane@example.org' commit -q --allow-empty -m 'web edit' 2>&1 | Out-Null

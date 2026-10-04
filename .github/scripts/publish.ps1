@@ -89,7 +89,17 @@ if (-not (& git -C $Public status --porcelain)) {
     exit 0
 }
 $subject = & git -C $Workspace log -1 --format=%s
-$message = (Test-PublicText $subject $Words) ? $subject : 'Publish from the workspace'
+# The workspace's pull requests and branches stay private, and GitHub's merge subject
+# names both ("Merge pull request #37 from <login>/<branch>" - every publish after a
+# merged pull request said so in mpv-config until 2026-10-04): its title, the first line
+# of the message body, says what changed. A #<number> anywhere refers to the
+# workspace's issues and pull requests (and would link to mpv-config's own).
+if ($subject -match '^Merge pull request #\d+ from \S+$') {
+    # (Count, not [0]: StrictMode Latest refuses an index past the end of an empty array)
+    $title = @(& git -C $Workspace log -1 --format=%b | Where-Object { $_.Trim() } | Select-Object -First 1)
+    $subject = if ($title.Count) { $title[0].Trim() } else { '' }
+}
+$message = ($subject -and $subject -notmatch '#\d' -and (Test-PublicText $subject $Words)) ? $subject : 'Publish from the workspace'
 $null = Invoke-Git -C $Public -c "user.name=$Name" -c "user.email=$Email" commit -q -m $message
 if ($NoPush) {
     Write-Host "Committed, not pushed (-NoPush): $message"

@@ -37,4 +37,24 @@ H.run(function()
 	H.load(H.media_path('second/clip2.mkv'))
 	H.eq('the next file starts without the subtitle delay', mp.get_property_number('sub-delay'), 0, 0.001)
 	H.eq('and without the audio delay', mp.get_property_number('audio-delay'), 0, 0.001)
+
+	-- ... but a delay the file brings along stays: "Quit & save position"
+	-- (watch-later) restores sub-delay and audio-delay as per-file options, the
+	-- same way loadfile's options set them here. The reset at file-loaded
+	-- (until 2026-10-04) threw them away.
+	mp.set_property_number('sub-delay', 2)
+	local restarted = H.expect_event('playback-restart')
+	mp.command_native({
+		name = 'loadfile',
+		url = H.media_path('plain/clip.mkv'),
+		flags = 'replace',
+		options = { ['sub-delay'] = '0.7', ['audio-delay'] = '0.2' },
+	})
+	restarted(15)
+	H.sleep(0.5)
+	H.eq('a subtitle delay given with the file stays', mp.get_property_number('sub-delay'), 0.7, 0.001)
+	H.eq('an audio delay given with the file stays', mp.get_property_number('audio-delay'), 0.2, 0.001)
+	H.load(H.media_path('second/clip2.mkv'))
+	H.eq('and is gone with its file', mp.get_property_number('sub-delay'), 0, 0.001)
+	H.eq('both of them', mp.get_property_number('audio-delay'), 0, 0.001)
 end)

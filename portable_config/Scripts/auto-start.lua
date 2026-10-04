@@ -28,7 +28,15 @@
 -- Delays too (2026-10-02): sub-delay and audio-delay are global options as
 -- well, so a delay set for one episode (the sync tool's Enter, Ctrl+/-, the menu)
 -- silently shifted the subtitles or sound of every later file in the window.
--- They are set back to 0 at the next file's load; within a file they stay.
+-- They are set back to 0 when a file UNLOADS; within a file they stay.
+-- Not at the next file-loaded, as until 2026-10-04: by then mpv has already
+-- applied that file's own delays - the ones "Quit & save position" / "Save
+-- position now" stored (watch-later restores sub-delay and audio-delay with
+-- the position), a per-file option, --sub-delay on the command line - and the
+-- reset threw them away (measured: a file reopened after Q came back at its
+-- position with both delays 0). In the on_unload hook the core waits for this
+-- script, and a delay the file brought along is put back to the value from
+-- before the file by mpv itself afterwards (its file-local backup).
 --
 -- Not affected: paused-for-cache (mpv's internal buffering pause) is a
 -- separate mechanism from the `pause` property and is not touched, so
@@ -40,6 +48,9 @@ mp.register_event('file-loaded', function()
 	if mp.get_property_native('pause') then
 		mp.set_property_native('pause', false)
 	end
+end)
+
+mp.add_hook('on_unload', 50, function()
 	for _, name in ipairs({ 'sub-delay', 'audio-delay' }) do
 		if (mp.get_property_number(name) or 0) ~= 0 then
 			mp.set_property_number(name, 0)

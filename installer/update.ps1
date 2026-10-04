@@ -37,7 +37,16 @@ $failed = 0
 Write-Host '== GitHub (code and the pinned mpv build)' -ForegroundColor Cyan
 $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 $inside = ''
-if ($git) { $inside = & $git.Source -C $Root rev-parse --is-inside-work-tree 2>$null }
+if ($git) {
+    # Not under 'Stop': Windows PowerShell 5.1 (updater.bat's fallback without pwsh)
+    # turns a native program's redirected stderr into errors, and the first one
+    # ("fatal: not a git repository" in a folder that is no clone, a ZIP download)
+    # ended the script before mpv was installed. PowerShell 7.2+ does not.
+    $ErrorActionPreference = 'Continue'
+    try { $inside = & $git.Source -C $Root rev-parse --is-inside-work-tree 2>$null }
+    catch { $inside = '' }
+    finally { $ErrorActionPreference = 'Stop' }
+}
 if (-not $git) {
     Write-Host 'git is not installed: skipped. The pin in mpv-build.json stays as it is.' -ForegroundColor Yellow
 }

@@ -57,7 +57,8 @@
 --   RESULT INFO <step>: <n> compiles
 -- and, with check=yes, a final RESULT PASS/FAIL "shader cache warm". Exit
 -- codes: 0 done, 1 check found misses (or could not draw), 2 setup error,
--- 3 hard timeout, 4 stamp not written, 6 the player stopped drawing.
+-- 3 hard timeout (6 when steps were never drawn), 4 stamp not written, 6 the
+-- player stopped drawing.
 local utils = require('mp.utils')
 local options = require('mp.options')
 
@@ -656,8 +657,17 @@ co = coroutine.create(function()
 end)
 
 mp.add_timeout(0.2, resume)
--- a hard stop so it can never hang unseen
+-- a hard stop so it can never hang unseen. Steps that were never drawn (a
+-- minimized window, a locked screen) each wait out SETTLE_CAP, so a full warm-up
+-- that draws nothing reaches this stop long before its own exit 6: the reason is
+-- the same, and so is the exit (retried at the next start like an interruption,
+-- not recorded as failed for good - which a full warm-up, ~170 steps, always
+-- got until 2026-10-04).
 mp.add_timeout(240, function()
 	out('RESULT FAIL warm-up :: still running after 240 s')
+	if slow_steps > 0 and not o.check then
+		out(string.format('RESULT FAIL warm-up :: %d steps were never drawn - no stamp written', slow_steps))
+		return quit(6)
+	end
 	quit(3)
 end)

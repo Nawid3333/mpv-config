@@ -182,6 +182,26 @@ H.run(function()
 		'https://cdn.example/a.m3u8'
 	)
 
+	-- A link pasted into mpv that yt-dlp resolves (YouTube: FastStream hands mpv no
+	-- YouTube, those links are pasted into mpv directly): for separate audio and video
+	-- formats ytdl_hook gives mpv an edl:// - no address anyone can copy or open
+	-- elsewhere, thousands of characters of googlevideo links. The Stream URL is the
+	-- pasted link then, and "Open in mpv" runs yt-dlp on it again. A stand-in for
+	-- ytdl_hook (priority 9: before it, and before source-info's capture at 11)
+	-- rewrites this one made-up address to an EDL of the local clip, as yt-dlp would.
+	local page_link = 'http://127.0.0.1:9/watch?v=regression-edl'
+	local clip = H.media_path('plain/clip.mkv')
+	mp.add_hook('on_load', 9, function()
+		if mp.get_property('stream-open-filename') == page_link then
+			mp.set_property('stream-open-filename', 'edl://%' .. #clip .. '%' .. clip)
+		end
+	end)
+	H.load(page_link)
+	open_menu('a link yt-dlp resolved to an EDL opens its menu')
+	local resolved = mp.get_property_native('user-data/source-info/links') or {}
+	H.eq("its Stream URL is the pasted link, not yt-dlp's EDL", resolved.stream, page_link)
+	H.eq('and no Original URL entry repeats it', resolved.origin, nil)
+
 	-- A FastStream stream that does not open (a refused link; port 9 refuses at once)
 	-- says so in a banner, instead of an empty window.
 	-- (The first end-file is the clip before it ending, so the banner itself is waited
