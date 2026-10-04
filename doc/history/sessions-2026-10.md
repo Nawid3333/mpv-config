@@ -288,3 +288,75 @@ keep the pull request) they chose pin only:
   `post-merge` says "run updater.bat" when the installed mpv.exe is not the pin.
 - `regression-tests.yml` installs the pinned build with install-mpv.ps1, so CI
   proves the installer on the real archive on every run.
+
+---
+
+## 2026-10-04 - is mpv using the hardware? (FastStream decoding check)
+
+The ask: "is MPV making full usage of my hardware, for example my GPU" for
+FastStream, then "are you sure I have the VCN5 chip". Nothing changed in the
+config; the answer and the facts behind it are in AGENTS.md ("Hardware decoding
+on this PC").
+
+**What was read, not assumed.**
+
+- `mpv.conf`: `vo=gpu-next`, `gpu-context=winvk`, `hwdec=d3d11va-copy,no`
+  globally and `vulkan,d3d11va-copy,no` in `[faststream-hwdec]`.
+- The FastStream fork's `native-host/faststream-mpv-host.mjs` (main): mpv gets
+  `--input-ipc-server`, `--fullscreen`, `--force-window=immediate`,
+  `--no-terminal` and a per-file group (headers, title, start, subtitle files,
+  the URL) - no GPU, hwdec or VO option. `mpvTargetUrl()` adds `fs-content=`
+  whenever the content type is anime or movie, and `background.mjs`'s
+  `resolveMpvContentType()` returns `movie` when neither the sender nor the
+  allowlist names one, so every FastStream send matches the profile.
+- libplacebo `src/vulkan/context.c`, `pl_vulkan_choose_device()`: without a
+  device name or UUID the highest type wins - discrete 5, integrated 4, virtual
+  3, software 2. The 9070 XT is picked over the Ryzen's iGPU every time (the
+  47 iGPU blobs in the shader cache are from a one-off run on 2026-09-22;
+  nothing in this config names a device).
+- Linux amdgpu `soc24.c` (the RDNA 4 family; `amdgpu_discovery.c` uses it for
+  GC 12.0.1): its only video block is VCN 5.0.0, decode list H.264 (up to
+  4096x4096, level 5.2), HEVC, VP9 and AV1 (up to 8192x4352), JPEG - no MPEG-2,
+  no VC-1. pci.ids: `1002:7550` = "Navi 48 [Radeon RX 9070/9070 XT/9070 GRE]",
+  the device id the shader cache's pipeline blobs record.
+- AMD's Adrenalin 25.10.2 release notes (2025-10-29): `VK_KHR_video_decode_vp9`
+  for the RX 7000 and 9000 series. Vulkan AV1 decode came to AMD's Windows driver
+  in 2024 (Khronos' AV1 decode announcement).
+
+**`vulkaninfo` on the PC** (run by the user; Adrenalin 26.8.1):
+
+| | RX 9070 XT | Ryzen iGPU |
+|---|---|---|
+| device id / type | `0x7550`, discrete | `0x164e`, integrated |
+| Vulkan driver / API | 2.0.395 (LLPC) / 1.4.349 | 2.0.353 / 1.4.315 |
+| decode extensions | h264, h265, av1, vp9 | h264, h265, av1 |
+| decode queue | 1 queue: H.264, H.265, AV1, VP9 | 1 queue: H.264, H.265, AV1, VP9 |
+| VRAM heap | 15.92 GiB, all host-visible (Resizable BAR on) | - |
+
+The 9070 XT's decode profiles: H.264 4:2:0 8-bit Baseline/Main/High,
+progressive and interlaced; H.265 Main, Main 10 (8- and 10-bit), Main Still
+Picture; VP9 profile 0 (8-bit) and 2 (10-bit); AV1 Main 8/10-bit and Professional
+12-bit 4:2:0, each with and without film grain. Encode: H.264, H.265 8-bit, AV1
+8/10-bit. Queue families: graphics x8, compute x8, transfer x1, video encode x1,
+video decode x1. Correction made in the session: 12-bit AV1 IS hardware-decoded
+(the first answer had put all 12-bit on the CPU); what stays on the CPU is 10-bit
+H.264, HEVC 4:2:2/4:4:4/12-bit, MPEG-2/VC-1 and VVC.
+
+**Load, in numbers already measured** (2026-10-03, 2560x1440 output, Vulkan
+decode): Anime4K at 1080p 4.6 ms per frame, Off 1.1 ms, Movie 2.4 ms - 3-11 % of
+a 24 fps frame (41.7 ms), under a third at 3x. Heavier shaders are the only way
+to load the GPU more, and the ones measured (CuNNy 8x32, 12.6 ms) lost to
+Anime4K by the user's eye. `vd-queue-enable` (the manual: not with hardware
+decoding), `display-resample` (fights FreeSync/LFC) and RIFE stay out.
+
+**Loader warnings `vulkaninfo` printed, both harmless.** (1) "Removing layer
+VK_LAYER_AMD_switchable_graphics ... because it is a duplicate": two AMD driver
+packages in the driver store register the same implicit layer (the two GPUs
+report different Vulkan driver builds, above); the loader keeps one. (2)
+"VK_LAYER_OBS_HOOK uses API version 1.3 which is older than the application
+specified API version of 1.4": OBS's own layer manifest
+(`plugins/win-capture/graphics-hook/obs-vulkan64.json`) declares `api_version`
+1.3.216 on OBS master as well - the first answer's "update OBS" was wrong, the
+user's OBS was already the latest. The layer is implicit (loads into every Vulkan
+program, mpv included), only works while OBS captures, and
+`DISABLE_VULKAN_OBS_CAPTURE=1` keeps it out.

@@ -128,6 +128,15 @@ H.run(function()
 	H.load(H.media_path('plain/clip.mkv'))
 	H.expect('Auto + local file afterwards -> off again', chain, OFF)
 
+	-- Only the host's own fragment item counts (FastStream #155): "fs-content=anime" in the
+	-- stream URL's query or in a fragment item of its own picked Anime for a movie.
+	H.load(
+		H.media_path('fs-forged/ep&x=fs-content=anime#xfs-content=anime&fs-content=movie&fs-id=0f0f0f0f0f0f0f0f.mkv')
+	)
+	H.expect("Auto + forged anime markers before the host's movie tag -> Movie", chain, MOVIE)
+	H.load(H.media_path('fs-forged-query/ep&x=fs-content=anime.mkv'))
+	H.expect('Auto + a marker in the query only (no host tag) -> off', chain, OFF)
+
 	H.load(H.media_path('fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv'))
 	binding('cycle-upscale')
 	H.expect('FastStream cycle: Auto -> Anime', chain, ANIME)

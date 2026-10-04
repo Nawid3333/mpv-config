@@ -43,7 +43,7 @@ local SHADER_DIR = mp.command_native({ 'expand-path', '~~/shaders' })
 -- Allowlist's per-site @anime tag, or the player's manual per-video toggle -
 -- see faststream-mpv-host.mjs's withContentTypeFragment). It is a URL
 -- fragment, so it survives into mpv's `path` property unchanged but was
--- never sent to the CDN. Checked with the plain (non-pattern) find flag - a
+-- never sent to the CDN. Matched literally (plain find, string compare) - a
 -- stray unescaped "%" here once silently invoked a Lua pattern class
 -- instead of a literal match (see AGENTS.md).
 --
@@ -54,9 +54,33 @@ local SHADER_DIR = mp.command_native({ 'expand-path', '~~/shaders' })
 -- favor of FastStream always sending an explicit tag (movie by default,
 -- @anime opt-in - see background.mjs's resolveMpvContentType) rather than
 -- mpv trying to guess.
+--
+-- The marker is the LAST whole "fs-content=" item of the URL fragment (everything
+-- after the first '#', items separated by '&'), as stream-resume.lua reads fs-id
+-- and source-info.lua fs-page. The native host drops fs-* items a stream URL
+-- already carries and appends its own last; "fs-content=" anywhere in the path
+-- also matched a page's own query ("?x=fs-content=anime") or fragment item
+-- ("#xfs-content=anime"), which then picked the preset (FastStream #155,
+-- 2026-10-04). The value is read up to its first non-letter (a test clip's file
+-- name ends in ".mkv").
+---@param path string|nil
+---@return string|nil
+local function fs_content(path)
+	local hash = path and path:find('#', 1, true)
+	if not path or not hash then
+		return nil
+	end
+	local content
+	for item in (path:sub(hash + 1) .. '&'):gmatch('([^&]*)&') do
+		if item:sub(1, 11) == 'fs-content=' then
+			content = item:sub(12):match('^(%a*)')
+		end
+	end
+	return content
+end
+
 local function is_anime_content()
-	local path = mp.get_property('path', '')
-	return path:find('fs-content=anime', 1, true) ~= nil
+	return fs_content(mp.get_property('path', '')) == 'anime'
 end
 
 -- Whether the current file came from FastStream at all (any #fs-content=
@@ -78,8 +102,7 @@ end
 -- Anime -> Movie -> Off). Internally the mode stays "Auto" so a FastStream
 -- stream still gets its preset automatically.
 local function is_faststream_content()
-	local path = mp.get_property('path', '')
-	return path:find('fs-content=', 1, true) ~= nil
+	return fs_content(mp.get_property('path', '')) ~= nil
 end
 
 -- ---- Upscale (2 user-facing presets: Anime / Movie) -----------------------

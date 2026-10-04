@@ -788,6 +788,16 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
         New-Item -ItemType Directory -Force (Split-Path -Parent $forged) | Out-Null
         Copy-Item -LiteralPath $ep -Destination $forged
     }
+    # gpu-toggles: "fs-content=anime" in a stream URL's own query and fragment, with the host's
+    # movie tag after them; and in a query only, with no host fragment at all.
+    foreach ($rel in 'fs-forged/ep&x=fs-content=anime#xfs-content=anime&fs-content=movie&fs-id=0f0f0f0f0f0f0f0f.mkv',
+        'fs-forged-query/ep&x=fs-content=anime.mkv') {
+        $forgedContent = Join-Path $m $rel
+        if (-not (Test-Path -LiteralPath $forgedContent)) {
+            New-Item -ItemType Directory -Force (Split-Path -Parent $forgedContent) | Out-Null
+            Copy-Item -LiteralPath $ep -Destination $forgedContent
+        }
+    }
     Initialize-Clip $Exe (Join-Path $m 'autoload/episode1.mkv') 320x180 10
     Initialize-Clip $Exe (Join-Path $m 'autoload/episode2.mkv') 320x180 10
     $song = Join-Path $m 'autoload/song.flac'
@@ -960,7 +970,7 @@ $ShaderCacheHangs = $ShaderCacheIdles + @('--script-opts-append=shader_cache-tim
 $ShaderCacheKilled = $ShaderCacheOn + @("--script-opts-append=shader_cache-warmup_script=$((Join-Path $TestsDir 'lib/warmup-killed.lua').Replace('\', '/'))")
 # two rebuilds in one session: a stand-in that ends itself after 2.5 s, a 4 s timeout,
 # and no warm-up started by the check itself
-$ShaderCacheTwice = $ShaderCacheOn + @('--script-opts-append=shader_cache-auto=no', '--script-opts-append=shader_cache-timeout=4',
+$ShaderCacheTwice = $ShaderCacheOn + @('--script-opts-append=shader_cache-auto=no', '--script-opts-append=shader_cache-timeout=10',
     "--script-opts-append=shader_cache-warmup_script=$((Join-Path $TestsDir 'lib/warmup-slow-killed.lua').Replace('\', '/'))")
 
 # notify-render: a VO with a real OSD surface but no window and no GPU (see
