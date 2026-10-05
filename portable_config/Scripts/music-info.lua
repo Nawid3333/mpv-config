@@ -362,11 +362,19 @@ local function text(x, y, align, size, color, alpha, str, clip)
 	)
 end
 
+-- Measured on the panel's own canvas (res_x x res_y = the window in real
+-- pixels, as draw() sets panel.res_x/res_y). libass sizes text by the window
+-- height over res_y and compute_bounds answers in res_x/res_y units, so a
+-- 720-line meter next to a w x h panel measured every line h/720 times its
+-- real width: at 1440p the right column took twice its room and cut the
+-- title short, below 720 lines the columns ran into each other.
 ---@param str string
 ---@param size number
+---@param res_x number
+---@param res_y number
 ---@return number
-local function text_width(str, size, res_x)
-	meter.res_x, meter.res_y = res_x, 720
+local function text_width(str, size, res_x, res_y)
+	meter.res_x, meter.res_y = res_x, res_y
 	meter.data = text(0, 0, 7, size, WHITE, '00', ass_escape(str))
 	local bounds = meter:update()
 	if type(bounds) == 'table' and bounds.x1 and bounds.x0 then
@@ -434,7 +442,7 @@ local function draw()
 		present(audio_format(), next_title and ('Up next: ' .. next_title), position and ('Playlist ' .. position))
 	local right_w = 0
 	for _, line in ipairs(right) do
-		right_w = math.max(right_w, text_width(line, px(DETAIL_SIZE), w))
+		right_w = math.max(right_w, text_width(line, px(DETAIL_SIZE), w, h))
 	end
 
 	-- left column, top to bottom: title, artist (+ feat.), details, credits
