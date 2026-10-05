@@ -30,6 +30,19 @@
     had to compile a shader (tests/gpu/find-shader-gaps.lua). The gaps go to
     shader-gaps.json in the work folder as warm-up cases.
 
+    And another, also by hand (~45 min, takes the screen): shadercost. Is the
+    background shader warm-up worth keeping? 35 cases (every path the Anime
+    and Movie upscalers take, SDR/HDR10/HLG/Dolby Vision with each chain,
+    10-bit, CPU-decoded, a song with cover art, and mid-video actions: every
+    upscale switch and sharpness level, window sizes, an overlay, the Video
+    menu), each in a fresh mpv, 3 times in each state: cold (mpv's AND the AMD
+    driver's shader caches empty - the driver's folder is set aside and put
+    back), again (the same video once more without a warm-up) and warm (after
+    the warm-up). tests/gpu/measure-shader-cost.lua measures first frame, late
+    frames and the longest pause after each action, and checks that the right
+    chain ran. A report (shader-cost.md in the work folder) applies the
+    decision rule of 2026-10-05: DELETE, KEEP (slimmed), UNCLEAR or INCOMPLETE.
+
     Isolation: tests never touch the real portable_config. They run a COPY of
     mpv.exe next to a COPY of portable_config in a temp folder (mpv's portable
     mode then resolves ~~/, ~~state/ and ~~cache/ inside that folder), so
@@ -41,10 +54,12 @@
 
 .PARAMETER Tier
     static, headless (default) or gpu. `all` is the same as gpu. gaps runs
-    the static checks and the shader gap hunt only.
+    the static checks and the shader gap hunt only, shadercost the static
+    checks and the cold-vs-warm shader cache measurement only.
 
 .PARAMETER Filter
-    Wildcard on test names, e.g. -Filter upscale or -Filter 'speed*'.
+    Wildcard on test names, e.g. -Filter upscale or -Filter 'speed*'. For
+    shadercost: on the case names, e.g. -Filter 'Anime*'.
 
 .PARAMETER MpvExe
     mpv.exe to test. Default: the one in this repo (updater.bat installs it;
@@ -52,6 +67,10 @@
 
 .PARAMETER WorkDir
     Scratch folder for the isolated copy, generated media and logs.
+
+.PARAMETER Repeat
+    shadercost only: runs per case in each state (default 3; the report uses
+    the medians). -Repeat 1 for a quick look, not for the decision.
 
 .PARAMETER ConfigDir
     portable_config to test. Default: this repo's. Point it at a copy to test
@@ -62,16 +81,19 @@
     pwsh tests/run-tests.ps1
     pwsh tests/run-tests.ps1 -Tier gpu
     pwsh tests/run-tests.ps1 -Tier gaps
+    pwsh tests/run-tests.ps1 -Tier shadercost
     pwsh tests/run-tests.ps1 -Filter upscale
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('static', 'headless', 'gpu', 'all', 'gaps')]
+    [ValidateSet('static', 'headless', 'gpu', 'all', 'gaps', 'shadercost')]
     [string]$Tier = 'headless',
     [string]$Filter = '*',
     [string]$MpvExe,
     [string]$WorkDir = (Join-Path ([System.IO.Path]::GetTempPath()) 'mpv-regression'),
-    [string]$ConfigDir
+    [string]$ConfigDir,
+    [ValidateRange(1, 9)]
+    [int]$Repeat = 3
 )
 
 $ErrorActionPreference = 'Stop'
@@ -81,9 +103,10 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Cfg = $ConfigDir ? (Resolve-Path $ConfigDir).Path : (Join-Path $RepoRoot 'portable_config')
 $TestsDir = $PSScriptRoot
 if (-not $MpvExe) { $MpvExe = Join-Path $RepoRoot 'mpv.exe' }
-$RunHeadless = $Tier -notin @('static', 'gaps')
+$RunHeadless = $Tier -notin @('static', 'gaps', 'shadercost')
 $RunGpu = $Tier -in @('gpu', 'all')
 $RunGaps = $Tier -eq 'gaps'
+$RunCost = $Tier -eq 'shadercost'
 
 # ---------------------------------------------------------------------------
 # results
@@ -1203,6 +1226,639 @@ if ($RunGaps) {
             "--script-opts-append=shader_gaps-out=$(& $slash $gapsOut)",
             "--script-opts-append=shader_gaps-overlay=$(& $slash $overlay)") -TimeoutSeconds 3600
         Add-Result 'shader-gaps' "gaps as warm-up cases: $gapsOut" 'INFO'
+    }
+}
+
+# ---------------------------------------------------------------------------
+# shader cost: empty shader caches against warm ones (-Tier shadercost)
+# ---------------------------------------------------------------------------
+# Asked 2026-10-05: is the background warm-up (Scripts/shader-cache) worth its
+# ~3,500 lines? Without it, mpv still keeps every shader it compiles; what a
+# viewer would notice is the FIRST video of each kind after a GPU driver or
+# libplacebo update, which leaves both mpv's cache and the AMD driver's own
+# cache cold. So this tier empties both: mpv's for every cold run (a new
+# folder), and the driver's (%LOCALAPPDATA%\AMD\VkCache, which games share) by
+# setting the owner's folder aside for the whole run, emptying the stand-in
+# before every cold run and before the warm-up, and putting the owner's back
+# at the end - also after a failure or Ctrl+C, and, if a run was killed, at the
+# start of the next one. measure-shader-cost.lua's header says what is
+# measured; tests/README.md has the decision rule.
+#
+# Every case starts in a fresh mpv with the upscale setting already chosen (1 =
+# Auto: a FastStream file - the #fs-content= marker in the name - gets its
+# preset when it loads; 0 = Off), so the first frame is drawn through the chain.
+# Together they cover every path the upscalers take (each Anime4K stage the
+# scale switches on, Movie with and without FSRCNNX and the sharpener), the
+# colour paths (SDR 8/10-bit, decoded on the GPU and on the CPU, bt.601 DVD,
+# HDR10, HLG, Dolby Vision profiles 5/8.1/8.4) with each chain, a song with
+# cover art, and what a viewer does mid-video: every upscale switch, every
+# Movie sharpness level, window sizes, fullscreen, a picture overlay (timeline
+# thumbnails, picture subtitles) and two Video menu settings.
+function Get-CostAction([string]$Name, [string]$Kind, [string]$Value = '') { @{ name = $Name; kind = $Kind; value = $Value } }
+$CostCases = @(
+    # each stage of Anime4K the scale switches on (1440p screen: 4x / 3x / 2.5x / 2x / 1.33x / scaled down)
+    @{ Label = 'Anime 360p'; Clip = 'h264-360'; Content = 'anime'; Preset = 'anime' }
+    @{ Label = 'Anime 480p'; Clip = 'h264-480'; Content = 'anime'; Preset = 'anime' }
+    @{ Label = 'Anime 576p'; Clip = 'h264-576'; Content = 'anime'; Preset = 'anime' }
+    @{ Label = 'Anime 720p'; Clip = 'h264-720'; Content = 'anime'; Preset = 'anime' }
+    @{ Label = 'Anime 1080p'; Clip = 'h264-1080'; Content = 'anime'; Preset = 'anime' }
+    @{ Label = 'Anime 1080p, 10-bit HEVC'; Clip = 'hevc10-1080'; Content = 'anime'; Preset = 'anime' }
+    @{ Label = 'Anime 720p, 10-bit H.264 (decoded on the CPU)'; Clip = 'h264hi10-720'; Content = 'anime'; Preset = 'anime' }
+    @{ Label = 'Anime 2160p (scaled down)'; Clip = 'h264-2160'; Content = 'anime'; Preset = 'anime' }
+    # Movie: FSRCNNX + SSimSuperRes from 2x, SSimSuperRes alone below, the sharpener only when enlarged
+    @{ Label = 'Movie 480p'; Clip = 'h264-480'; Content = 'movie'; Preset = 'movie' }
+    @{ Label = 'Movie 576p DVD (MPEG-2, bt.601, decoded on the CPU)'; Clip = 'mpeg2-576'; Content = 'movie'; Preset = 'movie' }
+    @{ Label = 'Movie 720p'; Clip = 'h264-720'; Content = 'movie'; Preset = 'movie' }
+    @{ Label = 'Movie 810p'; Clip = 'h264-810'; Content = 'movie'; Preset = 'movie' }
+    @{ Label = 'Movie 1080p'; Clip = 'h264-1080'; Content = 'movie'; Preset = 'movie' }
+    @{ Label = 'Movie 1080p, 10-bit HEVC'; Clip = 'hevc10-1080'; Content = 'movie'; Preset = 'movie' }
+    @{ Label = 'Movie 2160p (scaled down)'; Clip = 'h264-2160'; Content = 'movie'; Preset = 'movie' }
+    # no upscaler
+    @{ Label = 'Off 720p'; Clip = 'h264-720'; Mode = '0'; Preset = 'off' }
+    @{ Label = 'Off 1080p'; Clip = 'h264-1080'; Mode = '0'; Preset = 'off' }
+    @{ Label = 'Off 2160p'; Clip = 'h264-2160'; Mode = '0'; Preset = 'off' }
+    # HDR and Dolby Vision, each colour path with the chains (every pass compiles again per colour path)
+    @{ Label = 'HDR10 1080p, Off'; Clip = 'hdr10-1080'; Mode = '0'; Preset = 'off' }
+    @{ Label = 'HDR10 1080p, Anime'; Clip = 'hdr10-1080'; Content = 'anime'; Preset = 'anime' }
+    @{ Label = 'HDR10 1080p, Movie'; Clip = 'hdr10-1080'; Content = 'movie'; Preset = 'movie' }
+    @{ Label = 'HDR10 2160p, Off'; Clip = 'hdr10-2160'; Mode = '0'; Preset = 'off' }
+    @{ Label = 'HDR10 2160p, Movie'; Clip = 'hdr10-2160'; Content = 'movie'; Preset = 'movie' }
+    @{ Label = 'HLG 1080p, Off'; Clip = 'hlg-1080'; Mode = '0'; Preset = 'off' }
+    @{ Label = 'HLG 1080p, Movie'; Clip = 'hlg-1080'; Content = 'movie'; Preset = 'movie' }
+    @{ Label = 'Dolby Vision profile 5, Off'; Clip = 'dv-p5'; Mode = '0'; Preset = 'off' }
+    @{ Label = 'Dolby Vision profile 5, Movie'; Clip = 'dv-p5'; Content = 'movie'; Preset = 'movie' }
+    @{ Label = 'Dolby Vision profile 8.1, Off'; Clip = 'dv-p8.1'; Mode = '0'; Preset = 'off' }
+    @{ Label = 'Dolby Vision profile 8.4, Off'; Clip = 'dv-p8.4'; Mode = '0'; Preset = 'off' }
+    @{ Label = 'Song with cover art'; Clip = 'song'; Mode = '0'; Preset = 'off' }
+    # what a viewer does mid-video, each action the first of its kind in the process
+    @{ Label = 'Anime 1080p, then every upscale switch'; Clip = 'h264-1080-long'; Content = 'anime'; Preset = 'anime'; Actions = @(
+            Get-CostAction 'switch to Movie' upscale 3
+            Get-CostAction 'Movie sharpness Medium' sharpness 1
+            Get-CostAction 'Movie sharpness High' sharpness 1.5
+            Get-CostAction 'Movie sharpness Off' sharpness 0
+            Get-CostAction 'Movie sharpness Low' sharpness 0.5
+            Get-CostAction 'Movie sharpness Auto' sharpness auto
+            Get-CostAction 'switch to Off' upscale 0
+            Get-CostAction 'switch to Anime' upscale 2)
+    }
+    @{ Label = 'Movie 720p, then every upscale switch'; Clip = 'h264-720-long'; Content = 'movie'; Preset = 'movie'; Actions = @(
+            Get-CostAction 'Movie sharpness High' sharpness 1.5
+            Get-CostAction 'Movie sharpness Low' sharpness 0.5
+            Get-CostAction 'Movie sharpness Off' sharpness 0
+            Get-CostAction 'Movie sharpness Auto' sharpness auto
+            Get-CostAction 'switch to Anime' upscale 2
+            Get-CostAction 'switch to Off' upscale 0
+            Get-CostAction 'switch to Movie' upscale 3)
+    }
+    @{ Label = 'Anime 720p, then window sizes'; Clip = 'h264-720-long'; Content = 'anime'; Preset = 'anime'; Actions = @(
+            Get-CostAction 'leave fullscreen (window at the video''s size)' fullscreen no
+            Get-CostAction 'half-size window' window-scale 0.5
+            Get-CostAction 'maximized window' maximize
+            Get-CostAction 'back to fullscreen' fullscreen yes)
+    }
+    @{ Label = 'Local 1080p, Off, then overlay, Video menu, windows, upscalers'; Clip = 'h264-1080-long'; Mode = '0'; Preset = 'off'; Actions = @(
+            Get-CostAction 'picture overlay (thumbnails, picture subtitles)' overlay '{overlay}'
+            Get-CostAction 'Video menu: contrast +1' property contrast=1
+            Get-CostAction 'Video menu: deband off' property deband=no
+            Get-CostAction 'leave fullscreen (window at the video''s size)' fullscreen no
+            Get-CostAction 'half-size window' window-scale 0.5
+            Get-CostAction 'maximized window' maximize
+            Get-CostAction 'back to fullscreen' fullscreen yes
+            Get-CostAction 'switch to Anime' upscale 2
+            Get-CostAction 'switch to Movie' upscale 3)
+    }
+    @{ Label = 'HDR10 1080p, Off, then upscalers and windows'; Clip = 'hdr10-1080'; Mode = '0'; Preset = 'off'; Actions = @(
+            Get-CostAction 'switch to Anime' upscale 2
+            Get-CostAction 'switch to Movie' upscale 3
+            Get-CostAction 'leave fullscreen (window at the video''s size)' fullscreen no
+            Get-CostAction 'back to fullscreen' fullscreen yes)
+    }
+)
+
+# Clip recipes (mpv's own encoder, testsrc2 at 24 fps): size, pixel format,
+# encoder, seconds (start-only cases need 12; the action cases' clips must
+# outlast all their windows, or a loop seek lands in one), aspect, colour tags
+# (FFmpeg names; set on the frames AND as encoder options - mpv's encoder drops
+# primaries/transfer from the frames, cases.lua). dv-*: the Dolby Vision clips
+# the warm-up ships (no encoder writes an RPU); song: an mp3 with a cover.jpg.
+$CostHdr10 = @{ colorspace = 'bt2020nc'; color_primaries = 'bt2020'; color_trc = 'smpte2084' }
+$CostClips = @{
+    'h264-360'       = @{ Size = '640x360' }
+    'h264-480'       = @{ Size = '854x480' }
+    'h264-576'       = @{ Size = '1024x576' }
+    'h264-720'       = @{ Size = '1280x720' }
+    'h264-810'       = @{ Size = '1440x810' }
+    'h264-1080'      = @{ Size = '1920x1080' }
+    'h264-2160'      = @{ Size = '3840x2160' }
+    'h264-720-long'  = @{ Size = '1280x720'; Seconds = 40 }
+    'h264-1080-long' = @{ Size = '1920x1080'; Seconds = 40 }
+    'hevc10-1080'    = @{ Size = '1920x1080'; Pix = 'yuv420p10le'; Ovc = 'libx265' }
+    'h264hi10-720'   = @{ Size = '1280x720'; Pix = 'yuv420p10le' }
+    'mpeg2-576'      = @{ Size = '720x576'; Ovc = 'mpeg2video'; Sar = '64/45'; Tags = @{ colorspace = 'smpte170m'; color_primaries = 'bt470bg'; color_trc = 'bt709' } }
+    'hdr10-1080'     = @{ Size = '1920x1080'; Pix = 'yuv420p10le'; Ovc = 'libx265'; Seconds = 30; Tags = $CostHdr10 }
+    'hdr10-2160'     = @{ Size = '3840x2160'; Pix = 'yuv420p10le'; Ovc = 'libx265'; Tags = $CostHdr10 }
+    'hlg-1080'       = @{ Size = '1920x1080'; Pix = 'yuv420p10le'; Ovc = 'libx265'; Tags = @{ colorspace = 'bt2020nc'; color_primaries = 'bt2020'; color_trc = 'arib-std-b67' } }
+}
+
+# The decision rule, set 2026-10-05 BEFORE any number was seen. Per case, what
+# the warm-up saves = a state minus warm, medians over the repeats. "Start" =
+# first frame + the longest pause in the first seconds (a chain set after the
+# first frame compiles there). A hitch = an action with more than EventLate
+# extra late frames or an extra pause of EventPauseMs or more. Applied to cold
+# (the first video of a kind after an update) and to again (every later one,
+# mpv's own cache only): any hitch, or a start extra of KeepStartMs or more ->
+# KEEP (slimmed: the warm-up stays, the capture log, learned cases and gap hunt
+# go); every start extra under DeleteStartMs and no hitch in both -> DELETE;
+# else UNCLEAR (judge by eye: a week with shader_cache-auto=no). A run whose
+# checks failed (wrong chain, an error, a driver cache that was not cold)
+# never counts; a case without a valid run in every state -> INCOMPLETE.
+$CostRule = @{ DeleteStartMs = 500; KeepStartMs = 1000; EventLate = 2; EventPauseMs = 250 }
+$CostWindows = @{ Start = 3; Action = 2 }
+
+# The AMD driver's own Vulkan pipeline cache, and where the owner's is kept
+# while this tier runs.
+$AmdCache = $env:LOCALAPPDATA ? (Join-Path (Join-Path $env:LOCALAPPDATA 'AMD') 'VkCache') : $null
+$AmdBackup = $AmdCache ? "$AmdCache.mpv-shadercost-backup" : $null
+
+function Get-AmdShaderCacheSize {
+    if (-not $AmdCache -or -not (Test-Path -LiteralPath $AmdCache)) { return $null }
+    # summed by hand: Measure-Object returns nothing for an empty folder (StrictMode then throws on .Sum)
+    $sum = [long]0
+    foreach ($f in Get-ChildItem -LiteralPath $AmdCache -Recurse -File -Force -ErrorAction SilentlyContinue) { $sum += $f.Length }
+    return $sum
+}
+
+# Puts the owner's AMD cache back - set aside by this run, or by one that was
+# killed. Only this run's own stand-in (what the test runs compiled) is
+# deleted: after a killed run the folder there may be one the driver built
+# since (games run meanwhile), and that one is kept beside it, renamed. True
+# when nothing is left aside.
+function Restore-AmdShaderCache([bool]$OwnStandIn = $false) {
+    if (-not $AmdBackup -or -not (Test-Path -LiteralPath $AmdBackup)) { return $true }
+    try {
+        if (Test-Path -LiteralPath $AmdCache) {
+            if ($OwnStandIn) { Remove-Item -LiteralPath $AmdCache -Recurse -Force }
+            else {
+                $kept = "$AmdCache.rebuilt-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+                Move-Item -LiteralPath $AmdCache -Destination $kept
+                Write-Host "  the AMD cache found in its place is kept as $kept (delete it once all is well)" -ForegroundColor Yellow
+            }
+        }
+        Move-Item -LiteralPath $AmdBackup -Destination $AmdCache
+        Write-Host "  AMD's shader cache is back in $AmdCache" -ForegroundColor DarkGray
+        return $true
+    }
+    catch {
+        Write-Host "  AMD's shader cache could NOT be put back ($($_.Exception.Message)): close every program that uses the GPU, then rename $AmdBackup to VkCache - or run this tier again, it does that first" -ForegroundColor Red
+        return $false
+    }
+}
+
+# One rename (it fails, changing nothing, while a program has a file in it
+# open), then an empty stand-in in its place.
+function Backup-AmdShaderCache {
+    Move-Item -LiteralPath $AmdCache -Destination $AmdBackup -ErrorAction Stop
+    New-Item -ItemType Directory $AmdCache | Out-Null
+}
+
+function Clear-AmdShaderCache {
+    Get-ChildItem -LiteralPath $AmdCache -Force | Remove-Item -Recurse -Force -ErrorAction Stop
+}
+
+function Build-CostClip([string]$Exe, [string]$Id, [string]$Path) {
+    $c = $CostClips[$Id]
+    $ovc = $c['Ovc'] ?? 'libx264'
+    $chain = "testsrc2=size=$($c.Size):rate=24:duration=$($c['Seconds'] ?? 12),format=$($c['Pix'] ?? 'yuv420p')"
+    if ($c['Sar']) { $chain += ",setsar=$($c['Sar'])" }
+    $opts = @(@{ libx264 = @('preset=ultrafast', 'g=24'); libx265 = @('preset=ultrafast') }[$ovc] | Where-Object { $_ })
+    if ($c['Tags']) {
+        $tags = @($c['Tags'].GetEnumerator() | Sort-Object Key | ForEach-Object { "$($_.Key)=$($_.Value)" })
+        $chain += ',setparams=' + ($tags -join ':')
+        $opts += $tags
+    }
+    New-Item -ItemType Directory -Force (Split-Path -Parent $Path) | Out-Null
+    $tmp = Join-Path (Split-Path -Parent $Path) ('encoding-' + [guid]::NewGuid().ToString('N') + '.mkv')
+    $a = @('--no-config', '--really-quiet', "av://lavfi:$chain", "--o=$tmp", "--ovc=$ovc")
+    if ($opts.Count) { $a += '--ovcopts=' + ($opts -join ',') }
+    $r = Invoke-Mpv $Exe $a -TimeoutSeconds 900
+    if ($r.ExitCode -ne 0 -or -not (Test-Path $tmp) -or (Get-Item $tmp).Length -lt 1000) {
+        Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue
+        throw "making the clip $Id failed: $(($r.StdErr -split "`n" | Select-Object -Last 3) -join ' ')"
+    }
+    Move-Item -LiteralPath $tmp -Destination $Path -Force
+}
+
+# Makes what the cases need (once, reused by later runs) and returns each
+# case's file: the clip itself, or a copy whose name carries the FastStream
+# marker, each in a folder of its own (autoload).
+function Initialize-CostMedia([string]$Exe, [object[]]$Cases) {
+    $m = Join-Path $WorkDir 'media-cost-v1'
+    Write-Host "  preparing the clips in $m" -ForegroundColor DarkGray
+    $paths = foreach ($c in $Cases) {
+        $id = $c.Clip
+        if ($id -like 'dv-*') {
+            $file = Join-Path $m "$id/$id.mp4"
+            if (-not (Test-Path -LiteralPath $file)) {
+                New-Item -ItemType Directory -Force (Split-Path -Parent $file) | Out-Null
+                Copy-Item -LiteralPath (Join-Path $Cfg "Scripts/shader-cache/clips/$id.mp4") -Destination $file
+            }
+        }
+        elseif ($id -eq 'song') {
+            $file = Join-Path $m 'song/song.mp3'
+            $cover = Join-Path $m 'song/cover.jpg'
+            if (-not (Test-Path -LiteralPath $file)) {
+                New-Item -ItemType Directory -Force (Split-Path -Parent $file) | Out-Null
+                $null = Invoke-Mpv $Exe @('--no-config', '--really-quiet', 'av://lavfi:sine=frequency=440:duration=20', "--o=$file", '--oac=libmp3lame')
+                if (-not (Test-Path -LiteralPath $file)) { throw 'making the song failed' }
+            }
+            if (-not (Test-Path -LiteralPath $cover)) {
+                $dir = Split-Path -Parent $cover
+                $null = Invoke-Mpv $Exe @('--no-config', '--really-quiet', 'av://lavfi:testsrc2=size=720x720', '--frames=1', '--vo=image',
+                    '--vo-image-format=jpg', "--vo-image-outdir=$dir")
+                $shot = Join-Path $dir '00000001.jpg'
+                if (-not (Test-Path $shot)) { throw 'making the cover art failed' }
+                Move-Item -LiteralPath $shot -Destination $cover -Force
+            }
+        }
+        else {
+            $file = Join-Path $m "$id/$id.mkv"
+            if (-not (Test-Path -LiteralPath $file)) { Build-CostClip $Exe $id $file }
+        }
+        if ($c['Content']) {
+            $ext = [IO.Path]::GetExtension($file)
+            $marked = Join-Path $m "$id-$($c.Content)/$id#fs-content=$($c.Content)$ext"
+            if (-not (Test-Path -LiteralPath $marked)) {
+                New-Item -ItemType Directory -Force (Split-Path -Parent $marked) | Out-Null
+                Copy-Item -LiteralPath $file -Destination $marked
+            }
+            $file = $marked
+        }
+        $file
+    }
+    return , @($paths)
+}
+
+# A property of a parsed result, or $Default (StrictMode throws on a missing one).
+function Get-CostValue($Object, [string]$Name, $Default = $null) {
+    if ($null -eq $Object) { return $Default }
+    $p = $Object.PSObject.Properties[$Name]
+    return $p ? $p.Value : $Default
+}
+
+function Get-Median([object[]]$Values) {
+    $s = @($Values | Where-Object { $null -ne $_ } | ForEach-Object { [double]$_ } | Sort-Object)
+    if ($s.Count -eq 0) { return $null }
+    $n = $s.Count
+    return ($n % 2) ? $s[[int](($n - 1) / 2)] : ($s[$n / 2 - 1] + $s[$n / 2]) / 2
+}
+
+# One run: a fresh mpv on the given cache folder. Not through
+# Invoke-RuntimeTest: that adds --log-file, which raises libplacebo's log level
+# (measure-shader-cost.lua's header); the script reports script and renderer
+# errors itself. Returns the parsed result, whether every check passed, and
+# how much the AMD driver's cache grew (KB, $null without one).
+#
+# It stops the whole tier rather than start the next fullscreen mpv when a run
+# shows the GPU in trouble: on 2026-10-04 a lost Vulkan device, then more
+# fullscreen starts, left the RX 9070 XT's driver failed to load (black screen,
+# CM_PROB_FAILED_ADD) until a restart. Before each run the graphics card must be
+# OK in Windows' eyes; after it, no timeout, no lost or removed device in mpv's
+# errors, and no vulkan decoding (refused since that day, mpv.conf's hwdec).
+
+# Why the graphics card is not fit for a run, or $null when it is.
+function Get-GpuTrouble {
+    $bad = @(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue | Where-Object { $_.Status -ne 'OK' })
+    if ($bad.Count) { return ($bad | ForEach-Object { "$($_.FriendlyName) is $($_.Status) ($($_.Problem))" }) -join '; ' }
+    return $null
+}
+
+# Why the tier must stop after a run, or $null.
+function Get-CostAbortReason($Run, $Data) {
+    if ($Run.TimedOut) { return 'mpv did not finish and was killed' }
+    $errors = @(if ($Data -and $Data.PSObject.Properties['errors']) { $Data.errors })
+    $lost = @($errors | Where-Object { "$_" -match 'DEVICE_LOST|DEVICE_REMOVED|887a0005|887a0006|Failed acquiring swapchain' })
+    if ($lost.Count) { return "the GPU device was lost: $($lost[0])" }
+    if ($Data -and "$(Get-CostValue $Data 'hwdec' '')" -match 'vulkan') { return "it decoded with $($Data.hwdec), which this config refuses" }
+    return Get-GpuTrouble
+}
+
+function Invoke-CostCase([string]$Exe, [hashtable]$Case, [string]$Path, [string]$State, [int]$Rep, [string]$Cache, [string]$Dir, [int]$Index, [string]$Overlay) {
+    $root = Split-Path -Parent $Exe
+    Clear-State $root
+    $test = "shader-cost ($State)"
+    $tag = "$State-$Rep-$Index"
+    $out = Join-Path $Dir "result-$tag.json"
+    $manifest = Join-Path $Dir "case-$tag.json"
+    $actions = @(@($Case['Actions'] ?? @()) | ForEach-Object { @{ name = $_.name; kind = $_.kind; value = $_.value.Replace('{overlay}', $Overlay.Replace('\', '/')) } })
+    [ordered]@{
+        label = $Case.Label; state = $State; repeat = $Rep; path = $Path.Replace('\', '/'); mode = $Case['Mode'] ?? '1'; preset = $Case.Preset
+        expect = @(($Case.Preset -eq 'anime') ? 'Anime4K' : @()); actions = $actions
+        start_seconds = $CostWindows.Start; action_seconds = $CostWindows.Action; out = $out.Replace('\', '/')
+    } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $manifest -Encoding utf8NoBOM
+    Write-Host ''
+    Write-Host "-- $($Case.Label) ($State, run $Rep of $Repeat)" -ForegroundColor White
+    $mpvArgs = @("--script=$(Join-Path $TestsDir 'gpu/measure-shader-cost.lua')", '--no-terminal', '--fs', '--ao=null',
+        '--force-window=yes', '--idle=yes', '--loop-file=inf', "--gpu-shader-cache-dir=$Cache", $ShaderCacheOff,
+        '--script-opts-append=shader_cache-capture=no', '--script-opts-append=gpu_toggles-remember=no',
+        "--script-opts-append=shader_cost-manifest=$($manifest.Replace('\', '/'))")
+    $trouble = Get-GpuTrouble
+    if ($trouble) { throw "stopped before $($Case.Label) ($State $Rep): $trouble - no mpv was started" }
+    $amd0 = Get-AmdShaderCacheSize
+    $r = Invoke-Mpv $Exe $mpvArgs @{ MPV_TEST_ROOT = $root.Replace('\', '/'); MPV_TEST_TIMEOUT = 100 } -TimeoutSeconds 120
+    $amd1 = Get-AmdShaderCacheSize
+    $done = $false
+    $failed = $false
+    foreach ($line in ($r.StdOut -split "`r?`n")) {
+        if ($line -match '^RESULT DONE ') { $done = $true }
+        if ($line -match '^RESULT (PASS|FAIL|INFO) (.*?)(?: :: (.*))?$') {
+            if ($Matches[1] -eq 'FAIL') { $failed = $true }
+            Add-Result -Test $test -Check $Matches[2] -Status $Matches[1] -Detail ($Matches[3] ?? '')
+        }
+    }
+    if ($r.TimedOut) { Add-Result $test "$($Case.Label) ($State $Rep): mpv finished" 'FAIL' 'killed after 120 s' }
+    elseif (-not $done) { Add-Result $test "$($Case.Label) ($State $Rep): the run went to its end" 'FAIL' "exit $($r.ExitCode), no RESULT DONE" }
+    $data = (Test-Path -LiteralPath $out) ? (Get-Content -Raw -LiteralPath $out | ConvertFrom-Json) : $null
+    $abort = Get-CostAbortReason $r $data
+    if ($abort) { throw "stopped after $($Case.Label) ($State $Rep): $abort - no further mpv is started" }
+    [pscustomobject]@{
+        Case = $Index; State = $State; Rep = $Rep; Data = $data
+        AmdKB = ($null -ne $amd0 -and $null -ne $amd1) ? [math]::Round(($amd1 - $amd0) / 1KB) : $null
+        Valid = $done -and -not $failed -and -not $r.TimedOut -and $null -ne $data -and (Get-CostValue $data 'valid' $false)
+    }
+}
+
+# Medians over a case's valid runs in one state.
+function Get-CostSummary([object[]]$Runs) {
+    $ok = @($Runs | Where-Object { $_ -and $_.Valid })
+    if ($ok.Count -eq 0) { return $null }
+    $d0 = $ok[0].Data
+    $windows = @(for ($k = 0; $k -lt @($d0.windows).Count; $k++) {
+            [pscustomobject]@{
+                Name  = @($d0.windows)[$k].name
+                Late  = Get-Median @($ok | ForEach-Object { @($_.Data.windows)[$k].late })
+                Pause = Get-Median @($ok | ForEach-Object { @($_.Data.windows)[$k].gap_ms })
+                Chain = @($d0.windows)[$k].chain
+            }
+        })
+    $starts = @($ok | ForEach-Object { $_.Data.first_ms + @($_.Data.windows)[0].gap_ms })
+    [pscustomobject]@{
+        Runs = $ok.Count; First = Get-Median @($ok | ForEach-Object { $_.Data.first_ms }); Start = Get-Median $starts; Starts = $starts
+        Files = Get-Median @($ok | ForEach-Object { $_.Data.files }); AmdKB = Get-Median @($ok | ForEach-Object { $_.AmdKB })
+        Windows = $windows; Video = $d0.video; Hwdec = $d0.hwdec; Chain = (Format-CostChain $d0.chain (Get-CostValue $d0 'sharpness' ''))
+    }
+}
+
+# The chain in a few words: Anime4K and its pass count, or Movie's parts.
+function Format-CostChain([string]$Chain, [string]$Sharpness) {
+    if (-not $Chain) { return 'no upscaler' }
+    $names = @($Chain -split ' ')
+    if ($Chain -match 'Anime4K') { return "Anime4K ($($names.Count) shaders)" }
+    $short = @($names | ForEach-Object { ($_ -replace '^FSRCNNX.*', 'FSRCNNX' -replace '^CfL_Prediction$', 'CfL' -replace '^adaptive-sharpen$', "sharpen $Sharpness") })
+    return $short -join ' + '
+}
+
+function Get-CostVerdict([object[]]$Starts, [object[]]$Hitches) {
+    $worst = $Starts.Count ? ($Starts | Measure-Object -Maximum).Maximum : 0
+    if ($Hitches.Count -or $worst -ge $CostRule.KeepStartMs) { return 'KEEP' }
+    if ($worst -lt $CostRule.DeleteStartMs) { return 'DELETE' }
+    return 'UNCLEAR'
+}
+
+# The comparison and the verdict, as Markdown (to paste into the issue) and on
+# the console. Returns the verdict word.
+function Write-CostReport([object[]]$Cases, [object[]]$Runs, [string[]]$Header, [string]$Path) {
+    $md = [System.Collections.Generic.List[string]]::new()
+    $md.Add('## Shader warm-up: empty caches vs warm ones')
+    $md.Add('')
+    foreach ($h in $Header) { $md.Add("- $h") }
+    $md.Add('')
+    $md.Add('**cold** = mpv''s and the AMD driver''s shader caches empty (the first video of a kind after a driver or libplacebo update, without the warm-up); **again** = the same video once more without a warm-up (mpv''s own cache); **warm** = after the warm-up. Medians over the runs. Start = first frame + the longest pause in the first seconds; extra = that state minus warm (what the warm-up saves).')
+    $md.Add('')
+    $md.Add('| Case | video, decoder, chain | first frame cold / again / warm | longest pause at the start cold / again / warm | start extra cold (each run) | start extra again | shaders compiled cold / again / warm | AMD driver cache, cold |')
+    $md.Add('|---|---|---|---|---|---|---|---|')
+    $acts = [System.Collections.Generic.List[string]]::new()
+    $starts = @{ cold = [System.Collections.Generic.List[object]]::new(); again = [System.Collections.Generic.List[object]]::new() }
+    $hitches = @{ cold = [System.Collections.Generic.List[string]]::new(); again = [System.Collections.Generic.List[string]]::new() }
+    $missing = [System.Collections.Generic.List[string]]::new()
+    $worstCase = @{ cold = ''; again = '' }
+    for ($i = 0; $i -lt $Cases.Count; $i++) {
+        $label = $Cases[$i].Label
+        $s = @{}
+        foreach ($st in 'cold', 'again', 'warm') { $s[$st] = Get-CostSummary @($Runs | Where-Object { $_.Case -eq $i -and $_.State -eq $st }) }
+        if (-not $s.cold -or -not $s.again -or -not $s.warm) {
+            $missing.Add($label)
+            $md.Add("| $label | no valid run in every state (see the FAIL lines) | | | | | | |")
+            continue
+        }
+        $x = @{}
+        foreach ($st in 'cold', 'again') {
+            $x[$st] = [math]::Max(0, $s[$st].Start - $s.warm.Start)
+            if ($x[$st] -ge (@($starts[$st]) | Measure-Object -Maximum).Maximum) { $worstCase[$st] = $label }
+            $starts[$st].Add($x[$st])
+        }
+        $each = (@($s.cold.Starts | ForEach-Object { '+{0:n0}' -f [math]::Max(0, $_ - $s.warm.Start) }) -join ' / ')
+        $md.Add(('| {0} | {1}, {2}, {3} | {4:n0} / {5:n0} / {6:n0} ms | {7:n0} / {8:n0} / {9:n0} ms | **+{10:n0} ms** ({11}) | +{12:n0} ms | {13:n0} / {14:n0} / {15:n0} | {16} |' -f $label,
+                $s.warm.Video, $s.warm.Hwdec, $s.warm.Chain,
+                $s.cold.First, $s.again.First, $s.warm.First, @($s.cold.Windows)[0].Pause, @($s.again.Windows)[0].Pause, @($s.warm.Windows)[0].Pause,
+                $x.cold, $each, $x.again, $s.cold.Files, $s.again.Files, $s.warm.Files,
+                (($null -ne $s.cold.AmdKB) ? ('{0:n0} KB' -f $s.cold.AmdKB) : 'n/a')))
+        $n = [math]::Min([math]::Min(@($s.cold.Windows).Count, @($s.again.Windows).Count), @($s.warm.Windows).Count)
+        for ($k = 1; $k -lt $n; $k++) {
+            $w = @($s.warm.Windows)[$k]
+            $mark = @()
+            foreach ($st in 'cold', 'again') {
+                $v = @($s[$st].Windows)[$k]
+                $late = [math]::Max(0, $v.Late - $w.Late)
+                $pause = [math]::Max(0, $v.Pause - $w.Pause)
+                if ($late -gt $CostRule.EventLate -or $pause -ge $CostRule.EventPauseMs) {
+                    $hitches[$st].Add("$label, $($v.Name): +$late late frames, +$pause ms pause")
+                    $mark += "**hitch $st**"
+                }
+            }
+            $c = @($s.cold.Windows)[$k]
+            $a = @($s.again.Windows)[$k]
+            $acts.Add(('| {0} | {1} | {2:n0} / {3:n0} / {4:n0} | {5:n0} / {6:n0} / {7:n0} ms | {8} |' -f $label, $c.Name, $c.Late, $a.Late, $w.Late, $c.Pause, $a.Pause, $w.Pause,
+                    ($mark ? ($mark -join ', ') : 'ok')))
+        }
+    }
+    $md.Add('')
+    $md.Add('| Case | action | late frames cold / again / warm | longest pause cold / again / warm | |')
+    $md.Add('|---|---|---|---|---|')
+    foreach ($a in $acts) { $md.Add($a) }
+
+    $v = @{ cold = (Get-CostVerdict @($starts.cold) @($hitches.cold)); again = (Get-CostVerdict @($starts.again) @($hitches.again)) }
+    $worst = @{}
+    foreach ($st in 'cold', 'again') { $worst[$st] = $starts[$st].Count ? ($starts[$st] | Measure-Object -Maximum).Maximum : 0 }
+    $md.Add('')
+    foreach ($st in 'cold', 'again') {
+        $md.Add(('- {0}: the worst start costs +{1:n0} ms ({2}); {3} - by the rule alone: {4}' -f $st, $worst[$st], ($worstCase[$st] ? $worstCase[$st] : '-'),
+                ($hitches[$st].Count ? "hitches: $($hitches[$st] -join '; ')" : 'no action hitches'), $v[$st]))
+    }
+    if ($missing.Count) {
+        $verdict = 'INCOMPLETE'
+        $why = "no valid run in every state for: $($missing -join ', ') - fix what the FAIL lines say and run it again (-Filter for those cases)"
+    }
+    elseif ($v.cold -eq 'KEEP' -or $v.again -eq 'KEEP') {
+        $verdict = 'KEEP'
+        $why = 'empty caches cost something you would see (above) - keep the warm-up, slimmed down (drop the capture log, the learned cases and the gap hunt)'
+    }
+    elseif ($v.cold -eq 'DELETE' -and $v.again -eq 'DELETE') {
+        $verdict = 'DELETE'
+        $why = "without the warm-up every start costs under $($CostRule.DeleteStartMs) ms more, the first video after an update and every later one, and no action stutters - the warm-up saves nothing you would notice: switch it off (shader_cache-auto=no), then remove it"
+    }
+    else {
+        $verdict = 'UNCLEAR'
+        $why = "the worst start costs $($CostRule.DeleteStartMs)-$($CostRule.KeepStartMs) ms more and nothing stutters - judge by eye: a week with shader_cache-auto=no"
+    }
+    $md.Add('')
+    $md.Add("**Verdict: $verdict** - $why.")
+    $md.Add('')
+    $md.Add("Rule (set 2026-10-05, before the numbers), applied to cold and to again: every start extra under $($CostRule.DeleteStartMs) ms and no hitch in both -> DELETE; a hitch (more than $($CostRule.EventLate) extra late frames, or an extra pause of $($CostRule.EventPauseMs) ms or more, after an action) or a start extra of $($CostRule.KeepStartMs) ms or more in either -> KEEP (slimmed); else UNCLEAR. Runs whose checks failed do not count.")
+    Set-Content -LiteralPath $Path -Value $md -Encoding utf8NoBOM
+    Write-Host ''
+    foreach ($l in $md) { Write-Host $l }
+    return $verdict
+}
+
+if ($RunCost) {
+    Write-Section 'shader cost (real renderer, fullscreen): empty shader caches vs warm ones'
+    # a killed run left the owner's AMD cache aside: back first, whatever else happens
+    $restored = Restore-AmdShaderCache
+    $running = @(Get-Process mpv -ErrorAction SilentlyContinue)
+    if (-not $restored) {
+        Add-Result 'shader-cost' "the AMD driver's shader cache an earlier run set aside is back" 'FAIL' "it is still in $AmdBackup - see the red line above"
+    }
+    elseif ($running.Count -gt 0) {
+        Add-Result 'shader-cost' 'shadercost tier' 'SKIP' "mpv is running (pid $($running.Id -join ', ')) - you may be watching; close it and re-run"
+    }
+    elseif (-not $AmdCache -or -not (Test-Path -LiteralPath $AmdCache)) {
+        Add-Result 'shader-cost' "the AMD driver's shader cache is there to empty" 'FAIL' "not found at $AmdCache - without emptying it the cold runs are not cold (is the shader cache switched off in AMD Software?)"
+    }
+    else {
+        $exe = Initialize-TestRoot
+        $root = Split-Path -Parent $exe
+        # the warm-up gets only what it ships, not cases a player learned
+        Remove-Item -LiteralPath (Join-Path $root 'portable_config/shader-cases.json') -ErrorAction SilentlyContinue
+        $cases = @($CostCases | Where-Object { $_.Label -like $Filter })
+        # The config it measures decodes with no vulkan (the static rule, checked again here:
+        # -ConfigDir can name another config), and the graphics card is fine to start with.
+        $vkHwdec = @(Get-Content -LiteralPath (Join-Path $root 'portable_config/mpv.conf') | Where-Object { $_ -match '^\s*hwdec\s*=.*\b(vulkan|auto)' })
+        $gpuTrouble = Get-GpuTrouble
+        if ($vkHwdec.Count) {
+            Add-Result 'shader-cost' 'the measured config decodes without vulkan' 'FAIL' "$($vkHwdec -join ' | ') - vulkan decoding lost the GPU device on 2026-10-04"
+            $cases = @()
+        }
+        elseif ($gpuTrouble) {
+            Add-Result 'shader-cost' 'the graphics card is OK before the first run' 'FAIL' $gpuTrouble
+            $cases = @()
+        }
+        $costDir = Join-Path $WorkDir 'shader-cost'
+        Remove-Item -Recurse -Force $costDir -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory $costDir | Out-Null
+        # a 64x64 half-transparent BGRA picture for the overlay action
+        $overlay = Join-Path $costDir 'overlay.bgra'
+        [IO.File]::WriteAllBytes($overlay, [byte[]](@(255, 255, 255, 128) * 4096))
+        $paths = $null
+        if ($cases.Count -eq 0) {
+            if (-not $vkHwdec.Count -and -not $gpuTrouble) { Add-Result 'shader-cost' 'shadercost tier' 'SKIP' "no case matches -Filter '$Filter'" }
+        }
+        else {
+            try { $paths = Initialize-CostMedia $exe $cases }
+            catch { Add-Result 'shader-cost' 'the clips are made' 'FAIL' $_.Exception.Message }
+        }
+        if ($paths) {
+            $runs = [System.Collections.Generic.List[object]]::new()
+            $warmSeconds = $null
+            $aside = $false
+            $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
+            try {
+                try { Backup-AmdShaderCache }
+                catch { throw "the AMD driver's shader cache could not be set aside ($($_.Exception.Message)) - close games and other programs that use the GPU, then run it again" }
+                $aside = $true
+                Write-Host "  the AMD driver's shader cache is set aside in $AmdBackup until this run ends" -ForegroundColor DarkGray
+                for ($rep = 1; $rep -le $Repeat; $rep++) {
+                    for ($i = 0; $i -lt $cases.Count; $i++) {
+                        $cache = Join-Path $costDir "cache-cold-$rep-$i"
+                        New-Item -ItemType Directory $cache | Out-Null
+                        $cleared = $true
+                        try { Clear-AmdShaderCache }
+                        catch {
+                            $cleared = $false
+                            Add-Result 'shader-cost (cold)' "$($cases[$i].Label) (cold $rep): the AMD driver's cache emptied" 'FAIL' "$($_.Exception.Message) - a program that uses the GPU has it open; close it"
+                        }
+                        $run = Invoke-CostCase $exe $cases[$i] $paths[$i] 'cold' $rep $cache $costDir $i $overlay
+                        if ($cleared -and $null -ne $run.AmdKB -and $run.AmdKB -le 0) {
+                            Add-Result 'shader-cost (cold)' "$($cases[$i].Label) (cold $rep): the AMD driver compiled (its cache grew)" 'FAIL' 'it stayed empty, so the driver part was not cold - does it keep its cache somewhere else?'
+                            $run.Valid = $false
+                        }
+                        if (-not $cleared) { $run.Valid = $false }
+                        $runs.Add($run)
+                        # the same video again, on what the cold run left in both caches
+                        $runs.Add((Invoke-CostCase $exe $cases[$i] $paths[$i] 'again' $rep $cache $costDir $i $overlay))
+                        Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue
+                    }
+                }
+                # the warm-up as after an update: both caches empty
+                Clear-AmdShaderCache
+                Write-Host ''
+                Write-Host '-- warm-up (full, both caches empty, hidden window)' -ForegroundColor White
+                $warmCache = Join-Path $costDir 'cache-warmed'
+                New-Item -ItemType Directory $warmCache | Out-Null
+                $trouble = Get-GpuTrouble
+                if ($trouble) { throw "stopped before the warm-up: $trouble" }
+                $t = [System.Diagnostics.Stopwatch]::StartNew()
+                $warm = & (Join-Path $RepoRoot 'installer/warm-shader-cache.ps1') -MpvExe $exe -CacheDir $warmCache -Quiet
+                $warmSeconds = $t.Elapsed.TotalSeconds
+                $warmFailed = $false
+                foreach ($line in $warm) {
+                    if ("$line" -match '^RESULT (PASS|FAIL|INFO) (.*?)(?: :: (.*))?$' -and ($Matches[1] -ne 'INFO' -or $Matches[2] -notmatch ': \d+ compiles$')) {
+                        if ($Matches[1] -eq 'FAIL') { $warmFailed = $true }
+                        Add-Result 'shader-cost warm-up' $Matches[2] $Matches[1] ($Matches[3] ?? '')
+                    }
+                }
+                # A partly warmed cache would make the warm runs compile too, and understate what
+                # an empty cache costs: no warm runs, and the verdict is INCOMPLETE.
+                if ($warmFailed) { throw 'the warm-up failed: no warm runs, so no verdict' }
+                $trouble = Get-GpuTrouble
+                if ($trouble) { throw "stopped after the warm-up: $trouble" }
+                for ($rep = 1; $rep -le $Repeat; $rep++) {
+                    for ($i = 0; $i -lt $cases.Count; $i++) {
+                        $cache = Join-Path $costDir "cache-warm-$rep-$i"
+                        Copy-Item -LiteralPath $warmCache -Destination $cache -Recurse
+                        $runs.Add((Invoke-CostCase $exe $cases[$i] $paths[$i] 'warm' $rep $cache $costDir $i $overlay))
+                        Remove-Item -LiteralPath $cache -Recurse -Force -ErrorAction SilentlyContinue
+                    }
+                }
+            }
+            catch {
+                Add-Result 'shader-cost' 'the measurement ran through' 'FAIL' $_.Exception.Message
+            }
+            finally {
+                if ($aside -and -not (Restore-AmdShaderCache $true)) {
+                    Add-Result 'shader-cost' "the AMD driver's shader cache is back" 'FAIL' "it is still in $AmdBackup - see the red line above"
+                }
+            }
+
+            $first = @($runs | Where-Object { $_.Data }) | Select-Object -First 1
+            $d = $first ? $first.Data : $null
+            $gpu = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue | ForEach-Object { "$($_.Name) (driver $($_.DriverVersion))" })
+            $coldRuns = @($runs | Where-Object { $_.State -eq 'cold' })
+            $grew = @($coldRuns | Where-Object { $null -ne $_.AmdKB -and $_.AmdKB -gt 0 })
+            $header = @(
+                ('{0}: {1} cases x {2} runs in each state, each run in a fresh mpv, fullscreen, the whole config ({3:n0} min)' -f (Get-Date -Format 'yyyy-MM-dd HH:mm'), $cases.Count, $Repeat, $sw2.Elapsed.TotalMinutes),
+                "mpv $(Get-CostValue $d 'mpv' '?'), libplacebo $(Get-CostValue $d 'libplacebo' '?'), display $(Get-CostValue $d 'display' '?')",
+                "GPU: $($gpu -join '; ')",
+                ("the AMD driver's own shader cache was set aside, emptied before every cold run and before the warm-up, and put back at the end; it grew in {0} of {1} cold runs (median {2:n0} KB){3}" -f $grew.Count, $coldRuns.Count,
+                    (Get-Median @($grew | ForEach-Object { $_.AmdKB })),
+                    (($coldRuns.Count -and $grew.Count -eq $coldRuns.Count) ? ' - the driver compiled in every one, so its part is in the cold numbers' : ' - a cold run in which it did not grow does not count')),
+                (($null -ne $warmSeconds) ? ('the full warm-up with both caches empty took {0:n0} s' -f $warmSeconds) : 'the warm-up did not run'),
+                ('{0} of {1} runs passed every check (wrong chain, an error, a driver cache that was not cold: such a run does not count)' -f @($runs | Where-Object Valid).Count, $runs.Count)
+            )
+            $report = Join-Path $WorkDir 'shader-cost.md'
+            ConvertTo-Json -InputObject @($runs) -Depth 8 | Set-Content -LiteralPath (Join-Path $WorkDir 'shader-cost.json') -Encoding utf8NoBOM
+            $verdict = Write-CostReport $cases @($runs) $header $report
+            Add-Result 'shader-cost' "verdict: $verdict - the report: $report" 'INFO'
+        }
     }
 }
 

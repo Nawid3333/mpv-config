@@ -10,6 +10,7 @@ needs PowerShell 7 and the real `mpv.exe` (`updater.bat` installs the pinned bui
 | `pwsh tests/run-tests.ps1` | static + **headless** (mpv `--vo=null --ao=null`, notify-render `--vo=sixel`: no window, no GPU, no sound) | ~50 s |
 | `pwsh tests/run-tests.ps1 -Tier gpu` | + the real renderer, **fullscreen**, on this PC's GPU | ~5 min |
 | `pwsh tests/run-tests.ps1 -Tier gaps` | static + the **shader gap hunt** (below): every kind of video after a full warm-up, fullscreen | ~7 min |
+| `pwsh tests/run-tests.ps1 -Tier shadercost` | static + **is the shader warm-up worth keeping?** (below): 35 cases with empty shader caches (mpv's and the AMD driver's), again, and after the warm-up, 3 runs each, fullscreen; a report with a verdict | ~45 min |
 | `... -Filter upscale` | only tests whose name matches | |
 | `... -ConfigDir <copy>` | test another `portable_config` (a worktree, an experiment) | |
 
@@ -168,6 +169,82 @@ reshaping the three shipped clips do not (libplacebo builds that pass from the
 RPU's structure), and windows dragged to arbitrary sizes beyond the tap steps
 the sweep covers. The player's capture and its learned cases (cases.lua) still
 catch those: a miss is learned the first time and replayed in every warm-up.
+
+## Is the shader warm-up worth keeping? (`-Tier shadercost`)
+
+Asked 2026-10-05, and built to be run ONCE and then decided on. Without the
+background warm-up (`Scripts/shader-cache`, ~3,500 lines with its tests) mpv
+still keeps every shader it compiles; what a viewer would notice is the FIRST
+video of each kind after a GPU driver or libplacebo update, when mpv's cache
+AND the AMD driver's own cache are cold. This tier measures exactly that, on
+the real GPU, fullscreen, with the whole config, in three states, each run in
+a fresh mpv (libplacebo also keeps shaders in memory) and every case 3 times
+(`-Repeat`; the report uses the medians):
+
+- **cold**: mpv's cache folder empty AND the AMD driver's
+  (`%LOCALAPPDATA%\AMD\VkCache`, shared with every game): the owner's folder is
+  set aside (one rename - refused, with nothing changed, while a program has a
+  file in it open) for the whole run, the empty stand-in is emptied again
+  before every cold run, and the owner's folder is put back at the end - also
+  after a failure or Ctrl+C, and if a run was killed, at the start of the next
+  one (or rename `VkCache.mpv-shadercost-backup` back to `VkCache` by hand);
+- **again**: the same video once more on what the cold run left in both
+  caches - every later video without a warm-up (proves mpv's own cache);
+- **warm**: after the player's full warm-up (`installer/warm-shader-cache.ps1`)
+  into an empty folder with the driver's cache emptied too - what the warm-up
+  gives after an update.
+
+**Cases** (35, `$CostCases` in run-tests.ps1; clips made once with the tested
+mpv's own encoder into `%TEMP%\mpv-regression\media-cost-v1`, ~700 MB): every
+path the upscalers take on the 1440p screen - Anime at 360p/480p/576p/720p/1080p
+(each Anime4K stage the scale switches on) and 2160p (scaled down), Movie at
+480p/576p/720p (FSRCNNX + SSimSuperRes) and 810p/1080p (SSimSuperRes; each its
+own Auto sharpness) and 2160p (no sharpener), Off at 720p/1080p/2160p; 10-bit
+HEVC with Anime and Movie, 10-bit H.264 and an MPEG-2 DVD (bt.601, anamorphic)
+decoded on the CPU; HDR10 1080p with Off/Anime/Movie and 2160p with Off/Movie,
+HLG with Off/Movie, Dolby Vision profile 5 with Off/Movie, 8.1 and 8.4 (the
+clips the warm-up ships); a song with cover art; and five cases of what a
+viewer does mid-video, each action the first of its kind in the process: every
+upscale switch, every Movie sharpness level (Low/Medium/High/Off/Auto),
+leaving fullscreen (a window at the video's size), a half-size and a maximized
+window, back to fullscreen, a picture overlay (timeline thumbnails, picture
+subtitles), Video menu contrast and deband off - on SDR and HDR10.
+
+**Measured** per run (`tests/gpu/measure-shader-cost.lua`): the first frame
+(loadfile -> playback-restart, which mpv reports only once that frame is on
+screen); late frames and the longest pause between two frames in the first
+3 s and in the 2 s after each action; the shaders mpv compiled; how much the
+driver's cache grew. No log file (it would raise libplacebo's log level and
+slow the cold runs down).
+
+**Checked**, so a run that measured the wrong thing never counts: the upscale
+preset on screen, the chain (Anime4K for Anime; Movie with FSRCNNX exactly
+from 2x and the sharpener exactly when enlarged, by the real display scale; no
+chain for Off), no renderer or script error, and for every cold run that the
+driver's cache was emptied AND grew (the driver compiled - if it did not, it
+was not cold). A case without a valid run in each state makes the verdict
+INCOMPLETE.
+
+**The report** (`%TEMP%\mpv-regression\shader-cost.md`, Markdown to paste into
+an issue; every run's numbers in `shader-cost.json`) shows cold / again / warm
+per case and action, the cold start extra of each run (the spread), the
+warm-up's own duration, and applies the **decision rule, set 2026-10-05 before
+any number was seen**, to cold AND to again (start = first frame + the longest
+pause in the first seconds; extra = that state minus warm):
+
+- **DELETE**: every start extra under 500 ms and no action with a hitch;
+- **KEEP** (slimmed down: the warm-up stays, the capture log, the learned cases
+  and the gap hunt go): any hitch (more than 2 extra late frames, or an extra
+  pause of 250 ms or more, after an action) or a start extra of 1 s or more;
+- **UNCLEAR**: otherwise (a start extra of 0.5-1 s) - judge by eye, a week with
+  `shader_cache-auto=no`;
+- **INCOMPLETE**: a case without a valid run in each state - fix, re-run it
+  (`-Filter`).
+
+Before running: close every mpv (the tier refuses otherwise) and every game or
+other program that uses the GPU (their files would keep the driver's cache
+from being set aside or emptied). `-Repeat 1 -Filter 'Anime*'` gives a quick
+look; the decision needs the full run.
 
 ## Upscaler benchmark (`upscale-bench/`, Linux, optional)
 
