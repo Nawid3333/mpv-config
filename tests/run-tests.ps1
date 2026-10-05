@@ -414,6 +414,12 @@ function Invoke-StaticCheck {
     if (-not ($findings.Keys -match 'private words')) {
         Add-Result $t 'published files: none of the private words' 'SKIP' 'no .git/info/private-words in this clone (CI has none; the publish job checks the PRIVATE_WORDS secret)'
     }
+    # A git that cannot run must stop the check: it printed nothing, which read as clean.
+    $noRepo = Join-Path $WorkDir 'privacy-no-repo'
+    New-Item -ItemType Directory -Force $noRepo | Out-Null
+    $privacyError = ''
+    try { $null = Get-PrivacyFinding -Root $noRepo } catch { $privacyError = "$_" }
+    Test-Check $t 'privacy check: a git that cannot run fails it, not "nothing found"' ($privacyError -match 'privacy check cannot tell') $privacyError
 
     # -- installer/install-mpv.ps1, against a stand-in build (no download) --------------
     $sevenZip = Get-Command 7z.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object Source
@@ -1037,12 +1043,16 @@ $RealOsdClip = 'av://lavfi:color=c=0x3060C0:s=960x540:r=24:d=120'
 
 # After the player quit mid warm-up: its host.ps1 and the warm-up mpv must be
 # gone (mpv kills its subprocesses on exit; host.ps1's job object takes mpv).
+# Matched by the work folder's own name, not 'mpv-regression' (the default): with
+# -WorkDir elsewhere nothing matched and the check passed whatever was left. Not the
+# whole path: a command line can carry the temp folder in its 8.3 form (RUNNER~1).
 $NoWarmupLeft = {
     param([string]$Name, [string]$Label)
+    $workName = [regex]::Escape((Split-Path -Leaf $WorkDir))
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     do {
         $left = @(Get-CimInstance Win32_Process -Filter "Name='mpv.exe' OR Name='powershell.exe'" |
-            Where-Object { $_.CommandLine -match 'host\.ps1|warmup\.lua' -and $_.CommandLine -match 'mpv-regression' })
+            Where-Object { $_.CommandLine -match 'host\.ps1|warmup\.lua' -and $_.CommandLine -match $workName })
         if ($left.Count) { Start-Sleep -Milliseconds 100 }
     } while ($left.Count -and $sw.ElapsedMilliseconds -lt 3000)
     Add-Result $Name "${Label}quitting the player ends its warm-up (no host.ps1 or warm-up mpv left)" ($left.Count ? 'FAIL' : 'PASS') `

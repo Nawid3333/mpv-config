@@ -59,9 +59,16 @@ end
 -- One event, exactly what uosc's callback mode produces for this menu:
 -- "script-message-to source_info menu-callback <event json>" (the callback
 -- array's entries become the script-message-to arguments, the event JSON is
--- appended last).
+-- appended last). format_json, not a hand-built string: a value with a quote
+-- or a backslash made invalid JSON, which the script drops - the refusal of
+-- 'https://site.example/a"&calc' below was never really tested (2026-10-05).
 local function activate(value)
-	mp.commandv('script-message-to', 'source_info', 'menu-callback', '{"type":"activate","value":"' .. value .. '"}')
+	mp.commandv(
+		'script-message-to',
+		'source_info',
+		'menu-callback',
+		utils.format_json({ type = 'activate', value = value })
+	)
 end
 
 local function expect_clipboard(name, want)
@@ -134,17 +141,23 @@ H.run(function()
 	H.eq('and nothing else', #args, 3)
 
 	-- Not a plain web address: refused, with a banner, and nothing launched.
-	for _, bad in ipairs({
+	-- Each one on its own: a copy first puts another title on the banner, so
+	-- 'Not opened' can only come from this refusal.
+	for i, bad in ipairs({
 		'https://site.example/a"&calc',
 		'file:///C:/Windows/System32/calc.exe',
 		'https://site.example/a b',
 	}) do
 		mp.set_property_native('user-data/source-info/launched', {})
+		activate('copy:before-refusal-' .. i)
+		expect_clipboard('(a copy before refusal ' .. i .. ')', 'before-refusal-' .. i)
 		activate('browse:' .. bad)
-		H.sleep(0.3)
-		H.eq('refused: ' .. bad, #(launched() or {}), 0)
+		H.wait_until(function()
+			return (card('source-copy') or {}).title == 'Not opened'
+		end, 3)
+		H.eq('refused, and says so: ' .. bad, (card('source-copy') or {}).title, 'Not opened')
+		H.eq('... and nothing launched: ' .. bad, #(launched() or {}), 0)
 	end
-	H.eq('a refusal says so', (card('source-copy') or {}).title, 'Not opened')
 
 	-- The Site page link is the host's own last fs-page= item only: a stream
 	-- URL's own "xfs-page=" (kept by the host, which drops only fs-* items)
@@ -228,14 +241,7 @@ H.run(function()
 	H.eq('... its headers are in effect', headers_now(), want_headers)
 	H.eq('... and its title', mp.get_property('media-title'), 'Episode 1')
 	local reopened = H.expect_event('file-loaded')
-	-- format_json: the clip's path holds backslashes on Windows, which the hand-built
-	-- event JSON of activate() would turn into escapes
-	mp.commandv(
-		'script-message-to',
-		'source_info',
-		'menu-callback',
-		utils.format_json({ type = 'activate', value = 'open:' .. fs_clip })
-	)
+	activate('open:' .. fs_clip) -- the clip's path holds backslashes on Windows
 	H.check('Open in mpv loads the stream again', reopened(15))
 	H.wait_until(function()
 		return headers_now() == want_headers

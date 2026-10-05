@@ -23,5 +23,11 @@ H.run(function()
 	if f then
 		f:close()
 	end
-	H.check('a song never writes its speed into speed.json', content:find('1.5', 1, true) ~= nil, content)
+	-- the saved speed itself, not a search for "1.5": a file holding 1.25 as well passed that
+	H.eq(
+		'a song never writes its speed into speed.json',
+		(require('mp.utils').parse_json(content) or {}).speed,
+		1.5,
+		0.001
+	)
 end)

@@ -45,11 +45,13 @@ local utils = require('mp.utils')
 local state_file = mp.command_native({ 'expand-path', '~~state/' }) .. '/speed.json'
 
 --- True if the current file has a real video track (not album art, not a
---- single-image track). nil while track-list is not (yet) populated.
+--- single-image track). nil while track-list is not (yet) populated: also when
+--- it is empty, as at script load and between two files - that was counted as
+--- an audio file, so the speed mpv started with became the song speed.
 ---@return boolean|nil
 local function is_video_file()
 	local tracks = mp.get_property_native('track-list')
-	if tracks == nil then
+	if tracks == nil or #tracks == 0 then
 		return nil
 	end
 	for _, track in ipairs(tracks) do

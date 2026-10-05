@@ -583,8 +583,12 @@ local function apply_shader_preset(preset, suffix)
 		-- Nothing of this preset is on disk. Clear the list rather than
 		-- leaving the PREVIOUS preset's chain silently running while the OSD
 		-- says otherwise, and report the failure so apply_upscale() does not
-		-- record a preset that never got applied.
+		-- record a preset that never got applied. The downscaler goes back with
+		-- it: the preset's dscale was set above, for shaders that are not there.
 		mp.commandv('no-osd', 'change-list', 'glsl-shaders', 'clr', '')
+		if BASE_DSCALE and mp.get_property('dscale') ~= BASE_DSCALE then
+			mp.set_property('dscale', BASE_DSCALE)
+		end
 		notify('Shaders: off', 'files of this preset are missing - see the log')
 		return false
 	end

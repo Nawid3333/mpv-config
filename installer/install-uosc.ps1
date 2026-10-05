@@ -15,13 +15,26 @@
 # pinned now.
 
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 may not offer TLS 1.2 by default; GitHub needs it (as install-mpv.ps1)
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $cfg = Join-Path $PSScriptRoot '..\portable_config'
 $scripts = Join-Path $cfg 'Scripts'
 $fonts = Join-Path $cfg 'fonts'
 
+# Both downloads are checked before anything is unpacked or installed (2026-10-05):
+# the zip against GitHub's own digest of the release asset, thumbfast.lua against the
+# file at the pinned commit.
+function Assert-Sha256([string]$Path, [string]$Hash, [string]$What) {
+    $got = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($got -ne $Hash) {
+        throw "$What does not match its expected SHA-256 ($Hash, got $got): not installed."
+    }
+}
+
 # --- uosc -------------------------------------------------------------------
 $uoscDir = Join-Path $scripts 'uosc'
 $uoscVersion = '5.13.0'  # repo tracks this exact version
+$uoscSha256 = '4be9da3289285300fa374496c3f1bfd7bb20ac08e890d25bd5a06b28eebe4882'
 $installed = Test-Path (Join-Path $uoscDir 'main.lua')
 $fetched = $false
 
@@ -35,6 +48,7 @@ else {
     try {
         Invoke-WebRequest -Uri "https://github.com/tomasklaen/uosc/releases/download/$uoscVersion/uosc.zip" `
             -OutFile $zip -UseBasicParsing
+        Assert-Sha256 $zip $uoscSha256 "uosc.zip $uoscVersion"
         if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
         Expand-Archive -Path $zip -DestinationPath $tmp -Force
         $src = Join-Path $tmp 'scripts\uosc'
@@ -62,6 +76,7 @@ else {
     try {
         Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/po5/thumbfast/0f711de3138c9bd6718209d819ac54022c23ded2/thumbfast.lua' `
             -OutFile $part -UseBasicParsing
+        Assert-Sha256 $part 'a3d08e71eae8b892f6cd39f9593ea219768e709312d176bca883841b156448bf' 'thumbfast.lua at 0f711de3'
         Move-Item -LiteralPath $part -Destination $thumbfast -Force
         $fetched = $true
     }

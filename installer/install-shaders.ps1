@@ -16,20 +16,23 @@
 #  - adaptive-sharpen.glsl (bacondither, igv's mpv port) is NOT downloaded: the
 #    repo carries a locally modified copy (curve_height turned into a runtime
 #    PARAM - see the note at the top of the file), and upstream's plain copy
-#    would silently ignore the Movie sharpness setting. It is only verified
-#    below; restore it with `git checkout -- portable_config/shaders`.
+#    would silently ignore the Movie sharpness setting. Below it is only
+#    checked to be there (git checks its content); restore it with
+#    `git checkout -- portable_config/shaders`.
 #  - CfL_Prediction (Artoriuz/glsl-chroma-from-luma-prediction, MIT), pinned to
 #    upstream commit 066dff964b83 (2026-08-15): Movie preset chroma upscaling.
 # Anything else (the rest of Anime4K, ArtCNN, SSimDownscaler, ...) can be
 # fetched by hand or restored from git history if a future experiment wants it.
 #
-# Every file is checked against the SHA-256 of the repo's copy (its text with
-# CRLF read as LF, as git checks it out): a file that is there but damaged - a
-# download cut short used to count as "already present" for good - is fetched
-# again, a download goes to a .part file first, and one that does not match is
-# refused (2026-10-02).
+# Every downloaded file is checked against the SHA-256 of the repo's copy (its
+# text with CRLF read as LF, as git checks it out): a file that is there but
+# damaged - a download cut short used to count as "already present" for good -
+# is fetched again, a download goes to a .part file first, and one that does
+# not match is refused (2026-10-02).
 
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 may not offer TLS 1.2 by default; GitHub needs it (as install-mpv.ps1)
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $dst = Join-Path $PSScriptRoot '..\portable_config\shaders'
 New-Item -ItemType Directory -Path $dst -Force | Out-Null
 
