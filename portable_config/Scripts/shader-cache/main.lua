@@ -24,31 +24,24 @@
 -- timed-out one is not retried for the same fingerprint (shader-warmup.failed)
 -- - installer\warm-shader-cache.ps1 runs it on request.
 --
--- Capture (on by default): every shader real playback still had to compile is
--- noted in portable_config/shader-misses.log with what was on screen - how the
--- warm-up's clip list is checked against real use. See capture_scan().
--- Since 2026-10-02 each real gap is also LEARNED (cases.lua): stored title-free
--- in portable_config/shader-cases.json and replayed by every full warm-up, so
--- the next driver or libplacebo update rebuilds what real viewing needs, not
--- only the fixed clip list. The log written since 2026-09-26 is imported once.
--- "Shader capture status" in the menu shows what was learned.
+-- History (2026-10-05): from 2026-09-26 the player also noted every shader real
+-- playback still compiled (shader-misses.log), and from 2026-10-02 learned each
+-- such gap as a case the warm-up replayed (cases.lua, shader-cases.json). The
+-- owner's measurement (tests/run-tests.ps1 -Tier shadercost, mpv issue #39)
+-- kept the warm-up and removed both: the fixed matrix plus shipped-cases.lua
+-- is what the warm-up draws.
 --
 -- State for tests and curious users: user-data/shader-cache.
 local utils = require('mp.utils')
 local msg = require('mp.msg')
 local options = require('mp.options')
 local fingerprint = dofile(utils.join_path(mp.get_script_directory(), 'fingerprint.lua'))
-local cases = dofile(utils.join_path(mp.get_script_directory(), 'cases.lua'))
 
 local opts = {
 	auto = true, -- check at every start and warm in the background when stale
 	start_delay = 1.5, -- seconds after the video starts before the warm-up does
 	idle_delay = 2, -- mpv opened with no file: seconds of idle before it warms
 	timeout = 270, -- seconds before a warm-up is abandoned
-	capture = true, -- log shaders compiled during real playback (shader-misses.log)
-	-- seconds after the last change before looking for new shaders: a cold chain
-	-- compiles in ~0.5 s here, so each switch gets its own line
-	capture_delay = 1,
 	-- for tests/run-tests.ps1:
 	warmup_vo = '', -- --vo for the warm-up process ('null' runs it headless)
 	warmup_matrix = '', -- 'test' = one tiny clip
@@ -127,71 +120,7 @@ local function write_lines(path, lines)
 	return true
 end
 
--- ---- capture: what real playback still compiles ------------------------------------
---
--- The warm-up covers what its clip list plays. To learn what real use needs
--- beyond that, the player watches the cache folder: mpv stores every compiled
--- shader or pipeline as its own shader_<16 hex> file when it is made, so a new
--- file is a compile. capture_scan() lists the folder (~400 names, ~1 ms, in this
--- script's own thread) a few seconds after anything that can need new shaders
--- changed - file, video format, decoder, chain, sharpness, window size - and
--- once a minute, and appends what is new, with what was on screen, to
--- ~~state/shader-misses.log. Not libplacebo's debug log: that is ~2,000-3,000
--- formatted lines per chain switch, on the render thread. While a warm-up
--- (this player's or another's) writes to the folder, it only re-counts.
-local capture_log = mp.command_native({ 'expand-path', '~~state/shader-misses.log' })
-local known, known_ctx, known_case, capture_timer
-
-local function chain_label()
-	local names = {}
-	for _, s in ipairs(mp.get_property_native('glsl-shaders') or {}) do
-		names[#names + 1] = s:match('([^/\\]+)%.glsl$') or s
-	end
-	local all = table.concat(names, ' ')
-	-- gpu-toggles.lua says which preset is on (2026-10-03); the file names are
-	-- only the fallback for an older gpu-toggles that does not
-	local family = mp.get_property_native('user-data/gpu-toggles/preset')
-	local label = all
-	if #names == 0 then
-		label = 'no upscaler'
-	elseif family == 'anime' or (family == nil and all:find('Anime4K', 1, true)) then
-		label = 'Anime'
-	elseif family == 'movie' or (family == nil and all:find('SSimSuperRes', 1, true)) then
-		label = all:find('FSRCNNX', 1, true) and 'Movie (FSRCNNX+SSimSuperRes)' or 'Movie (SSimSuperRes)'
-	end
-	local sharpen = (mp.get_property_native('glsl-shader-opts') or {})['adaptive-sharpen/curve_height']
-	-- the option stays set after leaving Movie; only Movie runs adaptive-sharpen
-	return (sharpen and label:find('^Movie')) and (label .. ', sharpen ' .. sharpen) or label
-end
-
-local function context()
-	local video = 'no video'
-	local vp = mp.get_property_native('video-params')
-	if vp then
-		video = string.format(
-			'%dx%d %s%s %s %s/%s, decoder %s',
-			vp.w or 0,
-			vp.h or 0,
-			vp.pixelformat or '?',
-			vp['hw-pixelformat'] and ('/' .. vp['hw-pixelformat']) or '',
-			mp.get_property('current-tracks/video/codec', '?'),
-			vp.colormatrix or '?',
-			vp.gamma or '?',
-			mp.get_property('hwdec-current', 'no')
-		)
-	end
-	local w, h = mp.get_osd_size()
-	return string.format(
-		'%s | %s | %s | %dx%d %s',
-		mp.get_property('media-title', '?'),
-		video,
-		chain_label(),
-		w or 0,
-		h or 0,
-		mp.get_property_native('fullscreen') and 'fullscreen' or 'window'
-	)
-end
-
+-- mpv's own compiled shaders and pipelines: one shader_<16 hex> file each.
 local function list_objects()
 	local set = {}
 	for _, f in ipairs(utils.readdir(fingerprint.cache_dir(), 'files') or {}) do
@@ -200,78 +129,6 @@ local function list_objects()
 		end
 	end
 	return set
-end
-
-local function append_capture(line)
-	local f_info = utils.file_info(capture_log)
-	if f_info and f_info.size > 1024 * 1024 then
-		return -- a diagnostic, never a disk filler
-	end
-	local f = io.open(capture_log, 'a')
-	if f then
-		f:write(line, '\n')
-		f:close()
-	end
-end
-
--- baseline: only re-count (at start, after a warm-up)
-local function capture_scan(baseline)
-	capture_timer = nil
-	local t0 = mp.get_time()
-	local set = list_objects()
-	local ctx = context()
-	local case_now = cases.current(chain_label())
-	if state == 'warming' or lock_is_fresh() then
-		baseline = true -- a warm-up is writing here
-	end
-	if known and not baseline then
-		local new = 0
-		for f in pairs(set) do
-			if not known[f] then
-				new = new + 1
-			end
-		end
-		if new > 0 then
-			append_capture(string.format(
-				'%s  +%d  %s%s  [cache %s]',
-				os.date('%Y-%m-%d %H:%M:%S'),
-				new,
-				ctx,
-				-- a compile right before a change belongs to the state before it
-				(known_ctx and known_ctx ~= ctx and not known_ctx:find('| no video |', 1, true))
-						and ('  (before: ' .. known_ctx .. ')')
-					or '',
-				tostring(state)
-			))
-			info.captured = (info.captured or 0) + new
-			-- a real gap (the warm-up had run for this fingerprint): learn it,
-			-- and the state before a change too, as the line above says
-			if state == 'fresh' or state == 'done' then
-				local learn = { case_now }
-				if known_case and known_ctx ~= ctx and not known_case.idle then
-					learn[#learn + 1] = known_case
-				end
-				local data = cases.load()
-				local added = cases.merge(data, learn, os.date('%Y-%m-%d %H:%M:%S'))
-				if cases.save(data) then
-					info.learned = (info.learned or 0) + added
-					info.cases = #data.cases
-				end
-			end
-		end
-	end
-	known, known_ctx, known_case = set, ctx, case_now
-	info.scan_ms = math.floor((mp.get_time() - t0) * 1000 + 0.5)
-	publish()
-end
-
-local function capture_soon()
-	if capture_timer then
-		capture_timer:kill()
-	end
-	capture_timer = mp.add_timeout(opts.capture_delay, function()
-		capture_scan(false)
-	end)
 end
 
 -- warmup.lua writes "<done> <total>", what it draws, and its title.
@@ -378,56 +235,12 @@ local function finished(res)
 		end
 	end
 	publish(result, { seconds = seconds, summary = summary })
-	if opts.capture then
-		capture_scan(true) -- what the warm-up added is not a miss
-	end
 end
-
--- ---- learned cases: the old log once, and a status for the menu ---------------------
-
-local function days_since(date)
-	local y, mo, d, h, mi, sec = (date or ''):match('^(%d+)%-(%d+)%-(%d+) (%d+):(%d+):(%d+)$')
-	if not y then
-		return nil
-	end
-	local t = os.time({ year = y, month = mo, day = d, hour = h, min = mi, sec = sec })
-	return math.max(0, math.floor((os.time() - t) / 86400))
-end
-
-local function publish_cases(data)
-	data = data or cases.load()
-	info.cases = #data.cases
-	info.last_gap = data.last_gap
-	publish()
-end
-
--- The capture log written since 2026-09-26 holds the gaps found before
--- learning existed; its real gaps become cases once (title-free, see
--- cases.read_log). `import-log` repeats it on request (tests).
-local function import_log(force)
-	local data = cases.load()
-	if data.imported and not force then
-		return publish_cases(data)
-	end
-	local added = cases.import_log(data)
-	if cases.save(data) then
-		info.imported = added
-		if added > 0 then
-			msg.info(string.format('learned %d shader cases from shader-misses.log', added))
-		end
-	end
-	publish_cases(data)
-end
-mp.register_script_message('import-log', function()
-	import_log(true)
-end)
 
 local function start_warmup()
 	if state ~= 'stale' then
 		return
 	end
-	-- the old log's cases must be in the file before warmup.lua reads it
-	import_log(false)
 	if lock_is_fresh() then
 		return publish('busy') -- another player is warming it right now
 	end
@@ -616,54 +429,5 @@ mp.register_event('shutdown', function()
 	if state == 'warming' then
 		stop_reason = stop_reason or 'quit'
 		cleanup()
-	elseif opts.capture then
-		capture_scan(false)
 	end
 end)
-
--- "Shader capture status" (menu: Video > Shaders): what was learned, and how
--- long real viewing has gone without a new gap - a month without one counts
--- as the capture being filled.
-mp.register_script_message('status', function()
-	local data = cases.load()
-	publish_cases(data)
-	local detail
-	if #data.cases == 0 then
-		detail = opts.capture and 'no gap found yet · capture on' or 'capture off (shader_cache-capture=no)'
-	else
-		local days = days_since(data.last_gap)
-		local since = days == nil and '?' or days == 0 and 'today' or days == 1 and 'yesterday' or (days .. ' days ago')
-		detail = string.format('%d learned · newest gap %s', #data.cases, since)
-		if days and days >= 30 then
-			detail = string.format('%d learned · no new gap for %d days', #data.cases, days)
-		end
-	end
-	mp.commandv('script-message-to', 'notify', 'show', 'shader-cache', 'Shader capture', detail, '5')
-end)
-
-if opts.capture then
-	capture_scan(true)
-	-- off the start-up path: a 1 MiB log parses in a few ms, but nothing waits
-	mp.add_timeout(3, function()
-		import_log(false)
-	end)
-	-- video-params' fields one by one: the whole table can change every frame
-	-- (dynamic HDR metadata), which would keep postponing the scan
-	for _, name in ipairs({
-		'video-params/w',
-		'video-params/h',
-		'video-params/pixelformat',
-		'video-params/colormatrix',
-		'video-params/gamma',
-		'hwdec-current',
-		'glsl-shaders',
-		'glsl-shader-opts',
-		'fullscreen',
-		'osd-dimensions',
-	}) do
-		mp.observe_property(name, 'native', capture_soon)
-	end
-	mp.add_periodic_timer(60, function()
-		capture_scan(false)
-	end)
-end

@@ -1,11 +1,11 @@
 name: mpv auto-update
 
-# Keeps the mpv build current by itself (pin only, since 2026-10-03, the owner's
-# choice: "only code changes need a commit and push from me"). mpv's own files
-# are NOT in git: mpv-build.json pins one of shinchiro's builds, and
-# installer/install-mpv.ps1 - run by updater.bat, and by regression-tests.yml -
-# installs exactly that build. This workflow moves the pin, so on the PC a
-# `git pull` (updater.bat does it) brings the new pin and the install follows.
+# Offers each new mpv build on ONE rolling pull request once it passed the
+# regression suite (pin only since 2026-10-03). mpv's own files are NOT in git:
+# mpv-build.json pins one of shinchiro's builds, and installer/install-mpv.ps1 -
+# run by updater.bat, and by regression-tests.yml - installs exactly that
+# build. The owner's merge moves main's pin; on the PC a `git pull` (updater.bat
+# does it) brings it and the install follows.
 # Modelled on Nawid3333/FastStream's .github/workflows/mpv-updates.yml, which
 # pins its mpv the same way.
 #
@@ -29,17 +29,28 @@ name: mpv auto-update
 #     starts no workflow, so it is dispatched - FastStream's workaround). The
 #     suite installs the NEW build with install-mpv.ps1 and runs the static +
 #     headless tiers.
-#  5. suite passed -> the same json change lands on main, pushed by this
-#     workflow; the mpv/* branches are deleted and an open failure issue is
-#     closed. Every new build that passes is pinned: with nothing in Git LFS any
-#     more, the 2026-10-02 rule "only another mpv commit" (to save LFS storage)
-#     went with it.
+#  5. suite passed -> the tested commit goes to branch `mpv-update`, and ONE
+#     pull request from it offers the build, assigned to the owner. Nothing
+#     merges itself: the headless suite has no GPU, so it cannot see a build
+#     that breaks hardware decoding or the renderer (the 20261002+ builds lost
+#     the Vulkan device on the owner's GPU, 2026-10-04) - his merge is the step
+#     that reaches his PC (updater.bat installs main's pin). The pull request
+#     keeps up: a newer build that passes moves the same branch and retitles
+#     it. Merged (GitHub deletes the branch), or main pinned to it or past it
+#     by hand (closed here), it is done. The mpv/* branches are deleted and an
+#     open failure issue is closed. (2026-10-03 to this change, the commit was
+#     pushed onto main by this workflow.)
 #  6. suite failed -> branch `mpv/<tag>` STAYS as the record that this exact
 #     build was tried (a later run will not retry it; deleting the branch, or
 #     re-running the workflow, tries it again), and ONE issue, "mpv update
 #     failed: <tag>", assigned to and @mentioning the owner so GitHub emails
 #     it: opened once, retitled/commented for further reports, closed by
-#     whichever run pins a build.
+#     whichever run offers a build that passed (or finds main pinning the latest).
+#
+# The pull request is opened by this workflow's token: the repository setting
+# "Allow GitHub Actions to create and approve pull requests" (Settings >
+# Actions > General) must be on. No workflow runs on such a pull request; its
+# check is the suite run the branch already passed, on the same commit.
 #
 # This workflow's own failure (no asset found, API down - anything that is not
 # a build's test result) leaves no branch: the next run tries again, and the
@@ -73,7 +84,8 @@ name: mpv auto-update
       - .github/workflows/mpv-auto-update.yml
 
 permissions:
-  contents: write # push mpv/<tag>, and the new pin onto main
+  contents: write # push mpv/<tag> and mpv-update
+  pull-requests: write # the pull request that offers a build
   issues: write # the failure issue
   actions: write # start regression-tests.yml on the branch
 
@@ -97,7 +109,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Pin the latest upstream build, if tests pass with it
+      - name: Offer the latest upstream build on a pull request, if tests pass with it
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -105,6 +117,8 @@ jobs:
           EVENT: ${{ github.event_name }}
           UPSTREAM: shinchiro/mpv-winbuild-cmake
           PREFIX: "mpv update failed: "
+          # not under mpv/: a passing build deletes every mpv/* branch
+          PR_BRANCH: mpv-update
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -162,6 +176,25 @@ jobs:
             tried=0
           fi
 
+          # The pull request that offers a build: its branch's pin (empty: no
+          # branch), and the open pull request from it (empty: none, or the owner
+          # closed it - then the next build that passes opens a new one).
+          offered=''
+          status=0
+          authgit ls-remote --exit-code --heads origin "refs/heads/$PR_BRANCH" > /dev/null || status=$?
+          case $status in
+            0) offered=$(gh api -H 'Accept: application/vnd.github.raw' \
+                 "repos/$GH_REPO/contents/mpv-build.json?ref=$PR_BRANCH" | jq -r .tag) ;;
+            2) ;;
+            *) echo "git ls-remote failed with $status." >&2; exit 1 ;;
+          esac
+          # gh's --head matches the branch name in any repository: never a fork's.
+          pr=$(gh pr list --repo "$GH_REPO" --state open --head "$PR_BRANCH" --base main --json number,isCrossRepository \
+            --jq '[.[] | select(.isCrossRepository | not)][0].number // ""')
+          # Waiting there already: the latest build, or a newer one.
+          waiting=0
+          if [[ $offered =~ ^[0-9]{8}$ ]] && [ "$offered" -ge "$latest" ]; then waiting=1; fi
+
           # The open failure issue, if any (a list, not a search: the search
           # index lags behind an issue opened minutes ago).
           issue=$(gh issue list --repo "$GH_REPO" --state open --limit 200 --json number,title \
@@ -172,10 +205,13 @@ jobs:
             echo 'Dry run: nothing is pushed, started or reported.'
             if [ "$latest" -le "$pinned" ]; then
               echo "Would do nothing: the pin is on the latest build, or newer."
+              if [ -n "$pr" ]; then echo "Would close #$pr: main pins its build already."; fi
+            elif [ "$waiting" = 1 ]; then
+              echo "Would do nothing: $PR_BRANCH offers $offered already${pr:+ (#$pr)}, for the owner to merge."
             elif [ "$tried" = 1 ]; then
               echo "Would do nothing: branch $branch exists, so $latest failed its tests before."
             else
-              echo "Would move mpv-build.json to $latest ($asset) on $branch, dispatch regression-tests.yml there, and push the same change to main if the suite passes."
+              echo "Would move mpv-build.json to $latest ($asset) on $branch, dispatch regression-tests.yml there, and offer it on a pull request from $PR_BRANCH if the suite passes."
             fi
             if [ -n "$issue" ]; then echo "Open failure issue: #$issue."; fi
             exit 0
@@ -206,6 +242,14 @@ jobs:
             if [ -n "$issue" ]; then
               gh issue close "$issue" --repo "$GH_REPO" --comment "main pins $pinned, and shinchiro has no newer build. Closing."
             fi
+            # Pinned there by hand meanwhile: the offer has nothing left to merge.
+            if [ -n "$pr" ]; then
+              gh pr close "$pr" --repo "$GH_REPO" --delete-branch --comment "main pins $pinned already, this build or a newer one: nothing left to merge here."
+            fi
+            exit 0
+          fi
+          if [ "$waiting" = 1 ]; then
+            echo "$PR_BRANCH offers $offered already${pr:+ (#$pr)}: it waits for the owner's merge."
             exit 0
           fi
           if [ "$tried" = 1 ]; then
@@ -302,7 +346,7 @@ jobs:
             local total=${#build_files[@]} i=0 comma sha
             for f in "${build_files[@]}"; do
               i=$((i + 1))
-              comma=''; [ $i -lt $total ] && comma=,
+              comma=''; [ "$i" -lt "$total" ] && comma=,
               sha=$(sha256sum "$extract/$f" | cut -d' ' -f1)
               printf '    "%s": "%s"%s\n' "$f" "$sha" "$comma"
             done
@@ -375,45 +419,33 @@ jobs:
             gh run cancel "$run_id" --repo "$GH_REPO" || true
           fi
 
-          # --- passed: the pin moves on main -------------------------------------
+          # --- passed: offered on the one pull request, for the owner to merge ----
+          # Nothing lands on main here: his merge is a push to main, which runs
+          # the suite there and, green, publish.yml - as for any other change.
           if [ "$conclusion" = success ]; then
-            # The tested commit when main has not moved meanwhile; otherwise the
-            # same one-file change on top of the new main (a code push in the
-            # meantime). A push that loses a race with another one tries again.
-            landed=''
-            for attempt in 1 2 3; do
-              authgit fetch -q origin main
-              if [ "$(git rev-parse origin/main)" = "$(git rev-parse "$commit^")" ]; then
-                land=$commit
-              else
-                commit_pin origin/main
-                land=$(git rev-parse HEAD)
+            authgit push -q -f origin "$commit:refs/heads/$PR_BRANCH"
+            title="ci: pin mpv $latest (shinchiro)"
+            # shellcheck disable=SC2016 # backticks are Markdown
+            {
+              printf '@%s shinchiro'"'"'s mpv %s passed the regression suite (%s). **It waits for your merge.**\n\n' "$OWNER" "$latest" "$run_url"
+              printf -- '- Release: https://github.com/%s/releases/tag/%s\n' "$UPSTREAM" "$latest"
+              printf -- '- The change: `mpv-build.json` pins %s instead of %s, and nothing else.\n' "$latest" "$pinned"
+              printf -- '- What the suite does NOT cover: it runs static + headless on a runner with no GPU (`--vo=null`), so hardware decoding (Vulkan, d3d11va) and the renderer are untested. The build reaches your PC when you merge this and run `updater.bat`.\n\n'
+              printf 'This pull request keeps up: a newer build that passes moves here, and the title says which. Closing it skips this build; the next one that passes opens a new pull request.\n'
+            } > "$RUNNER_TEMP/pr.md"
+            if [ -n "$pr" ]; then
+              gh pr edit "$pr" --repo "$GH_REPO" --title "$title" --body-file "$RUNNER_TEMP/pr.md" > /dev/null
+              echo "#$pr offers $latest now."
+            else
+              # A branch that offers the build with no pull request would read as
+              # "waits for the owner" on every later run, so nobody would ever see it:
+              # deleted, and the next run offers the build anew.
+              if ! url=$(gh pr create --repo "$GH_REPO" --base main --head "$PR_BRANCH" --title "$title" --body-file "$RUNNER_TEMP/pr.md" --assignee "$OWNER"); then
+                authgit push -q origin --delete "$PR_BRANCH"
+                exit 1
               fi
-              if authgit push -q origin "$land:refs/heads/main"; then
-                landed=$land
-                break
-              fi
-              echo "Push to main lost a race (attempt $attempt) - trying again." >&2
-              sleep 10
-            done
-            if [ -z "$landed" ]; then
-              echo "Could not push the new pin to main." >&2
-              exit 1
-            fi
-            echo "main pins $latest now ($landed)."
-            # A push by this workflow's own token starts no other workflow, so the
-            # public copy (publish.yml, in the workspace only) is started here -
-            # only when main is now exactly the commit the suite passed on. When
-            # main moved during the wait, the pin was re-made on top of commits
-            # whose own suite may have failed or still runs: publishing then
-            # would make them public untested. The next push to main is tested,
-            # and its green run publishes the pin with it.
-            if [ -f .github/workflows/publish.yml ]; then
-              if [ "$landed" = "$commit" ]; then
-                gh workflow run publish.yml --ref main || echo "::warning::Could not start publish.yml - run it by hand."
-              else
-                echo "main moved during the suite run: the pin is published with the next tested push to main."
-              fi
+              pr=${url##*/}
+              echo "Opened #$pr for $latest."
             fi
             # Failed builds' branches stay until a build passes; every mpv/*
             # branch can go once one has.
@@ -423,7 +455,7 @@ jobs:
               authgit push -q origin --delete ${refs//refs\/heads\//}
             fi
             if [ -n "$issue" ]; then
-              gh issue close "$issue" --repo "$GH_REPO" --comment "shinchiro's $latest passed the suite ($run_url) and main pins it now. Closing."
+              gh issue close "$issue" --repo "$GH_REPO" --comment "shinchiro's $latest passed the suite ($run_url): #$pr offers it, for you to merge. Closing."
             fi
           else
             main_ci=$(gh run list --repo "$GH_REPO" --workflow regression-tests.yml --branch main --event push --limit 1 \
@@ -438,7 +470,7 @@ jobs:
               printf -- '- Branch: `%s`, which is main with only the new pin\n' "$branch"
               printf -- '- Release: https://github.com/%s/releases/tag/%s\n' "$UPSTREAM" "$latest"
               printf -- '- The latest suite run on main: %s. If that failed too, the cause may not be mpv.\n\n' "$main_ci"
-              printf 'main keeps pinning %s meanwhile, and updater.bat keeps installing it. Each newer build is tried the day it comes out: one that passes is pinned and closes this issue. shinchiro keeps only about the 30 newest releases, so a pin left behind for weeks disappears from there - then install-mpv.ps1 cannot download it any more.\n\n' "$pinned"
+              printf 'main keeps pinning %s meanwhile, and updater.bat keeps installing it. Each newer build is tried the day it comes out: one that passes is offered on a pull request for you to merge, and closes this issue. shinchiro keeps only about the 30 newest releases, so a pin left behind for weeks disappears from there - then install-mpv.ps1 cannot download it any more.\n\n' "$pinned"
               printf 'To try %s again: delete ref `%s`, then run the workflow (Actions, mpv auto-update, Run workflow).\n' "$latest" "$branch"
             } > "$RUNNER_TEMP/body.md"
             report "failed $latest" "$latest" "$RUNNER_TEMP/body.md"

@@ -36,8 +36,6 @@ suite checks every feature.
   mpv build, shaders and config. If it doesn't, a second, hidden mpv draws
   every preset in every format in the background, with a small progress
   banner. Your video keeps playing and no frames are dropped.
-- Shaders that real playback still had to compile are learned and replayed in
-  later warm-ups.
 
 ![Banners top right: "Resumed at 12:30" and "Compiling shaders 42%" with a progress bar](doc/readme/banners.jpg)
 
@@ -74,8 +72,9 @@ suite checks every feature.
 
 **Updates that are tested first**
 - [`mpv-build.json`](mpv-build.json) pins one of [shinchiro's mpv builds](https://github.com/shinchiro/mpv-winbuild-cmake).
-  A daily GitHub Actions job tries each new build against the test suite and
-  moves the pin only when all tests pass.
+  A daily GitHub Actions job tries each new build against the test suite and,
+  when all tests pass, offers it as one pull request (`mpv-update`) for the
+  owner to merge. Nothing moves the pin by itself (since 2026-10-05).
 - `updater.bat` pulls this repository, installs the pinned build (checking
   every file's SHA-256) and updates yt-dlp.
 

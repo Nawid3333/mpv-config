@@ -1,4 +1,4 @@
--- shader-cache (3/11): a different display driver means a full warm-up in the
+-- shader-cache (3/10): a different display driver means a full warm-up in the
 -- background. Quitting the player while it runs must end it: the runner checks
 -- right after this phase that no host.ps1 or warm-up mpv is left, and phase 4
 -- that no failure was recorded. The runner points this warm-up at a missing
@@ -19,13 +19,8 @@ H.run(function()
 	H.eq('driver changed: full warm-up', R.info.mode, 'full')
 	H.eq('the warm-up runs while the video plays', R.info.state, 'warming')
 	H.check('its lock is taken', R.exists('shader-warmup.lock'))
-	-- the warm-up writes into the cache folder: the capture must not count that
-	local fake = R.fake_object()
-	mp.commandv('script-message-to', 'gpu_toggles', 'set-upscale', '2')
-	-- (also lets the host start its mpv, so the quit has a running warm-up to end)
+	-- lets the host start its mpv, so the quit has a running warm-up to end
 	H.sleep(2)
-	H.check('capture: nothing logged while a warm-up writes', R.info.captured == nil, R.info.captured)
-	os.remove(R.path(fake))
 	H.eq('still running when the player quits', R.info.state, 'warming')
 	H.eq('the video kept playing', mp.get_property_native('pause'), false)
 	R.write_stamp({ config = '00000000', mpv = 'v0.0.0-test' })

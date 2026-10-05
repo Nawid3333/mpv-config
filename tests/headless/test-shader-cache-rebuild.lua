@@ -1,9 +1,9 @@
--- shader-cache (8/11): the menu's "Rebuild shaders". The start finds the
+-- shader-cache (8/10): the menu's "Rebuild shaders". The start finds the
 -- fingerprint that failed before (phases 6/7), so nothing runs by itself; the
 -- rebuild runs anyway: it deletes mpv's own compiled shaders (a faked one
 -- stands in - a --vo=null player compiles nothing), clears the failure and
 -- warms everything while the video plays on. Leaves a stamp with another
--- display driver and two learned cases for phase 9.
+-- display driver for phase 9.
 local base = debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$')
 local H = dofile(base .. 'lib/harness.lua')
 local R = dofile(base .. 'lib/shader-cache.lua')
@@ -26,25 +26,6 @@ H.run(function()
 	H.eq('stamp: driver = the current one', (R.read_stamp() or {}).driver, (R.info.fingerprint or {}).driver)
 	H.eq('the video kept playing', mp.get_property_native('pause'), false)
 	H.check('lock, progress and args files cleaned up', #R.leftovers() == 0, table.concat(R.leftovers(), ', '))
-	-- phase 9 (learned): a new driver, and two learned cases - a software-
-	-- decoded 4:4:4 file with bt.601/sRGB full-range tags through Anime at
-	-- 1.5x, and mpv's empty window - for the full warm-up it starts
-	R.write_cases({
-		{
-			key = 'test-1',
-			w = 320,
-			h = 180,
-			pix = 'yuv444p',
-			matrix = 'bt.601',
-			primaries = 'bt.601-625',
-			gamma = 'srgb',
-			levels = 'full',
-			hwdec = 'no',
-			chain = 'anime',
-			ratio = 1.5,
-			last = '2026-10-02 12:00:00',
-		},
-		{ key = 'test-2', idle = true, last = '2026-10-01 12:00:00' },
-	})
-	R.write_stamp({ driver = '0.0.0.0-learned' })
+	-- phase 9 (idle): a new driver, for the warm-up it starts with no file
+	R.write_stamp({ driver = '0.0.0.0-idle' })
 end)

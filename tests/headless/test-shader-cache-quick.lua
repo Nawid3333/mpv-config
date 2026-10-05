@@ -1,4 +1,4 @@
--- shader-cache (4/11): only the mpv version and shaders/presets changed -> a
+-- shader-cache (4/10): only the mpv version and shaders/presets changed -> a
 -- quick check, which stops after its first clip when nothing needed
 -- compiling, and updates the stamp. Also the other half of phase 3: quitting
 -- mid warm-up left no failure and no control files behind. Leaves a stamp

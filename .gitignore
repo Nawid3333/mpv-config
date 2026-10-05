@@ -44,9 +44,10 @@ portable_config/stream-resume.json.tmp
 # the per-process temp files the state files are written through (2026-10-02)
 portable_config/*.tmp
 
-# shader-cache capture: shaders real playback still compiled (local diagnostic)
+# the shader-cache capture (2026-09-26 to 2026-10-05: shaders real playback still
+# compiled, with titles) and the cases learned from it: nothing writes them any more,
+# but an old copy may still be in a config folder, and must never be committed
 portable_config/shader-misses.log
-# ... and the cases learned from it (title-free, replayed by the warm-up)
 portable_config/shader-cases.json
 portable_config/shader-cases.json.tmp
 

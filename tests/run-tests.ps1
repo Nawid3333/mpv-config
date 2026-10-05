@@ -22,15 +22,7 @@
                 frame pacing at 1x and 3x. Skipped while any mpv is running,
                 because you may be watching something.
 
-    And one tier on its own, run by hand (it is long, ~15-30 min, and takes the
-    screen): gaps. It warms an EMPTY shader cache exactly as the player does,
-    then plays a corpus of every kind of video, picture and HDR/Dolby Vision
-    file (tests/lib/gap-media.ps1) fullscreen with the whole config, under
-    every chain, window size and overlay, and fails each condition that still
-    had to compile a shader (tests/gpu/find-shader-gaps.lua). The gaps go to
-    shader-gaps.json in the work folder as warm-up cases.
-
-    And another, also by hand (~45 min, takes the screen): shadercost. Is the
+    And one tier on its own, run by hand (~45 min, takes the screen): shadercost. Is the
     background shader warm-up worth keeping? 35 cases (every path the Anime
     and Movie upscalers take, SDR/HDR10/HLG/Dolby Vision with each chain,
     10-bit, CPU-decoded, a song with cover art, and mid-video actions: every
@@ -41,7 +33,7 @@
     the warm-up). tests/gpu/measure-shader-cost.lua measures first frame, late
     frames and the longest pause after each action, and checks that the right
     chain ran. A report (shader-cost.md in the work folder) applies the
-    decision rule of 2026-10-05: DELETE, KEEP (slimmed), UNCLEAR or INCOMPLETE.
+    decision rule of 2026-10-05: DELETE, KEEP, UNCLEAR or INCOMPLETE.
 
     Isolation: tests never touch the real portable_config. They run a COPY of
     mpv.exe next to a COPY of portable_config in a temp folder (mpv's portable
@@ -53,9 +45,8 @@
     script-message). Never OS-level keyboard/mouse injection.
 
 .PARAMETER Tier
-    static, headless (default) or gpu. `all` is the same as gpu. gaps runs
-    the static checks and the shader gap hunt only, shadercost the static
-    checks and the cold-vs-warm shader cache measurement only.
+    static, headless (default) or gpu. `all` is the same as gpu. shadercost
+    runs the static checks and the cold-vs-warm shader cache measurement only.
 
 .PARAMETER Filter
     Wildcard on test names, e.g. -Filter upscale or -Filter 'speed*'. For
@@ -80,13 +71,12 @@
 .EXAMPLE
     pwsh tests/run-tests.ps1
     pwsh tests/run-tests.ps1 -Tier gpu
-    pwsh tests/run-tests.ps1 -Tier gaps
     pwsh tests/run-tests.ps1 -Tier shadercost
     pwsh tests/run-tests.ps1 -Filter upscale
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('static', 'headless', 'gpu', 'all', 'gaps', 'shadercost')]
+    [ValidateSet('static', 'headless', 'gpu', 'all', 'shadercost')]
     [string]$Tier = 'headless',
     [string]$Filter = '*',
     [string]$MpvExe,
@@ -103,9 +93,8 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Cfg = $ConfigDir ? (Resolve-Path $ConfigDir).Path : (Join-Path $RepoRoot 'portable_config')
 $TestsDir = $PSScriptRoot
 if (-not $MpvExe) { $MpvExe = Join-Path $RepoRoot 'mpv.exe' }
-$RunHeadless = $Tier -notin @('static', 'gaps', 'shadercost')
+$RunHeadless = $Tier -notin @('static', 'shadercost')
 $RunGpu = $Tier -in @('gpu', 'all')
-$RunGaps = $Tier -eq 'gaps'
 $RunCost = $Tier -eq 'shadercost'
 
 # ---------------------------------------------------------------------------
@@ -401,7 +390,9 @@ function Invoke-StaticCheck {
 
     # -- privacy: this workspace is published to the public mpv-config (2026-10-03) ----
     # What mpv and the scripts write while you watch names what was watched - none of
-    # it may reach git. One sample path per kind (AGENTS.md, "Public copy").
+    # it may reach git. One sample path per kind (AGENTS.md, "Public copy"). The shader
+    # capture's files are no longer written (2026-10-05), but an old copy may still sit
+    # in a config folder.
     $private = @(
         'portable_config/speed.json', 'portable_config/stream-resume.json', 'portable_config/movie-sharpness.json',
         'portable_config/shader-misses.log', 'portable_config/shader-cases.json', 'portable_config/speed.json.1234.tmp',
@@ -757,8 +748,8 @@ function Initialize-TestRoot {
     if (-not $cur -or $cur.Length -ne $item.Length -or $cur.LastWriteTimeUtc -ne $item.LastWriteTimeUtc) {
         Copy-Item $item.FullName $exe -Force
     }
-    # fresh config copy every run; no caches, no state (the user's shader
-    # capture log and learned cases neither: they hold real viewing)
+    # fresh config copy every run; no caches, no state (nor the shader capture
+    # log and learned cases an older config left behind: they hold real viewing)
     $dst = Join-Path $root 'portable_config'
     & robocopy $Cfg $dst /MIR /XD cache watch_later /XF speed.json stream-resume.json shader-misses.log shader-cases.json '*.tmp' /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
@@ -1022,7 +1013,7 @@ function Invoke-RuntimeTest {
 $ShaderCacheOff = '--script-opts-append=shader_cache-auto=no'
 $ShaderCacheOn = @('--script-opts-append=shader_cache-auto=yes', '--script-opts-append=shader_cache-warmup_vo=null',
     '--script-opts-append=shader_cache-warmup_matrix=test', '--script-opts-append=shader_cache-start_delay=0',
-    '--script-opts-append=shader_cache-capture_delay=0.2', '--script-opts-append=shader_cache-idle_delay=0.5')
+    '--script-opts-append=shader_cache-idle_delay=0.5')
 # a warm-up mpv with a missing script idles until it is killed or times out
 $ShaderCacheIdles = $ShaderCacheOn + @('--script-opts-append=shader_cache-warmup_script=C:/nonexistent/warmup.lua')
 $ShaderCacheHangs = $ShaderCacheIdles + @('--script-opts-append=shader_cache-timeout=3')
@@ -1097,7 +1088,6 @@ $HeadlessTests = @(
             @{ Script = 'headless/test-shader-cache-timeout.lua'; File = 'plain/clip.mkv'; Args = $ShaderCacheHangs }
             @{ Script = 'headless/test-shader-cache-failed-before.lua'; File = 'plain/clip.mkv'; Args = $ShaderCacheHangs }
             @{ Script = 'headless/test-shader-cache-rebuild.lua'; File = 'plain/clip.mkv'; Args = $ShaderCacheOn }
-            @{ Script = 'headless/test-shader-cache-learned.lua'; File = 'plain/clip.mkv'; Args = $ShaderCacheOn }
             @{ Script = 'headless/test-shader-cache-idle.lua'; File = $null; Args = $ShaderCacheOn }
             @{ Script = 'headless/test-shader-cache-twice.lua'; File = 'plain/clip.mkv'; Args = $ShaderCacheTwice })
     }
@@ -1176,56 +1166,6 @@ if ($RunGpu) {
                     @{ Script = 'gpu/test-auto-warm-fresh.lua'; File = $clip; Args = $on })
             } @('--fs', '--ao=null', $ShaderCacheOff) -TimeoutSeconds 300
         }
-    }
-}
-
-# The shader gap hunt (find-shader-gaps.lua's header): a full warm-up into an
-# EMPTY cache, the player's own way, then the corpus played on that cache.
-if ($RunGaps) {
-    Write-Section 'shader gaps (real renderer, fullscreen, after a full warm-up)'
-    $running = @(Get-Process mpv -ErrorAction SilentlyContinue)
-    if ($running.Count -gt 0) {
-        Add-Result 'shader-gaps' 'gaps tier' 'SKIP' "mpv is running (pid $($running.Id -join ', ')) - you may be watching; close it and re-run"
-    }
-    else {
-        . (Join-Path $TestsDir 'lib/gap-media.ps1')
-        $exe = Initialize-TestRoot
-        $root = Split-Path -Parent $exe
-        Clear-State $root
-        # only what the warm-up ships, not cases a player learned
-        Remove-Item -LiteralPath (Join-Path $root 'portable_config/shader-cases.json') -ErrorAction SilentlyContinue
-        $gapMedia = Join-Path ([System.IO.Path]::GetTempPath()) 'mpv-shader-gaps-media'
-        # test-media is gitignored: in a worktree it is only beside the mpv.exe under test
-        $realDir = @((Join-Path $RepoRoot 'test-media/shader-corpus'), (Join-Path (Split-Path -Parent $MpvExe) 'test-media/shader-corpus')) |
-            Where-Object { Test-Path $_ } | Select-Object -First 1
-        $corpus = Initialize-GapMedia $exe $gapMedia $realDir
-        $manifest = Join-Path $WorkDir 'gaps-corpus.json'
-        ConvertTo-Json -InputObject @($corpus) -Depth 5 | Set-Content -LiteralPath $manifest -Encoding utf8NoBOM
-        # a 64x64 half-transparent BGRA bitmap for the rgba-overlay condition
-        $overlay = Join-Path $WorkDir 'gaps-overlay.bgra'
-        [IO.File]::WriteAllBytes($overlay, [byte[]](@(255, 255, 255, 128) * 4096))
-        $gapCache = Join-Path $WorkDir 'gaps-cache'
-        Remove-Item -Recurse -Force $gapCache -ErrorAction SilentlyContinue
-        New-Item -ItemType Directory $gapCache | Out-Null
-
-        Write-Host ''
-        Write-Host '-- shader-gaps warm-up (full, empty cache, hidden window)' -ForegroundColor White
-        $warm = & (Join-Path $RepoRoot 'installer/warm-shader-cache.ps1') -MpvExe $exe -CacheDir $gapCache -Quiet
-        foreach ($line in $warm) {
-            if ("$line" -match '^RESULT (PASS|FAIL|INFO) (.*?)(?: :: (.*))?$' -and ($Matches[1] -ne 'INFO' -or $Matches[2] -notmatch ': \d+ compiles$')) {
-                Add-Result 'shader-gaps warm-up' $Matches[2] $Matches[1] ($Matches[3] ?? '')
-            }
-        }
-        $gapsOut = Join-Path $WorkDir 'shader-gaps.json'
-        Remove-Item -LiteralPath $gapsOut -ErrorAction SilentlyContinue
-        $slash = { param($p) $p.Replace('\', '/') }
-        Invoke-RuntimeTest $exe $gapMedia @{ Name = 'shader-gaps'; Phases = @(@{ Script = 'gpu/find-shader-gaps.lua'; File = $null }) } @(
-            '--fs', '--ao=null', '--force-window=yes', "--gpu-shader-cache-dir=$gapCache", $ShaderCacheOff,
-            '--script-opts-append=shader_cache-capture=no', '--script-opts-append=gpu_toggles-remember=no',
-            "--script-opts-append=shader_gaps-manifest=$(& $slash $manifest)",
-            "--script-opts-append=shader_gaps-out=$(& $slash $gapsOut)",
-            "--script-opts-append=shader_gaps-overlay=$(& $slash $overlay)") -TimeoutSeconds 3600
-        Add-Result 'shader-gaps' "gaps as warm-up cases: $gapsOut" 'INFO'
     }
 }
 
@@ -1367,8 +1307,8 @@ $CostClips = @{
 # extra late frames or an extra pause of EventPauseMs or more. Applied to cold
 # (the first video of a kind after an update) and to again (every later one,
 # mpv's own cache only): any hitch, or a start extra of KeepStartMs or more ->
-# KEEP (slimmed: the warm-up stays, the capture log, learned cases and gap hunt
-# go); every start extra under DeleteStartMs and no hitch in both -> DELETE;
+# KEEP (the warm-up stays; its capture log, learned cases and gap hunt went
+# with this verdict, 2026-10-05); every start extra under DeleteStartMs and no hitch in both -> DELETE;
 # else UNCLEAR (judge by eye: a week with shader_cache-auto=no). A run whose
 # checks failed (wrong chain, an error, a driver cache that was not cold)
 # never counts; a case without a valid run in every state -> INCOMPLETE.
@@ -1559,7 +1499,7 @@ function Invoke-CostCase([string]$Exe, [hashtable]$Case, [string]$Path, [string]
     Write-Host "-- $($Case.Label) ($State, run $Rep of $Repeat)" -ForegroundColor White
     $mpvArgs = @("--script=$(Join-Path $TestsDir 'gpu/measure-shader-cost.lua')", '--no-terminal', '--fs', '--ao=null',
         '--force-window=yes', '--idle=yes', '--loop-file=inf', "--gpu-shader-cache-dir=$Cache", $ShaderCacheOff,
-        '--script-opts-append=shader_cache-capture=no', '--script-opts-append=gpu_toggles-remember=no',
+        '--script-opts-append=gpu_toggles-remember=no',
         "--script-opts-append=shader_cost-manifest=$($manifest.Replace('\', '/'))")
     $trouble = Get-GpuTrouble
     if ($trouble) { throw "stopped before $($Case.Label) ($State $Rep): $trouble - no mpv was started" }
@@ -1700,7 +1640,7 @@ function Write-CostReport([object[]]$Cases, [object[]]$Runs, [string[]]$Header, 
     }
     elseif ($v.cold -eq 'KEEP' -or $v.again -eq 'KEEP') {
         $verdict = 'KEEP'
-        $why = 'empty caches cost something you would see (above) - keep the warm-up, slimmed down (drop the capture log, the learned cases and the gap hunt)'
+        $why = 'empty caches cost something you would see (above) - keep the warm-up'
     }
     elseif ($v.cold -eq 'DELETE' -and $v.again -eq 'DELETE') {
         $verdict = 'DELETE'
@@ -1713,7 +1653,7 @@ function Write-CostReport([object[]]$Cases, [object[]]$Runs, [string[]]$Header, 
     $md.Add('')
     $md.Add("**Verdict: $verdict** - $why.")
     $md.Add('')
-    $md.Add("Rule (set 2026-10-05, before the numbers), applied to cold and to again: every start extra under $($CostRule.DeleteStartMs) ms and no hitch in both -> DELETE; a hitch (more than $($CostRule.EventLate) extra late frames, or an extra pause of $($CostRule.EventPauseMs) ms or more, after an action) or a start extra of $($CostRule.KeepStartMs) ms or more in either -> KEEP (slimmed); else UNCLEAR. Runs whose checks failed do not count.")
+    $md.Add("Rule (set 2026-10-05, before the numbers), applied to cold and to again: every start extra under $($CostRule.DeleteStartMs) ms and no hitch in both -> DELETE; a hitch (more than $($CostRule.EventLate) extra late frames, or an extra pause of $($CostRule.EventPauseMs) ms or more, after an action) or a start extra of $($CostRule.KeepStartMs) ms or more in either -> KEEP; else UNCLEAR. Runs whose checks failed do not count.")
     Set-Content -LiteralPath $Path -Value $md -Encoding utf8NoBOM
     Write-Host ''
     foreach ($l in $md) { Write-Host $l }
@@ -1737,8 +1677,6 @@ if ($RunCost) {
     else {
         $exe = Initialize-TestRoot
         $root = Split-Path -Parent $exe
-        # the warm-up gets only what it ships, not cases a player learned
-        Remove-Item -LiteralPath (Join-Path $root 'portable_config/shader-cases.json') -ErrorAction SilentlyContinue
         $cases = @($CostCases | Where-Object { $_.Label -like $Filter })
         # The config it measures decodes with no vulkan (the static rule, checked again here:
         # -ConfigDir can name another config), and the graphics card is fine to start with.

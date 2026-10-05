@@ -1,4 +1,4 @@
--- shader-cache (10/11): mpv opened with nothing to play (a double-click on
+-- shader-cache (9/10): mpv opened with nothing to play (a double-click on
 -- mpv.exe) and a stale cache (another display driver, from phase 8). No video
 -- start to keep clear, so it warms after a moment of idle (idle_delay, 0.5 s
 -- here) instead of waiting for a file.

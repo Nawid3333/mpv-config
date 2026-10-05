@@ -112,51 +112,13 @@ function R.write_stamp(changes)
 end
 
 -- A made-up cache object, as mpv writes one per compiled shader - how the
--- capture tests fake a compile (a --vo=null player compiles nothing).
+-- rebuild test fakes one (a --vo=null player compiles nothing).
 function R.fake_object()
 	local name = string.format('shader_%08x%08x', os.time() % 4294967296, math.random(0, 2147483647))
 	local f = assert(io.open(R.path(name), 'wb'))
 	f:write('test')
 	f:close()
 	return name
-end
-
--- The learned cases (portable_config/shader-cases.json, cases.lua).
-local cases_file = mp.command_native({ 'expand-path', '~~state/shader-cases.json' })
-function R.cases_text()
-	local f = io.open(cases_file, 'r')
-	if not f then
-		return ''
-	end
-	local text = f:read('*a') or ''
-	f:close()
-	return text
-end
-
-function R.read_cases()
-	return utils.parse_json(R.cases_text()) or {}
-end
-
--- Sets the learned cases for the next process; marked imported, so the old
--- log is not read into it again.
-function R.write_cases(list)
-	local f = assert(io.open(cases_file, 'w'))
-	f:write(utils.format_json({ version = 1, imported = 'test', cases = list }))
-	f:close()
-end
-
--- The capture log's last line (portable_config/shader-misses.log).
-function R.last_capture()
-	local f = io.open(mp.command_native({ 'expand-path', '~~state/shader-misses.log' }), 'r')
-	if not f then
-		return nil
-	end
-	local last
-	for line in f:lines() do
-		last = line
-	end
-	f:close()
-	return last
 end
 
 return R

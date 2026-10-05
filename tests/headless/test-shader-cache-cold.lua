@@ -1,4 +1,4 @@
--- shader-cache (1/11): a cache with no stamp (first run, or the folder was
+-- shader-cache (1/10): a cache with no stamp (first run, or the folder was
 -- cleared) is stale. The video starts as always; once it plays, a second mpv
 -- runs the warm-up in the background (here headless, one tiny clip), its
 -- progress feeds the bar, and it writes the stamp.

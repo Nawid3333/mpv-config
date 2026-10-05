@@ -1,4 +1,4 @@
--- shader-cache (11/11): two warm-ups in one session. A warm-up's timeout timer
+-- shader-cache (10/10): two warm-ups in one session. A warm-up's timeout timer
 -- used to look at whatever job was running when it fired: a "Rebuild shaders"
 -- within opts.timeout of an earlier warm-up was aborted by that one's timer as
 -- a "timeout" (2026-10-02), after it had already deleted the compiled shaders.

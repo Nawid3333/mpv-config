@@ -1,17 +1,21 @@
 -- shipped-cases.lua - what real playback needs beyond warmup.lua's fixed matrix,
 -- FOUND BY MEASURING (2026-10-02), so a full warm-up draws it before any video
--- does. Loaded with dofile() by warmup.lua, replayed like the learned cases
--- (cases.lua) after the matrix: one step each, a 1 s clip made once with mpv's
--- own encoder, decoded the same way, drawn through the same chain.
+-- does. Loaded with dofile() by warmup.lua and drawn after the matrix: one step
+-- each, a 1 s clip made once with mpv's own encoder (cases.lua), decoded the
+-- same way, drawn through the same chain.
 --
--- Where the list comes from: `pwsh tests/run-tests.ps1 -Tier gaps` warms an
--- EMPTY cache exactly as the player does, then plays a corpus of every kind of
--- video and picture (tests/lib/gap-media.ps1: codecs, bit depths, 4:2:0/4:4:4,
+-- Where the list came from: the tests' gap hunt (2026-10-02 to 2026-10-05)
+-- warmed an EMPTY cache exactly as the player does, then played a corpus of
+-- every kind of video and picture (codecs, bit depths, 4:2:0/4:4:4,
 -- bt.601/bt.709/bt.2020/P3, HDR10, HLG, Dolby Vision, film grain, 144p to 8K,
--- stills, cover art) under every chain, window size and menu setting, and
--- names each condition that still compiled a shader. Every gap it found is a
--- case here; the same run then has to come out clean. When the corpus or the
--- config grows, run it again and add what it names (tests/README.md).
+-- stills, cover art) under every chain, window size and menu setting; every
+-- condition that still compiled a shader became a case here, until a run came
+-- out clean. The hunt was removed with the player's capture after the owner's
+-- measurement (mpv issue #39); the list is kept by hand now. A kind of video
+-- that still stutters on its first start after a full warm-up (a log with
+-- --msg-level=vo/gpu-next/libplacebo=debug then shows "shaderc compile status"
+-- lines, as warmup.lua counts them) is a new case: add it here and bump
+-- fingerprint.lua's WARMUP_VERSION.
 --
 -- A case: `clip` (cases.clip_recipe(): size, FFmpeg pixel format, encoder,
 -- colour tags, SAR, film grain), hwdec, chain ('off' | 'anime' | 'movie'),

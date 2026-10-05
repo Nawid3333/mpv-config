@@ -1,4 +1,4 @@
--- shader-cache (7/11): the same fingerprint as the failed attempt - no new
+-- shader-cache (7/10): the same fingerprint as the failed attempt - no new
 -- warm-up at this start, and the video starts right away. The first start after
 -- the failure says so on screen, once (it was only in a log a normal start does
 -- not write).

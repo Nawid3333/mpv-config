@@ -9,7 +9,6 @@ needs PowerShell 7 and the real `mpv.exe` (`updater.bat` installs the pinned bui
 | `pwsh tests/run-tests.ps1 -Tier static` | config wiring only, no mpv | ~1 s |
 | `pwsh tests/run-tests.ps1` | static + **headless** (mpv `--vo=null --ao=null`, notify-render `--vo=sixel`: no window, no GPU, no sound) | ~50 s |
 | `pwsh tests/run-tests.ps1 -Tier gpu` | + the real renderer, **fullscreen**, on this PC's GPU | ~5 min |
-| `pwsh tests/run-tests.ps1 -Tier gaps` | static + the **shader gap hunt** (below): every kind of video after a full warm-up, fullscreen | ~7 min |
 | `pwsh tests/run-tests.ps1 -Tier shadercost` | static + **is the shader warm-up worth keeping?** (below): 35 cases with empty shader caches (mpv's and the AMD driver's), again, and after the warm-up, 3 runs each, fullscreen; a report with a verdict | ~45 min |
 | `... -Filter upscale` | only tests whose name matches | |
 | `... -ConfigDir <copy>` | test another `portable_config` (a worktree, an experiment) | |
@@ -84,7 +83,7 @@ Headless (`headless/test-*.lua`):
 | upscale | every mode, key, menu message and file type of `gpu-toggles.lua`, sharpness levels, dscale restore |
 | config | mpv.conf options are in effect for local files AND FastStream files; both decode with d3d11va-copy,no (no vulkan since 2026-10-04) |
 | stream-resume | two processes: resume by fs-id across a new token (announced by a small banner that goes with its file), never for local files, not on duration mismatch, forgotten when finished |
-| shader-cache | ten processes, each set up by the one before: no stamp -> the video starts at once and a (headless, one-clip) warm-up runs in the background in a second mpv, ends after the video started playing, progress reaches 8/8, stamp written, control files gone; stamp matches -> fresh, no warm-up, check < 1 s, and the capture logs a (faked) new cache object after a preset switch with what was on screen and LEARNS it as title-free cases - the state on screen and the one before the switch, as the log line's "(before: ...)" (`shader-cases.json`: chain, size, decoder; no file name); another display driver -> full warm-up, the player quits mid warm-up and the runner finds no host.ps1 or warm-up mpv left, the capture ignores what a warm-up writes; mpv version + shaders changed -> still only a quick check, which stops after its first clip, no failure recorded by the quit; cache files missing + a warm-up that exits 1 at once (as `taskkill /F` leaves it) -> "interrupted", not recorded as failed, counted, stamp untouched; the same + a warm-up that never finishes -> abandoned after the timeout while the video plays on, failure recorded; same fingerprint -> not retried; then the menu's "Rebuild shaders" (`script-message-to shader_cache rebuild`) runs anyway: deletes mpv's compiled shaders (a faked one), clears the failure, full warm-up while the video plays; learned cases (two left by the rebuild phase: a software-decoded yuv444p bt.601/sRGB full-range clip through Anime at 1.5x, and the empty window) are replayed by the next full warm-up after the matrix (8 + 2 steps, the clip made under its exact recipe name), the old capture log is imported (real gaps only, both states of a "(before: ...)" line, a title containing "|" dropped, a stale line skipped) and the menu's status banner counts them; last, mpv opened with NO file (the phase has no `File`, the runner passes `--idle=yes`) and a stale cache warms by itself after `idle_delay` |
+| shader-cache | ten processes, each set up by the one before: no stamp -> the video starts at once and a (headless, one-clip) warm-up runs in the background in a second mpv, ends after the video started playing, progress reaches 8/8, stamp written, control files gone; stamp matches -> fresh, no warm-up, check < 1 s; another display driver -> full warm-up, the player quits mid warm-up and the runner finds no host.ps1 or warm-up mpv left; mpv version + shaders changed -> still only a quick check, which stops after its first clip, no failure recorded by the quit; cache files missing + a warm-up that exits 1 at once (as `taskkill /F` leaves it) -> "interrupted", not recorded as failed, counted, stamp untouched; the same + a warm-up that never finishes -> abandoned after the timeout while the video plays on, failure recorded; same fingerprint -> not retried; then the menu's "Rebuild shaders" (`script-message-to shader_cache rebuild`) runs anyway: deletes mpv's compiled shaders (a faked one), clears the failure, full warm-up while the video plays; last, mpv opened with NO file (the phase has no `File`, the runner passes `--idle=yes`) and a stale cache warms by itself after `idle_delay` |
 
 GPU (`gpu/`, plus `installer/warm-shader-cache.ps1 -Check`):
 
@@ -118,57 +117,6 @@ uosc draws (layout, the two remaining times, badges on screen), the sync panel's
 look (checked by screenshot in a hidden window when it was built), thumbfast
 previews, `mpv-single.exe`, the FastStream extension/native host, file
 associations, the installers' downloads.
-
-## The shader gap hunt (`-Tier gaps`)
-
-Answers one question: after the background warm-up, does any real video still
-have to compile a shader? It warms an **empty** shader cache exactly as the
-player does (`installer/warm-shader-cache.ps1`: hidden window, warmup.lua's
-matrix + `shipped-cases.lua`), then `tests/gpu/find-shader-gaps.lua` plays a
-corpus on that cache in a player with the **whole** config, fullscreen on the
-real GPU, and counts per condition what had to be made: GLSL->SPIR-V compiles
-and new `shader_<hex>` objects in the cache folder (what the player's own
-capture logs). Any of them is a gap - a FAIL with a title-free case
-(cases.lua's format) - and all gaps also land in
-`%TEMP%\mpv-regression\shader-gaps.json`. A slow pipeline creation with
-nothing new in the cache is only an INFO (a cache hit that took > 2 ms).
-
-The corpus (`tests/lib/gap-media.ps1`, built once into
-`%TEMP%\mpv-shader-gaps-media`, ~1 min): H.264/HEVC/AV1/VP9 on both GPU
-decoders (local file and the FastStream path), MPEG-2 PAL/NTSC, MPEG-4, Hi10,
-4:2:2/4:4:4, ProRes, full range; bt.601/bt.709/bt.2020/Display P3, HDR10,
-HLG; 144p to 8K, 1440p (1:1 fullscreen), 2.39:1, anamorphic, vertical; AV1
-film grain; JPEG/PNG (rgb, rgba, gray)/GIF stills, cover art (4:2:0, 4:4:4),
-audio only; ASS subtitles. Each entry plays under its conditions: fullscreen
-with Off/Anime/Movie, a window at the video's size (how mpv opens a local file
-here), half, quarter and maximized windows, Movie Low/High, Deband off, each
-equalizer setting, rotation 90/180, zoom, mpv's OSD text, an RGBA overlay
-(thumbnails, picture subtitles), paused; plus mpv's empty window.
-
-**Real files** cover what no encoder here makes: put Jellyfin's test videos
-(https://repo.jellyfin.org/test-videos/, CC BY-SA) in
-`test-media/shader-corpus/` (gitignored; in a worktree, next to the tested
-mpv.exe) - the 1080p Dolby Vision P5/P8.1/P8.4 and the 1080p/4K HEVC and AV1
-HDR10 files (~450 MB). Without them the hunt runs on the synthetic corpus and
-says so (SKIP).
-
-Closing a gap: add a case to `portable_config/Scripts/shader-cache/shipped-cases.lua`
-that reproduces it (its header says how: a clip recipe, or a shipped file for
-Dolby Vision; the decoder; the chain; 1:1, a ratio or a source size; the menu
-setting), bump `WARMUP_VERSION` in fingerprint.lua, and run the hunt again
-until it is clean. Re-run it after anything that can change which shaders run:
-a new libplacebo, render options in mpv.conf, a new shader or chain, a new
-kind of file you watch.
-
-History (2026-10-02, RX 9070 XT, 2560x1440): 57 gaps of 252 steps with the
-matrix alone -> 12 of 312 with the first shipped cases (all Dolby Vision but
-one) -> 1 with the DV clips (an 8K film in a window at x0.31: a new downscale
-tap count) -> 0 of 324 with the downscale sweep, in two runs from an
-empty cache. What it cannot cover: Dolby Vision titles whose RPU uses
-reshaping the three shipped clips do not (libplacebo builds that pass from the
-RPU's structure), and windows dragged to arbitrary sizes beyond the tap steps
-the sweep covers. The player's capture and its learned cases (cases.lua) still
-catch those: a miss is learned the first time and replayed in every warm-up.
 
 ## Is the shader warm-up worth keeping? (`-Tier shadercost`)
 
@@ -233,13 +181,19 @@ any number was seen**, to cold AND to again (start = first frame + the longest
 pause in the first seconds; extra = that state minus warm):
 
 - **DELETE**: every start extra under 500 ms and no action with a hitch;
-- **KEEP** (slimmed down: the warm-up stays, the capture log, the learned cases
-  and the gap hunt go): any hitch (more than 2 extra late frames, or an extra
+- **KEEP**: any hitch (more than 2 extra late frames, or an extra
   pause of 250 ms or more, after an action) or a start extra of 1 s or more;
 - **UNCLEAR**: otherwise (a start extra of 0.5-1 s) - judge by eye, a week with
   `shader_cache-auto=no`;
 - **INCOMPLETE**: a case without a valid run in each state - fix, re-run it
   (`-Filter`).
+
+The run of 2026-10-05 (RX 9070 XT, mpv issue #39): cold came out KEEP by the
+rule (the worst start +1,061 ms, upscaler switches pausing up to +841 ms longer),
+again DELETE (the worst start +12 ms, no hitch); one of the 35 cases had no valid
+run, so the report said INCOMPLETE. The owner kept the warm-up and removed, the
+same day, what only looked for its gaps: the player's capture log, its learned
+cases and the shader gap hunt. Re-run it after a big driver or libplacebo change.
 
 Before running: close every mpv (the tier refuses otherwise) and every game or
 other program that uses the GPU (their files would keep the driver's cache

@@ -18,21 +18,21 @@
 -- x2/x4 AutoDownscalePre, Movie's FSRCNNX at >= 2x, no sharpening when not
 -- enlarged), 8-bit and 10-bit sources, through d3d11va-copy, the one hardware
 -- decode path (since 2026-10-04 for FastStream streams too: vulkan decoding lost
--- the GPU device, mpv.conf's hwdec section). No vulkan decoding here either -
--- a case recorded with it (cases.lua) is replayed through d3d11va-copy.
+-- the GPU device, mpv.conf's hwdec section). No vulkan decoding here either.
 -- Change the matrix -> bump fingerprint.lua's WARMUP_VERSION (dropping the
 -- vulkan runs on 2026-10-04 needed no bump: every remaining run was already
 -- in the matrix, so a warm cache stays warm).
 --
--- LEARNED cases (2026-10-02, cases.lua): after the matrix, a full warm-up also
--- replays every case real playback needed and the matrix lacked - recorded by
--- the player's capture, title-free - each from a 1 s clip in exactly that
--- format and colour tagging (mpv's own encoder; FFV1 for software decoding,
--- H.264/HEVC for the GPU decoders), decoded the same way, through the same
--- chain and sharpness, at the same displayed scale (video-zoom against this
--- window's fit). mpv's empty window is a case too (stop, then draw idle). A
--- quick check replays them only when it escalates to a full warm-up. A case
--- whose clip cannot be made is skipped with a RESULT INFO line, never fatal.
+-- SHIPPED cases (shipped-cases.lua, 2026-10-02): after the matrix, a full
+-- warm-up also draws what real playback needs beyond it (HDR, film grain,
+-- stills, the menu's video settings ...), each from a 1 s clip in exactly that
+-- format and colour tagging (mpv's own encoder, cases.lua), decoded the way
+-- the case says, through its chain, at its displayed scale (video-zoom
+-- against this window's fit). A quick check draws them only when it
+-- escalates to a full warm-up. A case whose clip cannot be made is skipped
+-- with a RESULT INFO line, never fatal. (2026-10-02 to 2026-10-05 it also
+-- replayed cases LEARNED from real playback; removed with the player's
+-- capture after the owner's measurement, mpv issue #39.)
 --
 -- How long it takes, and why (measured 2026-09-26, cold cache, Ryzen 5 7600X):
 -- the real compile work is ~1.3 s (GLSL->SPIR-V 1.2 s, pipelines 0.1 s). The
@@ -76,7 +76,6 @@ local o = {
 	matrix = 'full', -- 'test': one tiny clip, for the headless tests
 	settle_frames = 3, -- frames stepped after a switch before it counts as drawn (see settle())
 	play_frames = 3, -- then frames played (see settle())
-	learned = true, -- replay the learned cases (cases.lua) in a full warm-up
 	shipped = true, -- replay shipped-cases.lua in a full warm-up (not with matrix=test)
 }
 options.read_options(o, 'shader_warmup')
@@ -235,8 +234,8 @@ local H264 = { codec = 'libx264', pix = 'yuv420p', tag = 'h264 8-bit', bits = '8
 local HEVC10 = { codec = 'libx265', pix = 'yuv420p10le', tag = 'hevc 10-bit', bits = '10-bit' }
 local PATHS = { ['d3d11va-copy'] = 'hardware', no = 'software' }
 
--- The decoder a case is drawn with: what it recorded, except vulkan (any
--- form), which this config no longer decodes with (see the header).
+-- The decoder a case is drawn with: its own, except vulkan (any form), which
+-- this config no longer decodes with (see the header).
 local function decoder_for(hwdec)
 	if hwdec == nil or hwdec == '' then
 		return 'no'
@@ -281,24 +280,8 @@ end
 local QUICK = o.matrix == 'test' and 1 or 4 -- the first QUICK runs
 local STEPS_PER_RUN = 4
 
--- the learned cases: clips to replay, and whether the empty window is one
-local learned, learned_idle = {}, false
-if o.learned then
-	for _, c in ipairs(cases.replay_list()) do
-		if c.idle then
-			learned_idle = true
-		else
-			c.recipe = cases.recipe(c)
-			if c.recipe then
-				learned[#learned + 1] = c
-			else
-				out('RESULT INFO learned case skipped (no clip for it): ' .. cases.describe(c))
-			end
-		end
-	end
-end
 -- the shipped cases (shipped-cases.lua): measured gaps of the matrix, drawn
--- before the learned ones in every full warm-up
+-- after it in every full warm-up
 local shipped = {}
 if o.shipped and o.matrix ~= 'test' then
 	for _, c in ipairs(dofile(here .. 'shipped-cases.lua')) do
@@ -310,9 +293,6 @@ if o.shipped and o.matrix ~= 'test' then
 			out('RESULT INFO shipped case skipped (no clip for it): ' .. cases.describe_shipped(c))
 		end
 	end
-end
-local function learned_steps()
-	return #shipped + #learned + (learned_idle and 1 or 0)
 end
 
 -- Generated once with this mpv's own encoder; the folder name is shared with
@@ -362,35 +342,23 @@ local function ensure_clips(limit)
 	return true
 end
 
--- A learned case's clip, made once like the matrix's; nil when this build
--- cannot make it (that case is then skipped, the rest go on). At most
--- NEW_CLIPS are made per warm-up (a 4K 10-bit clip is a few seconds of
--- encoding): the rest wait for the next full warm-up, which keeps this one
--- well inside its time limit.
--- A shipped case's clips are all made in the first full warm-up (about 20
--- small encodes, once): without them that warm-up would not be complete.
-local NEW_CLIPS = 12
-local made = 0
-local function ensure_case_clip(c, kind, what)
+-- A shipped case's clip, made once like the matrix's; nil when this build
+-- cannot make it (that case is then skipped, the rest go on). They are all
+-- made in the first full warm-up (about 20 small encodes, once): without them
+-- that warm-up would not be complete.
+local function ensure_case_clip(c, what)
 	if c.recipe.file then
 		if utils.file_info(c.recipe.file) then
 			return c.recipe.file
 		end
-		out('RESULT INFO ' .. kind .. ' case skipped (file missing: ' .. c.recipe.file .. '): ' .. what)
+		out('RESULT INFO shipped case skipped (file missing: ' .. c.recipe.file .. '): ' .. what)
 		return nil
 	end
 	local path = utils.join_path(clip_dir, c.recipe.name)
 	if utils.file_info(path) then
 		return path
 	end
-	if kind == 'learned' and made >= NEW_CLIPS then
-		out('RESULT INFO learned case deferred to the next warm-up: ' .. what)
-		return nil
-	end
-	if kind == 'learned' then
-		made = made + 1
-	end
-	progress(status.done, status.total, 'Making a clip for a ' .. kind .. ' case')
+	progress(status.done, status.total, 'Making a clip for a shipped case')
 	local part = path .. '.part.mkv'
 	local args = { exe, '--no-config', '--really-quiet', c.recipe.source, '--o=' .. part, '--ovc=' .. c.recipe.ovc }
 	if c.recipe.ovcopts ~= '' then
@@ -399,10 +367,10 @@ local function ensure_case_clip(c, kind, what)
 	local res = run(args)
 	if not (res and res.status == 0 and utils.file_info(part) and os.rename(part, path)) then
 		os.remove(part)
-		out('RESULT INFO ' .. kind .. ' case skipped (clip failed: ' .. c.recipe.name .. '): ' .. what)
+		out('RESULT INFO shipped case skipped (clip failed: ' .. c.recipe.name .. '): ' .. what)
 		return nil
 	end
-	out('RESULT INFO generated clip for a ' .. kind .. ' case: ' .. c.recipe.name)
+	out('RESULT INFO generated clip for a shipped case: ' .. c.recipe.name)
 	return path
 end
 
@@ -485,7 +453,7 @@ co = coroutine.create(function()
 	-- the UI overlay (uosc) and OSD text are passes too
 	mp.commandv('script-binding', 'uosc/flash-ui')
 	local limit = o.quick and QUICK or #runs
-	status.total = limit * STEPS_PER_RUN + (o.quick and 0 or learned_steps())
+	status.total = limit * STEPS_PER_RUN + (o.quick and 0 or #shipped)
 	local quick_ok = false
 	local i = 0
 	while i < limit do
@@ -518,7 +486,7 @@ co = coroutine.create(function()
 				-- something changed: do everything
 				limit = #runs
 				status.title = 'Compiling shaders'
-				status.total = limit * STEPS_PER_RUN + learned_steps()
+				status.total = limit * STEPS_PER_RUN + #shipped
 				ok, err = ensure_clips(limit)
 				if not ok then
 					out('RESULT FAIL warm-up clips :: ' .. err)
@@ -527,24 +495,23 @@ co = coroutine.create(function()
 			end
 		end
 	end
-	-- the shipped and the learned cases, in a full warm-up (a quick one that
-	-- found nothing stops above: the cache was current for the matrix, and so
-	-- for them)
-	if not quick_ok and (#shipped > 0 or #learned > 0 or learned_idle) then
+	-- the shipped cases, in a full warm-up (a quick one that found nothing
+	-- stops above: the cache was current for the matrix, and so for them)
+	if not quick_ok and #shipped > 0 then
 		local CHAIN_MODE = { off = '0', anime = '2', movie = '3' }
-		local overlay_file = #shipped > 0 and aux_file('warmup-overlay.bgra', string.rep('\255\255\255\128', 64 * 64))
-		local subs_file = #shipped > 0 and aux_file('warmup-subs.ass', SUBS_ASS)
-		local function replay(c, kind)
-			local what = kind == 'shipped' and cases.describe_shipped(c) or cases.describe(c)
-			local path = ensure_case_clip(c, kind, what)
+		local overlay_file = aux_file('warmup-overlay.bgra', string.rep('\255\255\255\128', 64 * 64))
+		local subs_file = aux_file('warmup-subs.ass', SUBS_ASS)
+		local function replay(c)
+			local what = cases.describe_shipped(c)
+			local path = ensure_case_clip(c, what)
 			if not path then
 				return
 			end
-			local label = kind .. ' ' .. what
+			local label = 'shipped ' .. what
 			local done = actions_done()
-			-- the displayed scale: a shipped case is fitted, 1:1 or at the scale
-			-- of its as_size; a learned one has its ratio. Both by video-zoom
-			-- (a power of 2) on top of the fit r0 of this window.
+			-- the displayed scale: fitted, 1:1, at the scale of its as_size, or
+			-- its ratio - by video-zoom (a power of 2) on top of the fit r0 of
+			-- this window.
 			local zoom = 0
 			local d = mp.get_property_native('osd-dimensions') or {}
 			local w, h = c.w or (c.clip or {}).w, c.h or (c.clip or {}).h
@@ -578,16 +545,13 @@ co = coroutine.create(function()
 			if c.overlay and overlay_file then
 				mp.commandv('overlay-add', '1', '40', '40', overlay_file, '0', 'bgra', '64', '64', '256')
 			end
-			step(label, done + 3, (kind == 'shipped' and 'Shipped case · ' or 'Learned case · ') .. what)
+			step(label, done + 3, 'Shipped case · ' .. what)
 			if c.overlay then
 				mp.commandv('overlay-remove', '1')
 			end
 		end
 		for _, c in ipairs(shipped) do
-			replay(c, 'shipped')
-		end
-		for _, c in ipairs(learned) do
-			replay(c, 'learned')
+			replay(c)
 		end
 		-- back to the player's defaults for what follows
 		mp.set_property_number('video-zoom', 0)
@@ -597,21 +561,6 @@ co = coroutine.create(function()
 			mp.set_property_number(p, 0)
 		end
 		mp.set_property_number('video-rotate', 0)
-		if learned_idle then
-			-- mpv's empty window: no video, only the UI over the background
-			local before = compiles
-			status.detail = 'Learned case · empty window'
-			write_progress()
-			mp.command('stop')
-			sleep(0.6)
-			local n = compiles - before
-			steps, total = steps + 1, total + n
-			if n > 0 then
-				missed[#missed + 1] = 'learned empty window (' .. n .. ')'
-			end
-			out(string.format('RESULT INFO learned empty window: %d compiles', n))
-			progress(steps, status.total, status.detail)
-		end
 	end
 	upscale('set-movie-sharpness', 'auto')
 	upscale('set-upscale', '1')

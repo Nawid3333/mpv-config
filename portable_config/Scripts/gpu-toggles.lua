@@ -624,10 +624,10 @@ local upscale_active_preset = nil -- nil | UPSCALE_ANIME | UPSCALE_MOVIE_SSSR | 
 local upscale_active_key = 'off' -- chain_key() of what is loaded
 
 -- The preset family on screen ('anime' | 'movie' | 'off') in
--- user-data/gpu-toggles/preset: the shader cache's capture labels what it
--- learns by it (Scripts/shader-cache/main.lua, 2026-10-03) - it used to guess
--- from the shader file names, so a chain built from other files (another
--- model) would have been learned as "off" and replayed without its shaders.
+-- user-data/gpu-toggles/preset: the tests read which chain ran from it
+-- (headless/test-upscale.lua, gpu/measure-shader-cost.lua), not from the
+-- shader file names, which another model's chain would not match. (Added
+-- 2026-10-03 for the shader cache's capture, removed 2026-10-05.)
 local function publish_family(preset)
 	local family = 'off'
 	if preset == UPSCALE_ANIME then

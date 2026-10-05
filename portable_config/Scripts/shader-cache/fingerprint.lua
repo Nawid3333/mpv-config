@@ -36,6 +36,8 @@ local M = {}
 -- 4 (2026-10-02): a full warm-up also replays shipped-cases.lua, the gaps the
 -- tests' gap hunt (run-tests.ps1 -Tier gaps) measured: HDR10, HLG, P3, film
 -- grain, stills, 1:1 windows, 8K, the menu's video settings.
+-- No bump on 2026-10-05, when the learned cases were removed: the warm-up then
+-- draws less, and a cache warmed with them still holds everything it draws.
 M.WARMUP_VERSION = 4
 
 -- The stamp and the control files live in the cache folder itself, so

@@ -33,7 +33,7 @@ re-created by the scripts in `installer/`.
 | Artifact | In the repo? | Re-created by |
 |---|---|---|
 | Shader cache `portable_config/cache/` | no: auto-generated (gitignored) | mpv: the startup check warms it in the background after the first video starts (~8 s, once) |
-| `speed.json`, `stream-resume.json`, `movie-sharpness.json`, `shader-misses.log` in `portable_config/` | no: personal state (gitignored) | the scripts, as you use mpv |
+| `speed.json`, `stream-resume.json`, `movie-sharpness.json` in `portable_config/` | no: personal state (gitignored) | the scripts, as you use mpv |
 | mpv's own files: `mpv.exe`, `mpv.com`, `d3dcompiler_43.dll`, `doc/manual.pdf`, `doc/mpbindings.png`, `mpv-register.bat` / `mpv-unregister.bat`, `installer/mpv-install.bat` / `mpv-uninstall.bat` / `mpv-icon.ico`, `mpv/fonts.conf` | no (gitignored, since 2026-10-03): `mpv-build.json` pins the build | `updater.bat` (installer\install-mpv.ps1): downloads the pinned archive, checks every file's SHA-256 |
 | `yt-dlp.exe` | no (gitignored, since 2026-10-03) | `updater.bat`: `yt-dlp -U`, or a fresh download checked against GitHub's SHA-256 |
 
@@ -129,5 +129,5 @@ already exists and always verifies results at the end.
 |---|---|
 | uosc | in the repository, by hand: a new uosc must get the local changes AGENTS.md lists carried over (the static tests check them). Not uosc's own updater (it replaces `Scripts/uosc` and drops them; the menu entry is gone) |
 | Anime4K etc. | re-run `install-shaders.ps1` (re-downloads) |
-| mpv.exe, yt-dlp | Run `updater.bat`. It pulls the repo (CI moves `mpv-build.json` to each new mpv build that passes the regression suite, by itself), installs exactly that build, and updates yt-dlp - nothing to commit. A build that fails the suite is not pinned (CI opens one "mpv update failed" issue); the pin, and your mpv, stay where they were. The next mpv start re-checks the shader cache by itself in the background (a quick check for a new mpv, a full warm-up for a new libplacebo) |
+| mpv.exe, yt-dlp | Run `updater.bat`. It pulls the repo (a new mpv build that passes the regression suite is offered as one pull request, `mpv-update`; merging it moves `mpv-build.json`), installs exactly that build, and updates yt-dlp - nothing to commit. A build that fails the suite is not pinned (CI opens one "mpv update failed" issue); the pin, and your mpv, stay where they were. The next mpv start re-checks the shader cache by itself in the background (a quick check for a new mpv, a full warm-up for a new libplacebo) |
 | This doc | keep **sections 1-3** (repo layout tables, install steps) in sync when files/scripts are added or removed - they change rarely and are specific to this doc. Section 4 deliberately POINTS to AGENTS.md for cycle shapes/defaults/policy instead of restating them - if you're updating a preset name or default state, that edit belongs in AGENTS.md only; leave this doc's wording as "see AGENTS.md" rather than reintroducing a specific claim that can go stale again (see AGENTS.md's "Notes for future agents" for the full reasoning) |

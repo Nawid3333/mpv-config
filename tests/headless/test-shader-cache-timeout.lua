@@ -1,4 +1,4 @@
--- shader-cache (6/11): fewer cache files than the stamp recorded (still) -> full
+-- shader-cache (6/10): fewer cache files than the stamp recorded (still) -> full
 -- warm-up. This one never finishes (the runner points it at a missing script
 -- and sets timeout=3): it is abandoned while the video plays on, and the
 -- failure is recorded so the same fingerprint is not retried at every start.

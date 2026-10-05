@@ -1,4 +1,4 @@
--- shader-cache (5/11): fewer cache files than the stamp recorded -> full
+-- shader-cache (5/10): fewer cache files than the stamp recorded -> full
 -- warm-up, which is ended from outside (the runner swaps in a warm-up that
 -- exits 1, like taskkill /F). That is not the warm-up's own failure: nothing
 -- is recorded as failed, the stamp stays stale so the next start retries, and
