@@ -309,13 +309,23 @@ Anime4K's own stages follow the scale too. The quality was compared at 1.33x,
 The background shader compile adds clip sizes for any scale your screen
 reaches that the standard sizes miss, and runs again when you change screens.
 
-**GPUs.** Every GPU computes the same picture; only the speed differs. On the
-RX 9070 XT, Anime4K takes about 4.6 ms per 1080p frame on a 1440p screen, and
-Movie 2-5 ms. A GPU a tenth as fast would stutter. So the first time a chain
-runs, Auto reads its time from the GPU's own timers. If it needs more than
-half of a frame's time, Auto switches to Anime4K's lighter "Fast" set (or
-Movie without FSRCNNX) and tells you with the number. **Settings ▸ Upscaling
-quality** shows what was measured, and you can still pick High.
+**GPUs.** Every GPU computes the same picture; only the speed differs. So the
+first time a chain runs, Auto reads its time from the GPU's own timers. If it
+needs more than half of a frame's time, Auto switches to Anime4K's lighter
+"Fast" set (or Movie without FSRCNNX) and tells you with the number.
+**Settings ▸ Upscaling quality** shows what was measured, and you can still
+pick High. Measured on two GPUs (GPU time per frame; a 24 fps video has
+41.7 ms per frame, and Auto wants a chain to fit in half of it):
+
+| Anime on a 1440p screen | 1080p video | 720p video | 480p video |
+|---|---|---|---|
+| RX 9070 XT, High / Fast | 3.5 / 1.5 ms | 2.0 / 0.9 ms | 1.1 / 0.6 ms |
+| Ryzen 5 7600X built-in graphics, High / Fast | 196 / 75 ms | 115 / 52 ms | 48 / 24 ms |
+
+On the RX 9070 XT, Auto keeps High everywhere. On the built-in graphics,
+Auto takes Fast where it fits (the 480p video). Where even Fast does not fit,
+Auto turns upscaling off for that screen and video size and says so. Settings
+▸ Upscaling quality can still run High or Fast there.
 
 **Requirements:** Windows 10 or 11 (64-bit) and a CPU with AVX2 (Intel from
 2013, AMD from 2015). The picture is drawn with Vulkan; a PC without a working

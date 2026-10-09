@@ -596,13 +596,20 @@ local function frame_budget_ms()
 	return 1000 / video_fps() * BUDGET_SHARE
 end
 
--- Auto's choice: the high chain unless it was measured too slow here.
+-- Auto's choice: the high chain unless it was measured too slow here, then the
+-- fast one unless that was too, then none - upscaling off for that screen and
+-- source size (2026-10-09, the user's choice after the measurement: on the
+-- Ryzen iGPU even Anime4K Fast took 75 ms per frame for 1080p on 1440p and
+-- dropped 70 frames in 6 s). nil = off.
 local function auto_pick(high, fast)
-	local ms = cost_of(high)
-	if ms and ms > frame_budget_ms() then
-		return fast
+	local budget = frame_budget_ms()
+	for _, preset in ipairs({ high, fast }) do
+		local ms = cost_of(preset)
+		if not (ms and ms > budget) then
+			return preset
+		end
 	end
-	return high
+	return nil
 end
 
 local function pick(high, fast)
@@ -619,13 +626,14 @@ local function current_anime_preset()
 end
 
 -- Picks the Movie chain by the real scale to the display (see the table above):
--- at 2x and more FSRCNNX + SSimSuperRes, unless the quality takes the fast one.
+-- at 2x and more FSRCNNX + SSimSuperRes, unless the quality takes the fast one;
+-- below 2x SSimSuperRes is the only chain (Auto: off when even that does not fit).
 local function current_movie_preset()
 	local s = display_scale()
 	if s and s >= MOVIE_FSRCNNX_MIN_SCALE then
 		return pick(UPSCALE_MOVIE_FSRCNNX, UPSCALE_MOVIE_SSSR)
 	end
-	return UPSCALE_MOVIE_SSSR
+	return pick(UPSCALE_MOVIE_SSSR, UPSCALE_MOVIE_SSSR)
 end
 
 -- Whether a `sharpen` preset gets adaptive-sharpen right now: strength above
@@ -895,9 +903,16 @@ local function update_upscale_button()
 		end
 	else
 		local preset = preset_for_mode(upscale_mode)
-		local preset_name = preset and preset.name or 'Unknown'
-		badge = UPSCALE_BADGES[preset_name] or '?'
-		tooltip = 'Upscale: ' .. preset_name .. sharpen_suffix(preset)
+		if preset then
+			badge = UPSCALE_BADGES[preset.name] or '?'
+			tooltip = 'Upscale: ' .. preset.name .. sharpen_suffix(preset)
+		else
+			-- quality Auto measured even the fast chain too slow here
+			badge = 'Off'
+			tooltip = 'Upscale: '
+				.. (upscale_mode == 2 and 'Anime' or 'Movie')
+				.. ' is off here - too slow on this GPU (Settings > Upscaling quality)'
+		end
 	end
 	set_uosc_button('upscale', {
 		icon = 'auto_awesome',
@@ -922,11 +937,25 @@ local function quality_family()
 	return is_anime_content() and 'anime' or 'movie'
 end
 
+-- The family's high and fast chain for this scale (Movie below 2x: one chain).
 local function family_chains(family)
 	if family == 'anime' then
 		return UPSCALE_ANIME, UPSCALE_ANIME_FAST
 	end
-	return UPSCALE_MOVIE_FSRCNNX, UPSCALE_MOVIE_SSSR
+	local s = display_scale()
+	if s and s >= MOVIE_FSRCNNX_MIN_SCALE then
+		return UPSCALE_MOVIE_FSRCNNX, UPSCALE_MOVIE_SSSR
+	end
+	return UPSCALE_MOVIE_SSSR, UPSCALE_MOVIE_SSSR
+end
+
+-- 'High' | 'Fast' | 'Off': what quality Auto runs for that family here.
+local function auto_word(high, fast)
+	local preset = auto_pick(high, fast)
+	if not preset then
+		return 'Off'
+	end
+	return preset == high and 'High' or 'Fast'
 end
 
 -- "Auto (High)" etc.
@@ -934,8 +963,34 @@ local function quality_label()
 	if quality ~= 'auto' then
 		return QUALITY_NAMES[quality]
 	end
-	local high, fast = family_chains(quality_family())
-	return 'Auto (' .. (auto_pick(high, fast) == fast and 'Fast' or 'High') .. ')'
+	return 'Auto (' .. auto_word(family_chains(quality_family())) .. ')'
+end
+
+-- Why quality Auto runs nothing for the upscaling that is asked for, or nil.
+local function auto_off_note()
+	if quality ~= 'auto' or upscale_mode == 0 then
+		return nil
+	end
+	local family
+	if upscale_mode == 2 then
+		family = 'anime'
+	elseif upscale_mode == 3 then
+		family = 'movie'
+	elseif is_faststream_content() then
+		family = is_anime_content() and 'anime' or 'movie'
+	else
+		return nil
+	end
+	local high, fast = family_chains(family)
+	if auto_pick(high, fast) then
+		return nil
+	end
+	return string.format(
+		'%s took %.1f ms per frame on this GPU (%.0f fit) · Settings > Upscaling quality runs it anyway',
+		short_name(fast),
+		cost_of(fast) or 0,
+		frame_budget_ms()
+	)
 end
 
 -- uosc menu items, with keep_open: a choice shows its effect in the open menu
@@ -944,7 +999,7 @@ end
 local function quality_items()
 	local family = quality_family()
 	local high, fast = family_chains(family)
-	local auto_fast = auto_pick(high, fast) == fast
+	local word = auto_word(high, fast)
 	local budget = frame_budget_ms()
 	local function chain_hint(preset, recommended)
 		local hint = short_name(preset) .. ' · ' .. ms_text(cost_of(preset))
@@ -953,21 +1008,21 @@ local function quality_items()
 	return {
 		{
 			title = 'Auto (measured on this PC)',
-			hint = auto_fast and 'Fast now' or 'High now',
+			hint = word == 'Off' and 'Off now - too slow here' or (word .. ' now'),
 			value = 'script-message-to gpu_toggles set-quality auto',
 			active = quality == 'auto',
 			keep_open = true,
 		},
 		{
 			title = 'High',
-			hint = chain_hint(high, not auto_fast),
+			hint = chain_hint(high, word == 'High'),
 			value = 'script-message-to gpu_toggles set-quality high',
 			active = quality == 'high',
 			keep_open = true,
 		},
 		{
 			title = 'Fast',
-			hint = chain_hint(fast, auto_fast),
+			hint = chain_hint(fast, word == 'Fast'),
 			value = 'script-message-to gpu_toggles set-quality fast',
 			active = quality == 'fast',
 			keep_open = true,
@@ -1065,8 +1120,8 @@ local function publish_quality()
 	mp.set_property_native('user-data/gpu-toggles/quality', {
 		setting = quality,
 		label = quality_label(),
-		anime = current_anime_preset().id,
-		movie = current_movie_preset().id,
+		anime = (current_anime_preset() or { id = 'off' }).id,
+		movie = (current_movie_preset() or { id = 'off' }).id,
 		screen = screen,
 		screen_label = screen_label(),
 		detected = d.detected_w and string.format('%dx%d', d.detected_w, d.detected_h) or nil,
@@ -1140,6 +1195,8 @@ local function apply_upscale(announce)
 	-- the OSD even when both resolve to the same chain; named modes 2/3 need
 	-- no qualifier - the preset name is the whole message.
 	local suffix = upscale_mode == 1 and ' (Auto)' or nil
+	-- off because quality Auto measured even the fast chain too slow here
+	local off_note = not preset and auto_off_note() or nil
 
 	if preset == upscale_active_preset and chain_key(preset) == upscale_active_key then
 		-- Same shader chain as what is already loaded - skip the recompile,
@@ -1147,7 +1204,9 @@ local function apply_upscale(announce)
 		-- two different modes can resolve to the same preset (Auto on an
 		-- anime file and the Anime choice are the same table) - cycling
 		-- between them would otherwise look like a dead keypress.
-		if announce then
+		if announce and off_note then
+			notify('Upscaling off here', off_note)
+		elseif announce then
 			announce_preset(preset, suffix)
 		end
 		update_upscale_button()
@@ -1164,6 +1223,9 @@ local function apply_upscale(announce)
 		-- preset here would make the next switch back to it a no-op.
 		upscale_active_preset = nil
 		upscale_active_key = 'off'
+	end
+	if off_note then
+		notify('Upscaling off here', off_note) -- in place of "Shaders: off"
 	end
 	publish_family(upscale_active_preset)
 	update_upscale_button()
@@ -1223,12 +1285,15 @@ local function measure()
 	local budget = frame_budget_ms()
 	if ms > budget and not told[key] then
 		told[key] = true
-		local fast = (preset == UPSCALE_ANIME and UPSCALE_ANIME_FAST)
-			or (preset == UPSCALE_MOVIE_FSRCNNX and UPSCALE_MOVIE_SSSR)
+		local fast = preset == UPSCALE_ANIME or preset == UPSCALE_MOVIE_FSRCNNX -- a faster chain exists
 		local spent = string.format('%s took %.1f ms per frame here (%.0f fit)', short_name(preset), ms, budget)
-		if fast and quality == 'auto' then
-			apply_upscale(false) -- auto_pick() takes the fast chain now
-			notify('Upscaling quality: Fast', spent .. ' · Settings to change')
+		if quality == 'auto' then
+			apply_upscale(false) -- auto_pick(): the fast chain now, or none when this was it
+			if upscale_active_preset then
+				notify('Upscaling quality: Fast', spent .. ' · Settings to change')
+			else
+				notify('Upscaling off here', spent .. ' · Settings > Upscaling quality runs it anyway')
+			end
 		elseif fast then
 			notify('Upscaling may stutter', spent .. ' · Settings > Upscaling quality > Fast')
 		else
@@ -1323,7 +1388,8 @@ local function set_quality(value)
 	end
 	quality = value
 	save_upscale_state()
-	if upscale_active_preset then
+	-- also when Auto has it off right now: a choice made here may turn it back on
+	if upscale_mode ~= 0 then
 		apply_upscale(false)
 	end
 	notify('Upscaling quality: ' .. quality_label(), running_detail())
@@ -1339,7 +1405,8 @@ local function set_screen(value)
 	screen = value
 	save_upscale_state()
 	forget_display_scale()
-	if upscale_active_preset then
+	-- also when Auto has it off right now: a choice made here may turn it back on
+	if upscale_mode ~= 0 then
 		apply_upscale(false)
 	end
 	notify('Screen for upscaling: ' .. screen_label(), running_detail())
@@ -1352,7 +1419,8 @@ local function forget_measurements()
 	costs = {}
 	told = {}
 	save_upscale_state()
-	if upscale_active_preset then
+	-- also when Auto has it off right now: a choice made here may turn it back on
+	if upscale_mode ~= 0 then
 		apply_upscale(false)
 	end
 	notify('Measurements cleared', 'the next upscaled video is measured again')
@@ -1370,7 +1438,8 @@ local function set_cost(id, value)
 	end
 	costs[key] = ms
 	save_upscale_state()
-	if upscale_active_preset then
+	-- also when Auto has it off right now: a choice made here may turn it back on
+	if upscale_mode ~= 0 then
 		apply_upscale(false)
 	end
 	update_menus()

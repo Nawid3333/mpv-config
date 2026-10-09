@@ -209,6 +209,30 @@ H.run(function()
 	send('set-screen', '480x270') -- 1.5x
 	H.expect('a screen 1.5x the clip -> SSimSuperRes chain', chain, MOVIE)
 	H.expect('... sharpening 0.5', curve_height, '0.500')
+	-- Auto turns upscaling off where even the fast chain does not fit (2026-10-09, the
+	-- user's choice after the Ryzen iGPU measurement); a chain chosen by hand still runs
+	send('set-cost', 'movie-sssr', '80') -- 1.5x: SSimSuperRes is the only Movie chain
+	H.expect('Movie below 2x, its only chain measured too slow -> off', chain, OFF)
+	H.expect('... the button says Off', function()
+		return (mp.get_property_native('user-data/gpu-toggles/quality') or {}).movie
+	end, 'off')
+	send('set-quality', 'fast')
+	H.expect('... quality Fast chosen by hand runs it anyway', chain, MOVIE)
+	send('set-quality', 'auto')
+	send('forget-measurements')
+	send('set-upscale', '2')
+	send('set-cost', 'anime-high', '80')
+	send('set-cost', 'anime-fast', '80')
+	H.expect('Anime: High and Fast both measured too slow -> off', chain, OFF)
+	H.expect('... published: anime off', published('anime'), 'off')
+	send('set-quality', 'high')
+	H.expect('... quality High chosen by hand runs it anyway', chain, ANIME)
+	send('set-quality', 'auto')
+	H.expect('... Auto -> off again', chain, OFF)
+	send('forget-measurements')
+	H.expect('... Measure again -> HQ', chain, ANIME)
+	send('set-upscale', '3')
+
 	send('set-screen', 'auto')
 	H.expect('screen Auto (headless: unknown) -> SSimSuperRes chain', chain, MOVIE)
 	H.expect('... published: the screen setting', published('screen'), 'auto')
