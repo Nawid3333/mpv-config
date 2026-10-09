@@ -530,6 +530,13 @@ function Invoke-StaticCheck {
     Test-Check $t 'input.conf: no seek key flashes the timeline (seeks are silent)' ($inputConf -notmatch 'flash-timeline')
     $seekLines = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]+\s+(osd-\w+\s+)?seek\b' })
     Test-Check $t 'input.conf: every seek binding is no-osd' ($seekLines.Count -eq 0) ($seekLines -join ' | ')
+    # every seek key is an instant keyframe seek (2026-10-09, the user: "make it instant ... I can
+    # live with it when it is not exact"); absolute seeks are exact unless they say keyframes
+    $seekKeys = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]+\s+no-osd\s+seek\s' })
+    $exactKeys = @($seekKeys | Where-Object { $_ -match '\bexact\b' -or ($_ -match '\babsolute' -and $_ -notmatch '\+keyframes\b') })
+    Test-Check $t "input.conf: every seek key is an instant keyframe seek ($($seekKeys.Count) keys)" (
+        $seekKeys.Count -ge 16 -and $exactKeys.Count -eq 0) ($exactKeys -join ' | ')
+    Test-Check $t 'uosc.conf: the timeline wheel seeks by keyframe (timeline_step without !)' ($uoscConf -match '(?m)^timeline_step=\d+\s*$')
     Test-Check $t 'input.conf: mbtn_left = play/pause' ($inputConf -match '(?m)^mbtn_left\s+cycle pause')
     Test-Check $t 'input.conf: mbtn_left_dbl = fullscreen' ($inputConf -match '(?m)^mbtn_left_dbl\s+cycle fullscreen')
     # -cmatch: mpv key names are case-sensitive (q is a speed key here, Q is mpv's quit-watch-later)
@@ -576,6 +583,8 @@ function Invoke-StaticCheck {
     $uoscTimeline = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/elements/Timeline.lua')
     Test-Check $t 'uosc local change present: Timeline.lua shows the amber time only when it differs (speed is not 1x)' (
         $uoscTimeline.Contains('state.realtime_remaining_human ~= state.content_remaining_human')) 're-apply it after a uosc update (AGENTS.md)'
+    Test-Check $t 'uosc local change present: Timeline.lua seeks a click by keyframe (instant), not exact' (
+        $uoscTimeline.Contains("mp.commandv('seek', self:get_time_at_x(cursor.x), 'absolute+keyframes')")) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t "uosc.conf: font_scale matches the scripts' FONT_SCALE (Segoe UI's line box)" (
         $uoscConf -match '(?m)^font_scale=1\.19\s*$' -and
         @('notify.lua', 'subtitle-sync.lua', 'music-info.lua' | Where-Object {

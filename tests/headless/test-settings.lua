@@ -48,6 +48,29 @@ local function set(key, value)
 	H.sleep(0.15)
 end
 
+-- cache-pause-initial as each file's on_load left it, i.e. what that file's
+-- start waits with: settings.lua's hook (priority 50) runs before this one
+-- (lower runs first). Once the file has started it reads no (a seek plays at
+-- once), so the start can only be seen here.
+local initial_at_load = {}
+mp.add_hook('on_load', 60, function()
+	initial_at_load[#initial_at_load + 1] = mp.get_property('options/cache-pause-initial')
+end)
+local function last_initial()
+	return initial_at_load[#initial_at_load]
+end
+
+local function initial()
+	return mp.get_property('options/cache-pause-initial')
+end
+
+-- A seek on the playing file, and back once it has landed.
+local function seek_to(seconds)
+	local restarted = H.expect_event('playback-restart')
+	mp.commandv('seek', tostring(seconds), 'absolute', 'exact')
+	return restarted(5)
+end
+
 H.run(function()
 	if PHASE == 'new' then
 		H.eq('a new install: subtitle languages empty (subtitles follow Windows)', mp.get_property('slang'), '')
@@ -62,8 +85,14 @@ H.run(function()
 		H.eq('... buffering Auto uses the size recommended for it', published('buffer_used'), rec)
 		local REC_MIB = { small = 150, medium = 512, large = 1024 }
 		H.eq('... and sets it', mp.get_property('options/demuxer-max-bytes'), mib(REC_MIB[rec] or 0))
-		H.eq('... buffers 3 s before starting (as tuned)', mp.get_property('options/cache-pause-initial'), 'yes')
+		H.eq('... buffers 3 s before starting (as tuned)', initial_at_load[1], 'yes')
 		H.eq('... and after a stall', mp.get_property('options/cache-pause-wait'), '3.000000')
+		-- mpv applies cache-pause-initial after every seek too (playloop.c): a jump
+		-- past the downloaded part waited for 3 s more of the stream
+		H.expect('... but not after a seek: off once the file has started', initial, 'no')
+		H.check('a seek lands', seek_to(1))
+		H.eq('... and the initial wait stays off after it', initial(), 'no')
+		H.eq('... while a stall still waits 3 s', mp.get_property('options/cache-pause-wait'), '3.000000')
 		local s = saved()
 		H.check(
 			'... and settings.json written at once (decided once per PC)',
@@ -72,6 +101,8 @@ H.run(function()
 		)
 		H.eq('SDR file: target-peak auto', peak(), 'auto')
 		H.load(H.media_path('hdr/pq.mkv'))
+		H.eq('the next file buffers before its start again', last_initial(), 'yes')
+		H.expect('... and plays its seeks at once', initial, 'no')
 		H.expect('the HDR clip is PQ', prop('video-params/gamma'), 'pq')
 		H.expect('HDR file at HDR brightness Auto: target-peak auto', peak, 'auto')
 
@@ -92,13 +123,15 @@ H.run(function()
 		set('buffer', 'xlarge')
 		H.expect('Buffering 2 GB -> demuxer-max-bytes', prop('options/demuxer-max-bytes'), mib(2048))
 		set('buffer_wait', '0')
-		H.expect('Start at once -> cache-pause-initial no', prop('options/cache-pause-initial'), 'no')
-		H.expect("... and mpv's own 1 s after a stall", prop('options/cache-pause-wait'), '1.000000')
+		H.expect("Start at once -> mpv's own 1 s after a stall", prop('options/cache-pause-wait'), '1.000000')
+		H.load(H.media_path('plain/clip.mkv'))
+		H.eq('... and no wait before the next start', last_initial(), 'no')
 		set('buffer_wait', '5')
-		H.expect('Buffer 5 s -> cache-pause-initial yes', prop('options/cache-pause-initial'), 'yes')
-		H.expect('... cache-pause-wait 5', prop('options/cache-pause-wait'), '5.000000')
+		H.expect('Buffer 5 s -> cache-pause-wait 5', prop('options/cache-pause-wait'), '5.000000')
+		H.eq('... the playing file has started: its seeks still play at once', initial(), 'no')
 		set('buffer', 'whole')
 		H.load(H.media_path('plain/clip.mkv'))
+		H.eq('... and the next start buffers first', last_initial(), 'yes')
 		H.eq(
 			'The whole video on disk: never for a local file (it would copy itself)',
 			mp.get_property('cache-on-disk'),

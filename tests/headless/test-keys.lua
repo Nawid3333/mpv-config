@@ -25,15 +25,15 @@ H.run(function()
 		return
 	end
 
-	-- key, start, expected position, tolerance (keyframe seeks land on the
-	-- 1 s GOP of the generated clip; `exact` ones land on the frame)
+	-- key, start, expected position, tolerance: every seek key is an instant
+	-- keyframe seek (2026-10-09), landing on the 1 s GOP of the generated clip
 	local cases = {
 		{ 'x', 60, 120, 1.5 },
 		{ 'z', 120, 60, 1.5 },
-		{ 'k', 60, 70, 0.1 },
-		{ 'j', 70, 60, 0.1 },
-		{ 'RIGHT', 60, 65, 0.1 },
-		{ 'LEFT', 65, 60, 0.1 },
+		{ 'k', 60, 70, 1.5 },
+		{ 'j', 70, 60, 1.5 },
+		{ 'RIGHT', 60, 65, 1.5 },
+		{ 'LEFT', 65, 60, 1.5 },
 		{ '5', 10, duration * 0.5, 1.5 },
 		{ '9', 10, duration * 0.9, 1.5 },
 		{ '0', 100, 0, 1.5 },

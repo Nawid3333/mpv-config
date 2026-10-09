@@ -19,7 +19,16 @@
 -- drawn over them: every mouse move covered the line being spoken (seen on the
 -- 2026-10-02 screenshots - the subtitle sat behind the buttons). While the bar
 -- shows - and while the sync tool's panel is open, which sits in the same
--- place - the subtitles move up to just above it, then back down with the fade:
+-- place - the subtitles move up to just above it, in ONE step: up as soon as
+-- the bar starts to fade in, down once it has faded out completely. (Until
+-- 2026-10-09 they slid with the fade, one new value per fade step - about 14
+-- per 100 ms fade. Every changed sub-* or osd-* option makes mpv reconfigure
+-- libass for the subtitles (sub/sd_ass.c: SD_CTRL_UPDATE_OPTS ->
+-- configure_ass() -> ass_set_selective_style_override(), which always calls
+-- ass_reconfigure()), and that empties libass's glyph, bitmap and composite
+-- caches: each frame of a fade rendered every subtitle from nothing, on the
+-- video thread - for heavily typeset ASS a late frame each time the mouse moved
+-- the bar in or out. Two writes per show and hide are the least a lift can do.)
 --   - text subtitles (SRT, WebVTT - everything mpv styles itself): through
 --     sub-margin-y-offset, the option mpv provides for exactly this ("dynamic
 --     margin adjustments at runtime, e.g. by scripts like the OSC to avoid
@@ -174,6 +183,8 @@ local function apply(mode, lift, offset)
 	applied = { lift = lift, mode = mode, offset = offset }
 end
 
+-- The whole lift while any of the bar shows (see the header: one step, not one
+-- per fade step - each new value empties libass's caches).
 local function update_lift(h, dims, controls_top, visibility)
 	adopt_user_pos()
 	local track = mp.get_property_native('current-tracks/sub')
@@ -184,7 +195,6 @@ local function update_lift(h, dims, controls_top, visibility)
 	-- the sync tool's panel sits where the controls are, whether they show or not
 	if sync_panel and sync_panel.y0 then
 		target = math.min(target or h, sync_panel.y0)
-		visibility = 1
 	end
 	if not loaded or not track or not target or not mp.get_property_bool('sub-visibility', true) then
 		apply(nil, 0, 0)
@@ -203,7 +213,7 @@ local function update_lift(h, dims, controls_top, visibility)
 			return
 		end
 		local sub_bottom = h - (dims.mb or 0) - ASS_MARGIN * frame_h
-		local lift = math.max(0, sub_bottom - target) * visibility
+		local lift = math.max(0, sub_bottom - target)
 		if lift < 0.5 then
 			apply(nil, 0, 0)
 			return
@@ -214,7 +224,7 @@ local function update_lift(h, dims, controls_top, visibility)
 		-- (720-line units, scaled with the window unless sub-scale-by-window=no)
 		local per_px = mp.get_property_bool('sub-scale-by-window', true) and 720 / h or 1
 		local margin = mp.get_property_number('sub-margin-y', 34) / per_px
-		local lift = math.max(0, (h - target) - margin) * visibility
+		local lift = math.max(0, (h - target) - margin)
 		if lift < 0.5 then
 			apply(nil, 0, 0)
 			return

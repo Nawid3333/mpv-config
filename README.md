@@ -26,7 +26,8 @@ suite checks every feature.
   - **Buffering**: how much of a stream is downloaded ahead of where you
     are watching: 150 MB to 2 GB, or the whole video (kept on disk).
   - **Start and stalls**: start at once, or wait until a few seconds are
-    downloaded, before playing and after the stream runs dry (a stall).
+    downloaded, before playing and after the stream runs dry (a stall). A
+    seek never waits for it.
   - **Upscaling quality**: Auto, High or Fast, with the time each one took
     on your GPU.
   - **Screen for upscaling**, **Movie sharpness**, **HDR brightness**.
@@ -283,7 +284,7 @@ git).
 | Setting | What it does | A new install starts with | Options: pros and cons |
 |---|---|---|---|
 | **Buffering** | How much of a stream is downloaded ahead of you. | Auto: by your memory (under 6 GB: 150 MB, under 12 GB: 512 MB, else 1 GB) | 150 MB: least memory. 512 MB: for 8 GB. 1 GB: as tuned, about 11 minutes of 1080p. 2 GB: fewest stalls, most memory. The whole video: no stalls once loaded, uses disk space (streams only, in the temp folder, deleted when it closes) |
-| **Start and stalls** | Waits for some seconds of video before playing, and again after the stream ran dry. | buffer 3 s | Start at once: fastest start, may stall early. 3 s: as tuned. 5 s: smoother on a slow line. 10 s: longest wait, fewest stalls |
+| **Start and stalls** | Waits for some seconds of video before playing, and again after the stream ran dry. A seek plays at once. | buffer 3 s | Start at once: fastest start, may stall early. 3 s: as tuned. 5 s: smoother on a slow line. 10 s: longest wait, fewest stalls |
 | **Upscaling quality** | How much GPU time the upscaling may take. | Auto: measured on your GPU (High if it fits, else Fast, else off) | High: sharpest, most GPU time. Fast: about half the time, a bit softer. Each shows the time it took on your GPU; a choice here always runs |
 | **Screen for upscaling** | The screen size the upscaling plans for: which Movie chain runs, how much it sharpens. | Auto: the screen mpv is on | 1920x1080, 2560x1440, 3440x1440, 3840x2160 - only for when mpv reads the screen wrong |
 | **Movie sharpness** | Extra crispness for films after upscaling (it looks sharper; it adds no detail). | Auto: more for bigger enlargements | Off: softest, closest to the source. Low, Medium. High: crispest, may look harsh |

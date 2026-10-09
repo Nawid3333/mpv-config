@@ -127,7 +127,10 @@ H.run(function()
 	local done = H.expect_event('playback-restart')
 	mp.commandv('keypress', 'RIGHT')
 	done(5)
-	H.eq('closed: Right seeks again', mp.get_property_number('time-pos'), pos + 5, 0.1)
+	-- a keyframe seek (instant, 2026-10-09): the first keyframe at or after +5 s,
+	-- within the clip's keyframe spacing
+	local landed = mp.get_property_number('time-pos') - pos
+	H.check('closed: Right seeks again (+5 s, to the next keyframe)', landed >= 4.9 and landed <= 7.1, landed)
 	mp.set_property_native('pause', true)
 
 	H.key('t')

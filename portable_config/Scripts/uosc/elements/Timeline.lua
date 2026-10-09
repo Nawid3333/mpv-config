@@ -126,7 +126,11 @@ end
 ---@param fast? boolean
 function Timeline:set_from_cursor(fast)
 	if state.time and state.duration then
-		mp.commandv('seek', self:get_time_at_x(cursor.x), fast and 'absolute+keyframes' or 'absolute+exact')
+		-- Local change (not upstream uosc): a click seeks by keyframe too, not only
+		-- a drag - instant, may land a little before the click (2026-10-09, the
+		-- user: "make it instant ... I can live with it when it is not exact").
+		-- Upstream: fast and 'absolute+keyframes' or 'absolute+exact'.
+		mp.commandv('seek', self:get_time_at_x(cursor.x), 'absolute+keyframes')
 	end
 end
 

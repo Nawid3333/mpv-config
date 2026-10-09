@@ -192,7 +192,10 @@ H.run(function()
 	if fh then
 		fh:close()
 	end
-	if not H.check('the case is readable', type(c) == 'table' and c.path and c.out, o.manifest) then
+	local readable = H.check('the case is readable', type(c) == 'table' and c.path and c.out, o.manifest)
+	-- type() again, not only the check's result: lua-language-server narrows c
+	-- (no longer nil) from a type() test, not from a function's return value
+	if not readable or type(c) ~= 'table' then
 		return
 	end
 	local r = {

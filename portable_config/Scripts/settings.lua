@@ -18,7 +18,8 @@
 --     1 GB (the tuned value), 2 GB, or the whole video on disk (streams only, in
 --     the temp folder, deleted when it closes - cache-on-disk). Auto takes the
 --     size recommended for this PC's memory. Start and stalls: start at once, or
---     buffer N seconds first and after a stall (cache-pause-initial/-wait).
+--     buffer N seconds first and after a stall (cache-pause-initial/-wait). A
+--     seek never waits for it (2026-10-09, see apply_buffer()).
 --   Upscaling quality, screen, Movie sharpness - gpu-toggles.lua owns them (and
 --     ~~state/upscale.json); its items come from user-data/gpu-toggles/quality.
 --   HDR brightness - target-peak while an HDR (PQ/HLG) video plays: the screen's
@@ -271,13 +272,27 @@ local function apply_languages()
 	mp.set_property('alang', settings.alang)
 end
 
+-- A seek starts at once (2026-10-09, the user: "when I skip to a certain part of
+-- a video, then the video doesn't play immediately"). cache-pause-initial holds
+-- playback after EVERY seek, not only at a file's start: mpv clears
+-- restart_complete on each seek (player/playloop.c, reset_playback_state()), and
+-- handle_update_cache() then waits for cache-pause-wait seconds of buffer
+-- whenever fewer are read - on a stream, each jump past what is downloaded
+-- waited until 3 s more had arrived. So the initial wait is on until this
+-- file's first start (playback-restart) and off from then on. A stall still
+-- waits cache-pause-wait seconds: that path needs no cache-pause-initial.
+local started = false -- this file has started: its next restarts are seeks
+local function apply_initial_wait()
+	mp.set_property('cache-pause-initial', (settings.buffer_wait > 0 and not started) and 'yes' or 'no')
+end
+
 -- For the next file (a running demuxer keeps its limits); the wait applies at once.
 local function apply_buffer()
 	local b = effective_buffer()
 	mp.set_property('demuxer-max-bytes', b.ahead .. 'MiB')
 	mp.set_property('demuxer-max-back-bytes', b.back .. 'MiB')
 	local wait = settings.buffer_wait
-	mp.set_property('cache-pause-initial', wait > 0 and 'yes' or 'no')
+	apply_initial_wait()
 	mp.set_property('cache-pause-wait', tostring(wait > 0 and wait or 1))
 end
 
@@ -293,9 +308,19 @@ local function is_stream(path)
 end
 
 mp.add_hook('on_load', 50, function()
+	started = false
+	apply_initial_wait() -- the wait before this file's start
 	if effective_buffer().disk and is_stream(mp.get_property('path')) then
 		mp.set_property('file-local-options/cache-on-disk', 'yes')
 		mp.set_property('file-local-options/demuxer-cache-dir', os.getenv('TEMP') or '')
+	end
+end)
+
+-- The first restart of a file is its start; every later one is a seek.
+mp.register_event('playback-restart', function()
+	if not started then
+		started = true
+		apply_initial_wait()
 	end
 end)
 
@@ -457,7 +482,8 @@ local WAIT_HINTS = {
 local function wait_items()
 	local items = {
 		note('Wait for some seconds of video before playing,'),
-		note('and again when the stream ran dry (a stall).', true),
+		note('and again when the stream ran dry (a stall).'),
+		note('A seek plays at once, without this wait.', true),
 	}
 	for _, w in ipairs(WAITS) do
 		local title = w > 0 and string.format('Buffer %d s first, and after a stall', w) or 'Start at once'

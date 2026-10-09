@@ -318,8 +318,6 @@ local function text_width(str, size)
 	return #str * size * 0.55 -- the OSD has no size yet: a fair estimate
 end
 
----@param card table
----@return number width, number height real pixels
 -- A detail too wide for the card wraps, word by word, onto up to
 -- MAX_DETAIL_LINES lines (review, 2026-10-09: it was clipped at the card's edge,
 -- and the longer banners - "Upscaling off here ... Settings > Upscaling quality
@@ -328,6 +326,10 @@ end
 local DETAIL_LINE = 15
 local MAX_DETAIL_LINES = 3
 
+---@param str string
+---@param size number font size, real pixels
+---@param room number the width a line may take, real pixels
+---@return string[] lines
 local function wrap(str, size, room)
 	if str == '' or text_width(str, size) <= room then
 		return { str }
@@ -351,6 +353,8 @@ local function wrap(str, size, room)
 	return lines
 end
 
+---@param card table
+---@return number width, number height real pixels
 local function card_size(card)
 	local height = card.progress and px(HEIGHT_PROGRESS) or card.detail ~= '' and px(HEIGHT_DETAIL) or px(HEIGHT_TITLE)
 	if card.progress then

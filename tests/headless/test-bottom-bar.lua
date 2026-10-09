@@ -1,7 +1,9 @@
--- bottom-bar.lua: while uosc's bottom bar shows, subtitles rise above it and
--- come back down with its fade - text subtitles through sub-margin-y-offset,
--- ASS subtitles through sub-pos on top of the user's own position, which a
--- step made while lifted moves and the fade returns to. The scrim needs a real
+-- bottom-bar.lua: while uosc's bottom bar shows, subtitles rise above it - in
+-- one step, not with each step of its fade (every new value empties libass's
+-- caches, see bottom-bar.lua's header) - and come back down once it is gone:
+-- text subtitles through sub-margin-y-offset, ASS subtitles through sub-pos on
+-- top of the user's own position, which a step made while lifted moves and the
+-- bar's hiding returns to. The scrim needs a real
 -- OSD surface (its pixels are on the 2026-10-02 PR's screenshots); headless
 -- only the lift is reachable.
 --
@@ -56,10 +58,29 @@ H.run(function()
 	H.expect('bar shown: text subtitles rise above it (sub-margin-y-offset)', offset, 76)
 	H.eq('... through the margin, the option meant for it', state('mode')(), 'margin')
 	H.eq('... sub-pos untouched', pos(), 100)
+	bar(0)
+	H.expect('bar hidden: back down', offset, 0)
+	-- from hidden, so the value read cannot be the one left by the step before
 	bar(0.5)
-	H.expect('half faded in: half the way up', offset, 38)
+	H.expect('half faded in: already all the way up (one step)', offset, 76)
 	bar(0)
 	H.expect('bar hidden again: back down', offset, 0)
+	-- a whole fade in and out, as uosc publishes it (a value per frame): two
+	-- changes of the subtitle option, not one per step
+	local changes = 0
+	local function count()
+		changes = changes + 1
+	end
+	mp.observe_property('sub-margin-y-offset', 'number', count)
+	H.sleep(0.1)
+	changes = 0 -- the observer's first call reports the current value
+	for _, v in ipairs({ 0.1, 0.25, 0.4, 0.55, 0.7, 0.85, 1, 0.85, 0.7, 0.55, 0.4, 0.25, 0.1, 0 }) do
+		bar(v)
+		H.sleep(0.05)
+	end
+	H.sleep(0.2)
+	mp.unobserve_property(count)
+	H.eq('a full fade in and out: the subtitle option changed twice (up, down)', changes, 2)
 	mp.set_property_bool('sub-visibility', false)
 	bar(1)
 	H.expect('subtitles hidden: nothing to lift', state('mode'), nil)
