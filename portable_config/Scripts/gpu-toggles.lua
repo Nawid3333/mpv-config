@@ -292,10 +292,10 @@ end
 local SHARPEN_SHADER = 'adaptive-sharpen.glsl'
 local SHARPEN_OPT = 'adaptive-sharpen/curve_height'
 local SHARPEN_LEVELS = {
-	{ name = 'Off', value = 0 },
+	{ name = 'Off', value = 0, note = 'softest, closest to the source' },
 	{ name = 'Low', value = 0.5 },
 	{ name = 'Medium', value = 1.0 },
-	{ name = 'High', value = 1.5 },
+	{ name = 'High', value = 1.5, note = 'crispest, may look harsh' },
 }
 local SHARPEN_MAX = 4.0 -- the PARAM's own MAXIMUM in adaptive-sharpen.glsl
 
@@ -996,6 +996,11 @@ end
 -- uosc menu items, with keep_open: a choice shows its effect in the open menu
 -- (update_menus()). The Settings menu (Scripts/settings.lua) embeds the same
 -- items from user-data/gpu-toggles/quality.
+-- A dimmed explaining line at the top of a submenu (not selectable).
+local function note(title, separator)
+	return { title = title, muted = true, selectable = false, separator = separator }
+end
+
 local function quality_items()
 	local family = quality_family()
 	local high, fast = family_chains(family)
@@ -1006,6 +1011,9 @@ local function quality_items()
 		return recommended and (hint .. ' · recommended') or hint
 	end
 	return {
+		note('How much GPU time the upscaling may take.'),
+		note('Auto: High if it fits, else Fast, else off.'),
+		note('A choice here always runs, even if it is slow.', true),
 		{
 			title = 'Auto (measured on this PC)',
 			hint = word == 'Off' and 'Off now - too slow here' or (word .. ' now'),
@@ -1055,6 +1063,9 @@ local function screen_items()
 	local d = display()
 	local detected = d.detected_w and string.format('%dx%d', d.detected_w, d.detected_h)
 	local items = {
+		note('The screen size the upscaling plans for: which'),
+		note('Movie chain runs and how much it sharpens.'),
+		note('Leave it on Auto unless mpv reads it wrong.', true),
 		{
 			title = 'Auto (the screen mpv is on)',
 			hint = detected or 'not known yet',
@@ -1084,6 +1095,8 @@ end
 local function sharpness_items()
 	local auto = movie_sharpness == SHARPEN_AUTO
 	local items = {
+		note('Extra crispness for films after upscaling: it looks'),
+		note('sharper, it adds no detail. More = crisper, harsher.', true),
 		{
 			title = 'Auto (by scale)',
 			hint = string.format('%.2f now', effective_sharpness()),
@@ -1096,7 +1109,7 @@ local function sharpness_items()
 	for _, level in ipairs(SHARPEN_LEVELS) do
 		items[#items + 1] = {
 			title = level.name,
-			hint = level.value > 0 and string.format('%.1f', level.value) or nil,
+			hint = level.note or string.format('%.1f', level.value),
 			value = 'script-message-to gpu_toggles set-movie-sharpness ' .. level.value,
 			active = not auto and math.abs(level.value - movie_sharpness) < 1e-6,
 			keep_open = true,

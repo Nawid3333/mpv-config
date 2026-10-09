@@ -268,22 +268,49 @@ Every key and menu entry is in [`input.conf`](portable_config/input.conf).
 
 ## Settings
 
-Right-click ▸ **Settings**, or `F1`. They are stored per PC (in
-`portable_config\settings.json` and `upscale.json`, never in git):
+Open them with the **gear button** in the control bar, right-click ▸
+**Settings**, or `F1` (the Welcome menu shows the same settings above the
+feature tour). Every submenu starts with a short note on what the setting
+does, and each option shows its pro or con. Choices apply at once and are
+stored per PC (in `portable_config\settings.json` and `upscale.json`, never in
+git).
 
-| Setting | A new install starts with | Options |
-|---|---|---|
-| Buffering | Auto: by your memory (under 6 GB: 150 MB, under 12 GB: 512 MB, else 1 GB) | 150 MB, 512 MB, 1 GB, 2 GB, the whole video (streams, on disk in the temp folder) |
-| Start and stalls | buffer 3 s first, and after a stall | start at once, 3 s, 5 s, 10 s |
-| Upscaling quality | Auto: measured on your GPU | High, Fast |
-| Screen for upscaling | Auto: the screen mpv is on | 1920x1080, 2560x1440, 3440x1440, 3840x2160 |
-| Movie sharpness | Auto: by the scale | Off, Low, Medium, High |
-| HDR brightness | Auto: your screen's own value | 300 to 1000 nits |
-| Subtitle language | Automatic: your Windows language | English, German, French, Japanese and more, each then English |
-| Audio language | Automatic: the file's default track | the same list |
+| Setting | What it does | A new install starts with | Options: pros and cons |
+|---|---|---|---|
+| **Buffering** | How much of a stream is downloaded ahead of you. | Auto: by your memory (under 6 GB: 150 MB, under 12 GB: 512 MB, else 1 GB) | 150 MB: least memory. 512 MB: for 8 GB. 1 GB: as tuned, about 11 minutes of 1080p. 2 GB: fewest stalls, most memory. The whole video: no stalls once loaded, uses disk space (streams only, in the temp folder, deleted when it closes) |
+| **Start and stalls** | Waits for some seconds of video before playing, and again after the stream ran dry. | buffer 3 s | Start at once: fastest start, may stall early. 3 s: as tuned. 5 s: smoother on a slow line. 10 s: longest wait, fewest stalls |
+| **Upscaling quality** | How much GPU time the upscaling may take. | Auto: measured on your GPU (High if it fits, else Fast, else off) | High: sharpest, most GPU time. Fast: about half the time, a bit softer. Each shows the time it took on your GPU; a choice here always runs |
+| **Screen for upscaling** | The screen size the upscaling plans for: which Movie chain runs, how much it sharpens. | Auto: the screen mpv is on | 1920x1080, 2560x1440, 3440x1440, 3840x2160 - only for when mpv reads the screen wrong |
+| **Movie sharpness** | Extra crispness for films after upscaling (it looks sharper; it adds no detail). | Auto: more for bigger enlargements | Off: softest, closest to the source. Low, Medium. High: crispest, may look harsh |
+| **HDR brightness** | For HDR videos only: your screen's peak brightness, from its spec sheet. Set per screen. | Auto: the screen's own value | 300 to 1000 nits. Too high: bright parts clip. Too low: HDR looks dimmer than it could |
+| **Subtitle language** | The subtitle track picked when a video starts: the first of these languages the file has. | Automatic: your Windows language | English, German, French, Japanese and more, each then English |
+| **Audio language** | The audio track picked when a video starts. | Automatic: the file's default track | The same list |
 
 A PC that ran this config before the settings existed keeps its earlier values
 (German, then English; 350 nits; 1 GB; 3 s).
+
+**A new monitor** (4K, another refresh rate, HDR): the screen is read from
+Windows. The first time mpv runs on a new screen, a banner says so ("New
+screen: 3840x2160 @ 120 Hz - F1: check its settings"). The upscaling and the
+background shader compile follow the new size by themselves. HDR brightness
+is kept per screen and starts at Auto on a new one, so two monitors each keep
+their own value. The Settings menu's first line shows the screen mpv is on.
+
+## Buttons
+
+The control bar at the bottom (move the mouse to show it):
+
+| Button | Click | Right-click |
+|---|---|---|
+| ☰ menu | the menu with everything (same as right-clicking the video) | |
+| subtitles, audio, video | pick a track | |
+| ▶ / ⏸, previous, playlist, next, shuffle, loop | as their icons say | |
+| **speed** (the badge shows it) | next speed step | speed menu |
+| **upscale** ✨ (badge: Off / Anim / Movi) | next upscaler: Off, (Auto), Anime, Movie | upscale menu: quality, sharpness, rebuild shaders |
+| **sync** | the subtitle and audio sync timeline (`t`) | |
+| **source** 🌐 (badge: File / Fast / Strm) | every link of the file: stream, original page, local path, to copy or open | the same |
+| **settings** ⚙ | Settings | Welcome menu and every feature (`F1`) |
+| fullscreen | fullscreen on / off (also double-click) | |
 
 Decoding is fixed: everything decodes with `d3d11va-copy` on the graphics
 card's video engine. Vulkan decoding dropped frames on long local files with

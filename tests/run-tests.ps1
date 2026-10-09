@@ -532,7 +532,7 @@ function Invoke-StaticCheck {
     # -- uosc: config + the local changes that an update would drop --------------
     Test-Check $t 'uosc.conf: proximity 10000/10100 (whole UI shows together)' (
         $uoscConf -match '(?m)^proximity_in=10000' -and $uoscConf -match '(?m)^proximity_out=10100')
-    foreach ($b in 'button:speed', 'button:upscale', 'button:subtitle_sync', 'button:source') {
+    foreach ($b in 'button:speed', 'button:upscale', 'button:subtitle_sync', 'button:source', 'button:settings') {
         Test-Check $t "uosc.conf: controls has $b" ($uoscConf -match "(?m)^controls=.*\b$([regex]::Escape($b))\b")
     }
     $localChanges = @{
@@ -1340,6 +1340,10 @@ $HeadlessTests = @(
             @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'new' }
             @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'restored'; After = $MakeLegacyPc }
             @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'legacy' })
+    }
+    @{ Name = 'screens'; Phases = @(
+            @{ Script = 'headless/test-screens.lua'; File = 'plain/clip.mkv'; Phase = 'first' }
+            @{ Script = 'headless/test-screens.lua'; File = 'plain/clip.mkv'; Phase = 'again' })
     }
     @{ Name = 'welcome'; Phases = @(
             @{ Script = 'headless/test-welcome.lua'; File = 'plain/clip.mkv'; Phase = 'first'; Args = @('--script-opts-append=welcome-auto=yes') }

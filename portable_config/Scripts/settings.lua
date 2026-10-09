@@ -31,6 +31,19 @@
 --     subtitles in Windows' display language when the audio is another one
 --     (subs-match-os-language), the file's default audio track.
 --
+--   The screen (2026-10-09, the user: "when I switch my monitor - 4K, another
+--     refresh rate, other HDR - mpv should detect it via Windows, or let me
+--     switch the targets manually"): the screen is what Windows reports for the
+--     window's monitor (display-width x display-height @ display-fps). Every
+--     screen seen is remembered with its own HDR brightness; a new one starts at
+--     Auto (a peak tuned for one panel is wrong for the next) and a banner names
+--     it, with F1 to check its settings. The upscaling follows the screen by itself
+--     (gpu-toggles reads it per action; the shader warm-up warms again for a new size).
+--
+-- Every setting explains itself in its submenu (a dimmed note on what it does,
+-- a pro or con next to each option); a gear button in the control bar opens the
+-- Settings, right-click the Welcome menu.
+--
 -- Stored per PC in ~~state/settings.json (gitignored). A PC that ran this
 -- config before (any state file of it is there) keeps exactly what mpv.conf
 -- gave it until then - German, then English, 350 nits, 1 GB, 3 s - so an update
@@ -83,14 +96,14 @@ local LANGUAGES = {
 }
 -- ahead/back in MiB (demuxer-max-bytes / demuxer-max-back-bytes)
 local BUFFERS = {
-	{ id = 'small', title = '150 MB', note = "mpv's default", ahead = 150, back = 50 },
-	{ id = 'medium', title = '512 MB', ahead = 512, back = 64 },
+	{ id = 'small', title = '150 MB', note = "mpv's default · least memory", ahead = 150, back = 50 },
+	{ id = 'medium', title = '512 MB', note = 'for 8 GB of memory', ahead = 512, back = 64 },
 	{ id = 'large', title = '1 GB', note = 'as tuned', ahead = 1024, back = 128 },
-	{ id = 'xlarge', title = '2 GB', ahead = 2048, back = 256 },
+	{ id = 'xlarge', title = '2 GB', note = 'fewest stalls · most memory', ahead = 2048, back = 256 },
 	{
 		id = 'whole',
 		title = 'The whole video (streams, on disk)',
-		note = 'temp folder, deleted when it closes',
+		note = 'no stalls once loaded · uses disk space',
 		ahead = 1024,
 		back = 128,
 		disk = true,
@@ -203,6 +216,19 @@ do
 	settings.hdr_peak = valid_peak(src.hdr_peak) or base.hdr_peak
 	settings.buffer = valid_buffer(src.buffer) or base.buffer
 	settings.buffer_wait = valid_wait(src.buffer_wait) or base.buffer_wait
+	-- every screen seen: key 'WxH@Hz' -> { label, seen, hdr_peak }
+	settings.screens = {}
+	if type(src.screens) == 'table' then
+		for key, sc in pairs(src.screens) do
+			if type(key) == 'string' and key:match('^%d+x%d+@%d+$') and type(sc) == 'table' then
+				settings.screens[key] = {
+					label = type(sc.label) == 'string' and sc.label or key,
+					seen = type(sc.seen) == 'string' and sc.seen or nil,
+					hdr_peak = valid_peak(sc.hdr_peak) or 'auto',
+				}
+			end
+		end
+	end
 end
 
 -- Through a temp file of this process's own, as the other state files.
@@ -278,10 +304,35 @@ local function is_hdr()
 	return gamma == 'pq' or gamma == 'hlg'
 end
 
+-- ---- the screen --------------------------------------------------------------------------
+local current_screen = nil -- { key = '2560x1440@144', label = '2560x1440 @ 144 Hz' } once known
+
+local function screen_from(w, h, fps)
+	if not (w and h and w > 0 and h > 0) then
+		return nil
+	end
+	local hz = fps and fps > 0 and math.floor(fps + 0.5) or nil
+	return {
+		key = string.format('%dx%d@%d', w, h, hz or 0),
+		label = string.format('%dx%d', w, h) .. (hz and string.format(' @ %d Hz', hz) or ''),
+	}
+end
+
+-- The HDR brightness for the screen the window is on (before one is known: the
+-- value from before the screens were remembered).
+local function screen_hdr_peak()
+	local sc = current_screen and settings.screens[current_screen.key]
+	if sc and sc.hdr_peak then
+		return sc.hdr_peak
+	end
+	return settings.hdr_peak
+end
+
 local function apply_peak()
 	local want = 'auto'
-	if is_hdr() and settings.hdr_peak ~= 'auto' then
-		want = tostring(settings.hdr_peak)
+	local peak = screen_hdr_peak()
+	if is_hdr() and peak ~= 'auto' then
+		want = tostring(peak)
 	end
 	if mp.get_property('options/target-peak') ~= want then
 		mp.set_property('target-peak', want)
@@ -292,11 +343,21 @@ apply_languages()
 apply_buffer()
 mp.observe_property('video-params/gamma', 'string', apply_peak)
 
+local function screen_count()
+	local n = 0
+	for _ in pairs(settings.screens) do
+		n = n + 1
+	end
+	return n
+end
+
 local function publish()
 	mp.set_property_native('user-data/settings', {
 		slang = settings.slang,
 		alang = settings.alang,
-		hdr_peak = settings.hdr_peak,
+		hdr_peak = screen_hdr_peak(),
+		screen = current_screen and current_screen.label or nil,
+		screens = screen_count(),
 		buffer = settings.buffer,
 		buffer_used = effective_buffer().id,
 		buffer_recommended = recommended_buffer(),
@@ -312,8 +373,8 @@ local gpu = nil -- user-data/gpu-toggles/quality
 local open_type = nil -- 'settings' | 'welcome' while one of them is open
 local pending = nil -- the menu to open once gpu-toggles answered
 
-local function notify(title, detail)
-	mp.commandv('script-message-to', 'notify', 'show', 'settings', title, detail or '')
+local function notify(title, detail, seconds)
+	mp.commandv('script-message-to', 'notify', 'show', 'settings', title, detail or '', tostring(seconds or 2))
 end
 
 local function peak_label(v)
@@ -353,10 +414,17 @@ local function choice(title, hint, key, value, active, separator)
 	}
 end
 
+-- A dimmed line that explains, at the top of a submenu (not selectable).
+local function note(title, separator)
+	return { title = title, muted = true, selectable = false, separator = separator }
+end
+
 local function buffer_items()
 	local rec = buffer_by_id(recommended_buffer()) or BUFFERS[2]
 	local ram = RAM_GB and string.format('%.0f GB RAM', RAM_GB) or 'memory unknown'
 	local items = {
+		note('How much of a stream is downloaded ahead of you.'),
+		note('More: fewer stalls on a slow line, more memory.', true),
 		choice(
 			'Auto (recommended for this PC)',
 			ram .. ' -> ' .. rec.title,
@@ -374,27 +442,39 @@ local function buffer_items()
 		items[#items + 1] = choice(b.title, hint, 'buffer', b.id, settings.buffer == b.id)
 	end
 	items[#items].separator = true
-	items[#items + 1] = {
-		title = 'Read ahead while it plays; 1 GB is ~11 min of a 1080p stream',
-		muted = true,
-		selectable = false,
-	}
-	items[#items + 1] = { title = 'Applies from the next video on', muted = true, selectable = false }
+	items[#items + 1] = note('1 GB is about 11 minutes of a 1080p stream.')
+	items[#items + 1] = note('Applies from the next video on.')
 	return items
 end
 
+local WAIT_HINTS = {
+	[0] = "mpv's default · fastest start, may stall early",
+	[3] = 'as tuned · recommended',
+	[5] = 'smoother on a slow line',
+	[10] = 'longest wait, fewest stalls',
+}
+
 local function wait_items()
-	local items = {}
+	local items = {
+		note('Wait for some seconds of video before playing,'),
+		note('and again when the stream ran dry (a stall).', true),
+	}
 	for _, w in ipairs(WAITS) do
 		local title = w > 0 and string.format('Buffer %d s first, and after a stall', w) or 'Start at once'
-		local hint = w == 0 and "mpv's default" or (w == 3 and 'as tuned · recommended' or nil)
-		items[#items + 1] = choice(title, hint, 'buffer_wait', w, settings.buffer_wait == w)
+		items[#items + 1] = choice(title, WAIT_HINTS[w], 'buffer_wait', w, settings.buffer_wait == w)
 	end
 	return items
 end
 
 local function lang_items(key, auto_hint)
-	local items = { choice('Automatic', auto_hint, key, '', settings[key] == '', true) }
+	local items = {
+		note(
+			key == 'slang' and 'The subtitle track picked when a video starts:'
+				or 'The audio track picked when a video starts:'
+		),
+		note('the first of these languages the file has.', true),
+		choice('Automatic', auto_hint, key, '', settings[key] == '', true),
+	}
 	local listed = settings[key] == ''
 	for _, l in ipairs(LANGUAGES) do
 		listed = listed or l[1] == settings[key]
@@ -407,24 +487,21 @@ local function lang_items(key, auto_hint)
 end
 
 local function hdr_items()
+	local peak = screen_hdr_peak()
 	local items = {
-		choice(
-			"Auto (the screen's own value)",
-			'203 nits on an SDR screen',
-			'hdr_peak',
-			'auto',
-			settings.hdr_peak == 'auto',
+		note("For HDR videos only: your screen's peak brightness"),
+		note('(its spec sheet). Too high: bright parts clip.'),
+		note('Too low: HDR looks dimmer than it could.'),
+		note(
+			current_screen and ('Set for this screen: ' .. current_screen.label)
+				or 'This screen is read when a video plays.',
 			true
 		),
+		choice("Auto (the screen's own value)", '203 nits on an SDR screen', 'hdr_peak', 'auto', peak == 'auto', true),
 	}
 	for _, nits in ipairs(HDR_LEVELS) do
-		items[#items + 1] = choice(nits .. ' nits', nil, 'hdr_peak', nits, settings.hdr_peak == nits)
+		items[#items + 1] = choice(nits .. ' nits', nil, 'hdr_peak', nits, peak == nits)
 	end
-	items[#items + 1] = {
-		title = "Your screen's peak brightness, for HDR videos only",
-		muted = true,
-		selectable = false,
-	}
 	return items
 end
 
@@ -434,6 +511,11 @@ local function settings_items(prefix)
 	local function sub(id, title, hint, list, separator)
 		items[#items + 1] = { id = prefix .. id, title = title, hint = hint, items = list, separator = separator }
 	end
+	items[#items + 1] = note(
+		current_screen and ('This screen: ' .. current_screen.label .. ' (read from Windows)')
+			or 'The screen is read from Windows when a video plays.',
+		true
+	)
 	sub('buffer', 'Buffering', buffer_label(), buffer_items())
 	sub('wait', 'Start and stalls', wait_label(settings.buffer_wait), wait_items(), true)
 	if gpu and type(gpu.quality_items) == 'table' then
@@ -443,7 +525,7 @@ local function settings_items(prefix)
 	end
 	sub('slang', 'Subtitle language', lang_label(settings.slang), lang_items('slang', "Windows' language"))
 	sub('alang', 'Audio language', lang_label(settings.alang), lang_items('alang', "the file's default"))
-	sub('hdr', 'HDR brightness', peak_label(settings.hdr_peak), hdr_items())
+	sub('hdr', 'HDR brightness', peak_label(screen_hdr_peak()), hdr_items())
 	return items
 end
 
@@ -631,9 +713,15 @@ local SETTERS = {
 		if not v then
 			return nil
 		end
-		settings.hdr_peak = v
+		local sc = current_screen and settings.screens[current_screen.key]
+		if sc then
+			sc.hdr_peak = v
+		else
+			settings.hdr_peak = v
+		end
 		apply_peak()
-		return 'HDR brightness: ' .. peak_label(v), is_hdr() and 'applied to this video' or 'used for HDR videos'
+		local where = current_screen and ('for ' .. current_screen.label) or 'for HDR videos'
+		return 'HDR brightness: ' .. peak_label(v), is_hdr() and (where .. ' · applied to this video') or where
 	end,
 	buffer = function(v)
 		v = valid_buffer(v)
@@ -685,3 +773,70 @@ mp.register_script_message('menu-closed', function(kind)
 		open_type = nil
 	end
 end)
+
+-- ---- the screen, as Windows reports it ------------------------------------------------------
+-- A screen seen for the first time is remembered; the very first one takes the HDR
+-- brightness from before (a PC from before keeps its 350 nits), any later one starts
+-- at Auto and is announced.
+local function screen_seen(w, h, fps)
+	local sc = screen_from(w, h, fps)
+	if not sc or (current_screen and current_screen.key == sc.key) then
+		return
+	end
+	current_screen = sc
+	if not settings.screens[sc.key] then
+		local first = screen_count() == 0
+		settings.screens[sc.key] =
+			{ label = sc.label, seen = os.date('%Y-%m-%d'), hdr_peak = first and settings.hdr_peak or 'auto' }
+		save()
+		if not first and opts.write then
+			notify('New screen: ' .. sc.label, 'F1: check its settings - HDR brightness, screen for upscaling', 10)
+		end
+	end
+	apply_peak()
+	publish()
+	if open_type then
+		send_menu(open_type, true)
+	end
+end
+
+-- display-width/-height/-fps change together when the window moves to another
+-- monitor or the mode changes: read them once they have settled
+local screen_timer = nil
+local function screen_changed()
+	if screen_timer then
+		screen_timer:kill()
+	end
+	screen_timer = mp.add_timeout(0.3, function()
+		screen_timer = nil
+		screen_seen(
+			mp.get_property_number('display-width'),
+			mp.get_property_number('display-height'),
+			mp.get_property_number('display-fps')
+		)
+	end)
+end
+for _, prop in ipairs({ 'display-width', 'display-height', 'display-fps' }) do
+	mp.observe_property(prop, 'number', screen_changed)
+end
+
+-- script-message-to settings screen-seen <W> <H> <Hz>: a screen as Windows would
+-- report it (the tests: --vo=null has no display)
+mp.register_script_message('screen-seen', function(w, h, fps)
+	screen_seen(tonumber(w), tonumber(h), tonumber(fps))
+end)
+
+-- ---- the gear button in uosc's control bar (uosc.conf controls= button:settings) --------------
+local function settings_button()
+	local json = utils.format_json({
+		icon = 'settings',
+		tooltip = 'Settings - click: settings, right-click: welcome and every feature (F1)',
+		command = { 'script-message-to', 'settings', 'open' },
+		menu_command = { 'script-message-to', 'settings', 'open-welcome' },
+	})
+	if json then
+		mp.commandv('script-message-to', 'uosc', 'set-button', 'settings', json)
+	end
+end
+-- as the other managed buttons: uosc may load after this script
+mp.add_timeout(0.5, settings_button)
