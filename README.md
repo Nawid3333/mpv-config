@@ -82,10 +82,53 @@ suite checks every feature.
 
 ## Install
 
-You need Windows 10 or 11 (x64), a GPU with a Vulkan driver, and
-[Git](https://git-scm.com/) with Git LFS. PowerShell 7 is needed only for the
-tests. ffmpeg on `PATH` is optional; the sync tool uses it to read subtitle
-tracks inside a video.
+### One click (recommended)
+
+Open **PowerShell** (Start menu, type `PowerShell`, Enter), paste this line
+and press Enter:
+
+```powershell
+irm https://raw.githubusercontent.com/Nawid3333/mpv-config/main/installer/setup.ps1 | iex
+```
+
+Or download this repository (**Code ▸ Download ZIP**), extract it and
+double-click **`install.bat`**. Either way it takes about a minute.
+
+No admin rights, no Git and no Node.js installation are needed, and nothing
+is changed for the whole PC. The setup:
+
+1. checks the PC: 64-bit Windows 10 or 11, a graphics driver with Vulkan, and
+   a CPU with AVX2 (Intel from 2013, AMD from 2015);
+2. installs this config into `%LOCALAPPDATA%\Programs\mpv`, plus mpv itself
+   (the pinned build, every file checked by SHA-256) and yt-dlp;
+3. connects **FastStream** for Firefox. It installs the small mpv helper the
+   add-on needs, with its own private copy of Node.js. Then it opens the
+   signed FastStream add-on in Firefox; click **Add**;
+4. adds mpv to **Open with** for video and audio files (your default player is
+   not changed), and a Start menu folder **mpv** with *mpv*, *Update mpv* and
+   *Uninstall mpv*.
+
+When it is done, **restart Firefox** and switch FastStream's MPV mode on (see
+[Use with FastStream](#use-with-faststream), step 4). The first video then
+compiles the upscaling shaders in the background, with a small banner at the
+top right.
+
+- **Update:** Start menu ▸ mpv ▸ *Update mpv* (`updater.bat`). It updates the
+  config, mpv, yt-dlp and the FastStream helper. Files you changed yourself
+  are kept next to the new ones as `<name>.mine-<date>`.
+- **Uninstall:** Start menu ▸ mpv ▸ *Uninstall mpv* (`uninstall.bat`). The
+  FastStream add-on stays in Firefox; remove it in `about:addons`.
+- **Options:** another folder, or parts left out:
+  `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Nawid3333/mpv-config/main/installer/setup.ps1))) -InstallDir D:\mpv -NoFastStream`
+  (also `-NoFileTypes`, `-NoShortcuts`).
+
+ffmpeg on `PATH` is optional; the sync tool uses it to read subtitle tracks
+inside a video.
+
+### With Git (to change the config yourself)
+
+You need [Git](https://git-scm.com/) with Git LFS. PowerShell 7 is needed only
+for the tests.
 
 ```powershell
 # 1. Clone the repository AS the mpv folder (mpv runs in portable mode next to portable_config\).
@@ -134,8 +177,11 @@ config is built as its mpv side:
 
 ### Setup (once)
 
-1. **Install this config** as above. The fork's helper looks for
-   `C:\Program Files\mpv\mpv.exe` first.
+The [one-click install](#one-click-recommended) does steps 1 to 3. After it
+finishes, restart Firefox and continue with step 4.
+
+1. **Install this config** as above. Without the one-click install, the
+   fork's helper looks for `C:\Program Files\mpv\mpv.exe` first.
 2. **Install the extension.** Download the signed `.xpi` from the fork's
    [Releases](https://github.com/Nawid3333/FastStream/releases) and open it in
    Firefox 142 or newer. Firefox then updates it by itself.

@@ -27,6 +27,7 @@ re-created by the scripts in `installer/`.
 | `doc/manual.txt` | Version-matched mpv manual (extracted text, for grepping) |
 | `mpv-build.json` | Which shinchiro mpv build this setup uses (tag, download URL, SHA-256 of the archive and of every file in it). CI moves it to each new build that passes the regression tests |
 | `updater.bat`, `installer/update.ps1`, `installer/install-mpv.ps1` | Ours: `updater.bat` pulls the repo, installs the pinned mpv build and keeps yt-dlp current |
+| `install.bat`, `installer/setup.ps1`, `installer/sync-config.ps1`, `installer/install-faststream.ps1`, `uninstall.bat`, `installer/uninstall.ps1` | Ours (2026-10-09): the one-click install for a PC without git - the config as GitHub's ZIP into `%LOCALAPPDATA%\Programs\mpv` (no admin), mpv, yt-dlp, the FastStream helper with a private Node.js, the add-on opened in Firefox, "Open with" + Start menu; `updater.bat` then updates such a folder through `sync-config.ps1` instead of `git pull`. README.md "Install" is the user-facing description, AGENTS.md the behaviour |
 
 ## 2. What is generated, and how mpv's own files are kept
 
@@ -53,6 +54,10 @@ re-created by the scripts in `installer/`.
 > files the Anime preset needs, FSRCNNX, SSimSuperRes) with pinned URLs.
 
 ## 3. Quick start on a fresh PC
+
+> Just to USE this setup on a new PC, the one-click install is enough (README.md,
+> "Install": `irm https://raw.githubusercontent.com/Nawid3333/mpv-config/main/installer/setup.ps1 | iex`).
+> The steps below are for a git clone you work in.
 
 ```powershell
 # 0) Prerequisites (check boxes):

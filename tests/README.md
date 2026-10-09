@@ -48,7 +48,14 @@ buttons + the local uosc changes (`menu_command` on managed buttons, `user-data/
 INFO whether the installed mpv.exe is the pinned one); `installer/install-mpv.ps1` against a stand-in build made with 7-Zip,
 no download (it installs every listed file and nothing else, a second run changes nothing, `-Check` exit 3, a failed
 download exit 2, a wrong archive installs nothing, a pin naming a file outside the build is refused, a re-run repairs,
-and in Windows PowerShell 5.1 too); the commit guard in `.githooks` (in a throwaway repo: taking the binaries out of git
+and in Windows PowerShell 5.1 too); the one-click install (`Invoke-OneClickCheck`, offline stand-ins for GitHub's ZIP,
+the Git LFS objects, FastStream's updates.json and nodejs.org, run in Windows PowerShell 5.1: `sync-config.ps1` installs,
+finds nothing to do, updates with a changed file set aside as `.mine-<time>`, deletes a dropped file unless it was
+changed, leaves user state alone, refuses a bad LFS object and a git clone; `setup.ps1` installs into a new folder,
+refuses a foreign folder and a clone, and returns instead of exiting as a script block (`irm | iex`);
+`install-faststream.ps1` installs the helper on a private Node.js LTS, finds it up to date, never touches a helper it did
+not install or one set up for another folder, refuses a Node.js zip that is not nodejs.org's; `uninstall.ps1` removes only
+its own helper and refuses a clone or a foreign folder; every installer script and .bat is plain ASCII); the commit guard in `.githooks` (in a throwaway repo: taking the binaries out of git
 goes through, a forced add of mpv.exe or yt-dlp.exe is refused; a real name or e-mail as author, a forced-in private file,
 an added user folder path, private claude.ai link or private word is refused, a placeholder path goes through; post-merge
 says to run updater.bat after a pull that pins another mpv and says nothing when the installed one is it) and, outside CI,

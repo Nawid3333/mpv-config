@@ -122,6 +122,200 @@ function Write-Section([string]$Title) {
 }
 
 # ---------------------------------------------------------------------------
+# the one-click install (2026-10-09), offline: installer/setup.ps1, sync-config.ps1,
+# install-faststream.ps1 and uninstall.ps1 against stand-ins for GitHub's ZIP, the
+# Git LFS objects, FastStream's release and nodejs.org. Run as install.bat and
+# updater.bat run them: in Windows PowerShell 5.1 when it is there.
+# ---------------------------------------------------------------------------
+function Invoke-OneClickCheck([string]$t) {
+    $installer = Join-Path $RepoRoot 'installer'
+    # every script Windows PowerShell 5.1 runs: it reads a UTF-8 file without a BOM
+    # as ANSI, so one non-ASCII character in a string comes out garbled
+    $nonAscii = @(Get-ChildItem (Join-Path $installer '*.ps1'), (Join-Path $RepoRoot '*.bat') | Where-Object {
+            @([IO.File]::ReadAllBytes($_.FullName) | Where-Object { $_ -gt 127 }).Count
+        } | ForEach-Object Name)
+    Test-Check $t 'installer scripts and .bat files are plain ASCII (Windows PowerShell 5.1, cmd)' ($nonAscii.Count -eq 0) ($nonAscii -join ', ')
+    $state = @('.install-manifest.json', 'portable_config/input.conf.mine-20261009-120000')
+    $notIgnored = @($state | Where-Object { & git -C $RepoRoot check-ignore -q --no-index -- $_; $LASTEXITCODE -ne 0 })
+    Test-Check $t '.gitignore covers what the one-click install writes (its manifest, your set-aside files)' ($notIgnored.Count -eq 0) ($notIgnored -join ', ')
+
+    $ob = Join-Path $WorkDir 'one-click'
+    if (Test-Path $ob) { Remove-Item $ob -Recurse -Force }
+    $null = New-Item -ItemType Directory $ob
+    $shell = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object Source
+    if (-not $shell) { $shell = 'pwsh' }
+    function Invoke-Script([string]$Script, [string[]]$Arguments) {
+        $out = & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $installer $Script) @Arguments 2>&1
+        [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($out -join ' ') }
+    }
+    function Write-TestTree([string]$Dir, [hashtable]$Files) {
+        foreach ($kv in $Files.GetEnumerator()) {
+            $p = Join-Path $Dir $kv.Key
+            New-Item -ItemType Directory -Force (Split-Path $p) | Out-Null
+            Set-Content -LiteralPath $p $kv.Value -NoNewline
+        }
+    }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    # the config as GitHub's ZIP holds it: one folder <repo>-<commit>, Git LFS files as pointers
+    function Build-ConfigZip([string]$Commit, [hashtable]$Files) {
+        $src = Join-Path $ob "zip-$Commit"
+        Write-TestTree (Join-Path $src "mpv-config-$Commit") $Files
+        $zip = Join-Path $ob "$Commit.zip"
+        [IO.Compression.ZipFile]::CreateFromDirectory($src, $zip)
+        return $zip
+    }
+    function Read-Manifest([string]$Root) {
+        $p = Join-Path $Root '.install-manifest.json'
+        if (Test-Path $p) { return Get-Content -Raw $p | ConvertFrom-Json }
+        return $null
+    }
+    function Read-Text([string]$Path) { if (Test-Path -LiteralPath $Path) { return Get-Content -Raw -LiteralPath $Path } return $null }
+
+    # -- sync-config.ps1 ------------------------------------------------------------------
+    $lfs = Join-Path $ob 'lfs'
+    $fontRel = 'portable_config/fonts/icons.otf'
+    Write-TestTree $lfs @{ $fontRel = ('font bytes ' * 300) }
+    $font = Join-Path $lfs $fontRel
+    $fontSha = (Get-FileHash $font -Algorithm SHA256).Hash.ToLower()
+    $pointer = "version https://git-lfs.github.com/spec/v1`noid sha256:$fontSha`nsize $((Get-Item $font).Length)`n"
+    $c1, $c2, $c3 = ('1' * 40), ('2' * 40), ('3' * 40)
+    $zip1 = Build-ConfigZip $c1 @{
+        'mpv-build.json' = '{}'; 'portable_config/mpv.conf' = 'v1'; 'portable_config/input.conf' = 'keys v1'
+        $fontRel = $pointer; 'old/gone.lua' = 'gone'; 'old2/edited.lua' = 'edited'
+    }
+    $zip2 = Build-ConfigZip $c2 @{
+        'mpv-build.json' = '{}'; 'portable_config/mpv.conf' = 'v2'; 'portable_config/input.conf' = 'keys v2'; $fontRel = $pointer
+    }
+    $zip3 = Build-ConfigZip $c3 @{
+        'mpv-build.json' = '{}'; 'portable_config/mpv.conf' = 'v3'; $fontRel = ($pointer -replace $fontSha, ('0' * 64))
+    }
+    $root = Join-Path $ob 'root'
+    $r = Invoke-Script sync-config.ps1 @('-Root', $root, '-Zip', $zip1, '-Commit', $c1, '-LfsSource', $lfs)
+    $m = Read-Manifest $root
+    Test-Check $t 'sync-config.ps1 installs the config from GitHub''s ZIP, Git LFS files fetched and checked' (
+        $r.Code -eq 0 -and $m -and $m.commit -eq $c1 -and (Get-FileHash (Join-Path $root $fontRel)).Hash -eq $fontSha -and
+        (Read-Text (Join-Path $root 'portable_config/mpv.conf')) -eq 'v1') $r.Out
+    $r = Invoke-Script sync-config.ps1 @('-Root', $root, '-Zip', $zip1, '-Commit', $c1, '-LfsSource', $lfs)
+    Test-Check $t '... the same commit again: nothing to do' ($r.Code -eq 0 -and $r.Out -match 'up to date') $r.Out
+    Set-Content -LiteralPath (Join-Path $root 'portable_config/input.conf') 'my keys' -NoNewline
+    Set-Content -LiteralPath (Join-Path $root 'old2/edited.lua') 'my edit' -NoNewline
+    Set-Content -LiteralPath (Join-Path $root 'portable_config/speed.json') '{"speed":3}' -NoNewline
+    $r = Invoke-Script sync-config.ps1 @('-Root', $root, '-Zip', $zip2, '-Commit', $c2, '-LfsSource', $lfs)
+    $mine = @(Get-ChildItem (Join-Path $root 'portable_config') -Filter 'input.conf.mine-*')
+    Test-Check $t '... an update writes the new files' (
+        $r.Code -eq 0 -and (Read-Manifest $root).commit -eq $c2 -and (Read-Text (Join-Path $root 'portable_config/mpv.conf')) -eq 'v2') $r.Out
+    Test-Check $t '... a file you changed is set aside as <name>.mine-<time> before it is replaced' (
+        (Read-Text (Join-Path $root 'portable_config/input.conf')) -eq 'keys v2' -and $mine.Count -eq 1 -and
+        (Read-Text $mine[0].FullName) -eq 'my keys') $r.Out
+    Test-Check $t '... a file the config dropped is deleted (and its empty folder), unless you changed it' (
+        -not (Test-Path (Join-Path $root 'old')) -and (Read-Text (Join-Path $root 'old2/edited.lua')) -eq 'my edit') $r.Out
+    Test-Check $t '... a file the config never had (your settings) is not touched' (
+        (Read-Text (Join-Path $root 'portable_config/speed.json')) -eq '{"speed":3}') $r.Out
+    $r = Invoke-Script sync-config.ps1 @('-Root', $root, '-Zip', $zip3, '-Commit', $c3, '-LfsSource', $lfs)
+    Test-Check $t '... a Git LFS file that is not the one its pointer names: refused, nothing changed' (
+        $r.Code -eq 1 -and $r.Out -match 'not the file' -and (Read-Manifest $root).commit -eq $c2 -and
+        (Read-Text (Join-Path $root 'portable_config/mpv.conf')) -eq 'v2') $r.Out
+    $clone = Join-Path $ob 'clone'
+    $null = New-Item -ItemType Directory -Force (Join-Path $clone '.git')
+    $r = Invoke-Script sync-config.ps1 @('-Root', $clone, '-Zip', $zip1, '-Commit', $c1, '-LfsSource', $lfs)
+    Test-Check $t '... a git clone is refused (git pull updates it)' ($r.Code -eq 1 -and $r.Out -match 'git clone') $r.Out
+
+    # -- setup.ps1 ----------------------------------------------------------------------------
+    $setup = Join-Path $installer 'setup.ps1'
+    $sr = Join-Path $ob 'installed'
+    $r = Invoke-Script setup.ps1 @('-InstallDir', $sr, '-Zip', $zip1, '-Commit', $c1, '-LfsSource', $lfs,
+        '-NoMpv', '-NoFastStream', '-NoFileTypes', '-NoShortcuts', '-Yes')
+    Test-Check $t 'setup.ps1 installs into a new folder (config step; mpv, FastStream, Windows parts skipped)' (
+        $r.Code -eq 0 -and (Read-Manifest $sr).commit -eq $c1) $r.Out
+    $foreign = Join-Path $ob 'foreign'
+    Write-TestTree $foreign @{ 'something.txt' = 'not ours' }
+    $r = Invoke-Script setup.ps1 @('-InstallDir', $foreign, '-Zip', $zip1, '-Commit', $c1, '-LfsSource', $lfs, '-NoMpv', '-Yes')
+    Test-Check $t '... a folder with other files in it is refused' ($r.Code -eq 1 -and $r.Out -match 'not empty' -and -not (Read-Manifest $foreign)) $r.Out
+    $r = Invoke-Script setup.ps1 @('-InstallDir', $clone, '-Zip', $zip1, '-Commit', $c1, '-LfsSource', $lfs, '-NoMpv', '-Yes')
+    Test-Check $t '... and so is a git clone' ($r.Code -eq 1 -and $r.Out -match 'git clone') $r.Out
+    # through "irm | iex" it runs in the caller's session: an exit would close their window
+    $cmd = "& ([scriptblock]::Create((Get-Content -Raw '$setup'))) -InstallDir '$foreign'; 'the session goes on'"
+    $out = (& $shell -NoProfile -Command $cmd 2>&1) -join ' '
+    Test-Check $t '... run as a script block (irm | iex), it returns instead of ending the caller''s PowerShell' ($out -match 'the session goes on') $out
+
+    # -- install-faststream.ps1 ------------------------------------------------------------------
+    $nodeExe = Get-Command node.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object Source
+    if (-not $nodeExe) {
+        Add-Result $t 'install-faststream.ps1' 'SKIP' 'no node.exe to stand in for the Node.js download'
+    }
+    else {
+        $dist = Join-Path $ob 'nodedist'
+        $nv = 'v99.0.0'; $nn = "node-$nv-win-x64"
+        $nz = Join-Path $ob 'nodezip'
+        New-Item -ItemType Directory -Force (Join-Path $nz $nn), (Join-Path $dist $nv) | Out-Null
+        Copy-Item $nodeExe (Join-Path $nz "$nn/node.exe")
+        [IO.Compression.ZipFile]::CreateFromDirectory($nz, (Join-Path $dist "$nv/$nn.zip"))
+        $nodeSha = (Get-FileHash (Join-Path $dist "$nv/$nn.zip") -Algorithm SHA256).Hash.ToLower()
+        Set-Content (Join-Path $dist "$nv/SHASUMS256.txt") "$nodeSha  $nn.zip"
+        # the newest non-LTS first: the script must take the LTS
+        Set-Content (Join-Path $dist 'index.json') (@(
+                @{ version = 'v100.0.0'; lts = $false; files = @('win-x64-zip') },
+                @{ version = $nv; lts = 'Stand-in'; files = @('win-x64-zip', 'win-x64-msi') }) | ConvertTo-Json -Depth 3)
+        $updatesJson = Join-Path $ob 'updates.json'
+        Set-Content $updatesJson (@{ addons = @{ 'thanatus@Nawid' = @{ updates = @(@{
+                            version = '9.9.9'; update_link = 'https://example.invalid/fs.xpi'; update_hash = 'sha256:' + ('0' * 64)
+                        }) } } } | ConvertTo-Json -Depth 6)
+        # the fork's install.ps1, standing in: it records what it was given
+        $hs = Join-Path $ob 'helper-src'
+        Write-TestTree $hs @{
+            'faststream-mpv-host.mjs' = '// stand-in'
+            'install.ps1'             = 'param([string]$MpvPath, [string]$NodePath, [string]$InstallDir, [switch]$NoRegister)
+New-Item -ItemType Directory -Force $InstallDir | Out-Null
+@{ mpvPath = $MpvPath; node = $NodePath; noRegister = [bool]$NoRegister } | ConvertTo-Json | Set-Content (Join-Path $InstallDir "config.json")'
+        }
+        $mpvStandIn = Join-Path $ob 'mpvdir/mpv.exe'
+        Write-TestTree (Join-Path $ob 'mpvdir') @{ 'mpv.exe' = 'stand-in' }
+        $hd = Join-Path $ob 'helper'
+        $common = @('-NoRegister', '-NoFirefox', '-UpdatesJson', $updatesJson, '-HelperSource', $hs, '-NodeDist', $dist)
+        $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd) + $common)
+        $cfg = if (Test-Path (Join-Path $hd 'config.json')) { Get-Content -Raw (Join-Path $hd 'config.json') | ConvertFrom-Json } else { $null }
+        $privateNode = Join-Path $hd 'node\node.exe'
+        Test-Check $t 'install-faststream.ps1 installs the helper of the release, on a private Node.js LTS (checked)' (
+            $r.Code -eq 0 -and $cfg -and $cfg.mpvPath -eq $mpvStandIn -and $cfg.node -eq $privateNode -and $cfg.noRegister -and
+            (Test-Path $privateNode) -and $r.Out -match "Node\.js $([regex]::Escape($nv))") $r.Out
+        $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd) + $common)
+        Test-Check $t '... again: the helper is up to date, nothing downloaded' ($r.Code -eq 0 -and $r.Out -match 'up to date') $r.Out
+        $other = Join-Path $ob 'other/mpv.exe'
+        $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $other, '-HelperDir', $hd, '-HelperOnly', '-Yes') + $common)
+        $cfg = Get-Content -Raw (Join-Path $hd 'config.json') | ConvertFrom-Json
+        Test-Check $t '... the updater of ANOTHER mpv folder leaves it alone' ($r.Code -eq 0 -and $cfg.mpvPath -eq $mpvStandIn) $r.Out
+        # a helper this script did not install (a FastStream developer's own)
+        $dev = Join-Path $ob 'dev-helper'
+        Write-TestTree $dev @{ 'config.json' = '{"mpvPath":"C:\\dev\\mpv.exe"}' }
+        foreach ($mode in @(@('-Yes'), @('-HelperOnly', '-Yes'))) {
+            $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $dev) + $mode + $common)
+            Test-Check $t "... a helper it did not install stays as it is ($($mode -join ' '))" (
+                $r.Code -eq 0 -and (Read-Text (Join-Path $dev 'config.json')) -match 'C:\\\\dev' -and
+                -not (Test-Path (Join-Path $dev 'node'))) $r.Out
+        }
+        Set-Content (Join-Path $dist "$nv/SHASUMS256.txt") "$('0' * 64)  $nn.zip"
+        $hd2 = Join-Path $ob 'helper2'
+        $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd2) + $common)
+        Test-Check $t '... a Node.js download that is not the one nodejs.org lists is refused' (
+            $r.Code -eq 1 -and $r.Out -match 'does not match' -and -not (Test-Path (Join-Path $hd2 'node\node.exe'))) $r.Out
+
+        # -- uninstall.ps1 (the folder itself stays: -KeepFolder) -----------------------------------
+        $marker = @{ version = '9.9.9'; mpv = (Join-Path $sr 'mpv.exe') } | ConvertTo-Json
+        $ours = Join-Path $ob 'helper-ours'
+        Write-TestTree $ours @{ 'installed-by-mpv-config.json' = $marker; 'config.json' = '{}' }
+        $r = Invoke-Script uninstall.ps1 @('-Root', $sr, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', $ours)
+        Test-Check $t 'uninstall.ps1 removes the FastStream helper the setup installed for this mpv' ($r.Code -eq 0 -and -not (Test-Path $ours)) $r.Out
+        $r = Invoke-Script uninstall.ps1 @('-Root', $sr, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', $hd)
+        Test-Check $t '... but not one set up for another mpv folder' ($r.Code -eq 0 -and (Test-Path (Join-Path $hd 'config.json'))) $r.Out
+    }
+    $r = Invoke-Script uninstall.ps1 @('-Root', $clone, '-Yes', '-KeepFolder', '-NoFileTypes')
+    Test-Check $t 'uninstall.ps1 refuses a git clone' ($r.Code -eq 1 -and $r.Out -match 'git clone' -and (Test-Path $clone)) $r.Out
+    $r = Invoke-Script uninstall.ps1 @('-Root', $foreign, '-Yes', '-KeepFolder', '-NoFileTypes')
+    Test-Check $t '... and a folder the setup did not install' ($r.Code -eq 1 -and $r.Out -match 'not installed by the setup' -and (Test-Path $foreign)) $r.Out
+    Remove-Item $ob -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# ---------------------------------------------------------------------------
 # static checks
 # ---------------------------------------------------------------------------
 function Invoke-StaticCheck {
@@ -506,6 +700,8 @@ function Invoke-StaticCheck {
         }
         Remove-Item $ib -Recurse -Force -ErrorAction SilentlyContinue
     }
+
+    Invoke-OneClickCheck $t
 
     # -- commit guard (.githooks), tried in a throwaway repo ----------------------------
     # 2026-09-27: an mpv update was committed on a feature branch and a pull deleted

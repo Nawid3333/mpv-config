@@ -21,6 +21,11 @@
 # (*.exe.new is no *.exe for Git LFS: ~120 MB that GitHub refuses).
 *.new
 *.part
+# what the one-click install (installer/setup.ps1, 2026-10-09) writes into the
+# folder it installs - never a clone: the list of files it installed, and a file
+# you had changed, set aside before an update replaced it
+/.install-manifest.json
+*.mine-*
 # left by shinchiro's updater in installs from before 2026-10-03
 /installer/updater.ps1
 /updater.ps1
