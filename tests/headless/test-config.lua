@@ -18,16 +18,10 @@ local GLOBAL = {
 	['osd-bar'] = 'no',
 	['cursor-autohide'] = '1000',
 	['video-sync'] = 'audio',
-	['gpu-context'] = 'winvk',
+	['gpu-context'] = 'winvk,d3d11', -- d3d11 only where Vulkan does not start (2026-10-09)
 	['hdr-compute-peak'] = 'yes',
 	['sub-auto'] = 'fuzzy',
-	['slang'] = 'de,en',
-	['alang'] = 'de,en',
-	['cache'] = 'yes',
-	['demuxer-max-bytes'] = '1073741824',
-	['demuxer-max-back-bytes'] = '134217728',
-	['cache-pause-initial'] = 'yes',
-	['cache-pause-wait'] = '3.000000',
+	['cache'] = 'yes', -- the buffer size and waits: a per-PC setting (test-settings.lua)
 	['swapchain-depth'] = '4',
 }
 
@@ -38,27 +32,13 @@ local function check_all(where, hwdec)
 	H.eq(where .. ': hwdec', mp.get_property('options/hwdec'), hwdec)
 end
 
--- target-peak=350 for HDR sources only ([hdr-target-peak]): set for every
--- file it dimmed all SDR video to ~78 % signal on the SDR desktop (2026-10-02)
-local function peak()
-	return mp.get_property('options/target-peak')
-end
-
-local function gamma()
-	return mp.get_property('video-params/gamma')
-end
+-- The languages and the HDR brightness are per-PC settings since 2026-10-09
+-- (Scripts/settings.lua): tests/headless/test-settings.lua has them.
 
 H.run(function()
 	check_all('local file', 'd3d11va-copy,no')
-	H.eq('SDR file: target-peak auto (full brightness)', peak(), 'auto')
 	H.load(H.media_path('fs-movie/film#fs-content=movie&fs-id=0f0f0f0f0f0f0f0f.mkv'))
 	check_all('FastStream file', 'd3d11va-copy,no')
 	H.load(H.media_path('plain/clip.mkv'))
 	check_all('local file after FastStream', 'd3d11va-copy,no')
-
-	H.load(H.media_path('hdr/pq.mkv'))
-	H.expect('the HDR clip is PQ', gamma, 'pq')
-	H.expect('HDR file: target-peak 350 (the panel, for tone mapping)', peak, '350')
-	H.load(H.media_path('plain/clip.mkv'))
-	H.expect('SDR file after it: target-peak back to auto', peak, 'auto')
 end)

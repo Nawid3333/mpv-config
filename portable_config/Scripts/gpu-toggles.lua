@@ -25,13 +25,22 @@ local utils = require('mp.utils')
 -- session only) in ~~state/movie-sharpness.json and wins over the conf's from
 -- then on; remember=no (the shader warm-ups, which step through the levels)
 -- neither reads nor writes it.
+--
+-- quality (2026-10-09, for other PCs than the one this was tuned on): which
+-- chain of a preset runs - `auto` (measured on this PC, see the "Upscaling
+-- quality" section below), `high` (the chains as measured and chosen on the
+-- RX 9070 XT) or `fast` (Anime4K's own low-end set; Movie without FSRCNNX).
+-- Like the sharpness, the menu's choice is remembered (~~state/upscale.json)
+-- and wins over the conf's; so is the screen override and what was measured.
 local opts = {
 	movie_sharpness = 'auto',
+	quality = 'auto',
 	remember = true,
 }
 options.read_options(opts, 'gpu_toggles')
 
 local SHARPNESS_FILE = mp.command_native({ 'expand-path', '~~state/' }) .. '/movie-sharpness.json'
+local UPSCALE_FILE = mp.command_native({ 'expand-path', '~~state/' }) .. '/upscale.json'
 
 local SHADER_DIR = mp.command_native({ 'expand-path', '~~/shaders' })
 
@@ -217,6 +226,7 @@ end
 -- 2x, +0.27/+0.37 at 3x, ~0 on the clean 720p encode - small but consistent;
 -- ~0.3 ms per frame.
 local UPSCALE_ANIME = {
+	id = 'anime-high',
 	name = 'Anime4K C+A (HQ) [anime]',
 	shaders = {
 		'Anime4K_Clamp_Highlights.glsl',
@@ -227,23 +237,54 @@ local UPSCALE_ANIME = {
 		'Anime4K_Upscale_CNN_x2_M.glsl',
 	},
 }
+-- Quality Fast (2026-10-09): the same Mode C+A out of Anime4K's own template for
+-- low-end GPUs ("GTX 980, GTX 1060, RX 570"; its high-end one, above, names "GTX
+-- 1080, RTX 2070, RTX 3060, RX 590, Vega 56, 5700XT, 6600XT"): M instead of VL
+-- for the first upscale, S instead of M after it. Same look, about half the work.
+local UPSCALE_ANIME_FAST = {
+	id = 'anime-fast',
+	name = 'Anime4K C+A (Fast) [anime]',
+	shaders = {
+		'Anime4K_Clamp_Highlights.glsl',
+		'Anime4K_Upscale_Denoise_CNN_x2_M.glsl',
+		'Anime4K_AutoDownscalePre_x2.glsl',
+		'Anime4K_AutoDownscalePre_x4.glsl',
+		'Anime4K_Restore_CNN_S.glsl',
+		'Anime4K_Upscale_CNN_x2_S.glsl',
+	},
+}
 -- `dscale` is applied while a preset is active and restored to the
 -- mpv.conf/default value otherwise (see apply_shader_preset()).
 -- `sharpen` appends SHARPEN_SHADER at the current movie_sharpness (see
 -- preset_shaders()).
 local UPSCALE_MOVIE_SSSR = {
+	id = 'movie-sssr',
 	name = 'SSimSuperRes + CfL chroma [movie, <2x]',
 	shaders = { 'SSimSuperRes.glsl', 'CfL_Prediction.glsl' },
 	dscale = 'ewa_lanczossharp',
 	sharpen = true,
 }
 local UPSCALE_MOVIE_FSRCNNX = {
+	id = 'movie-fsrcnnx',
 	name = 'FSRCNNX + SSimSuperRes + CfL chroma [movie, >=2x]',
 	shaders = { 'FSRCNNX_x2_16-0-4-1.glsl', 'SSimSuperRes.glsl', 'CfL_Prediction.glsl' },
 	dscale = 'ewa_lanczossharp',
 	sharpen = true,
 }
 local MOVIE_FSRCNNX_MIN_SCALE = 2.0
+
+local function is_anime_preset(preset)
+	return preset == UPSCALE_ANIME or preset == UPSCALE_ANIME_FAST
+end
+
+local function is_movie_preset(preset)
+	return preset == UPSCALE_MOVIE_SSSR or preset == UPSCALE_MOVIE_FSRCNNX
+end
+
+-- 'Anime4K C+A (HQ) [anime]' -> 'Anime4K C+A (HQ)'
+local function short_name(preset)
+	return (preset.name:gsub('%s*%[.*%]$', ''))
+end
 
 -- Fixed sharpening strength levels offered in the menu next to Auto
 -- (adaptive-sharpen's curve_height). 0 drops the shader entirely, which is
@@ -329,9 +370,89 @@ end
 -- is_faststream_content()).
 local upscale_mode = 1 -- 0=off, 1=Auto, 2=Anime, 3=Movie, see preset_for_mode()
 
--- Real scale from the source to the display (fullscreen fit), or nil when the
--- file or display size is not known yet.
-local function read_display_scale()
+-- ---- Upscaling quality and the screen (2026-10-09) ---------------------------
+-- Settings for other PCs, stored per PC in ~~state/upscale.json (remember=no -
+-- the warm-ups - neither reads nor writes it):
+--   quality  'auto' | 'high' | 'fast' (see opts)
+--   screen   'auto' (the monitor mpv is on, display-width/height) or 'WxH': the
+--            screen size the choices below are made for - the Movie chain by
+--            scale, Auto sharpness, and which measurements count. Anime4K's own
+--            stages follow the real output size whatever this says (their WHEN
+--            lines read it on the GPU).
+--   costs    what each chain cost per frame on this GPU, measured in the real
+--            player (vo-passes, the render passes' own GPU timers), by chain,
+--            screen and source size: 'anime-high|2560x1440|1080p' = 4.6 (ms).
+local QUALITIES = { auto = true, high = true, fast = true }
+local SCREENS = { '1920x1080', '2560x1440', '3440x1440', '3840x2160' }
+
+local function load_upscale_state()
+	local state = { costs = {} }
+	if not opts.remember then
+		return state
+	end
+	local f = io.open(UPSCALE_FILE, 'r')
+	if not f then
+		return state
+	end
+	local data = utils.parse_json(f:read('*a'))
+	f:close()
+	if type(data) ~= 'table' then
+		return state
+	end
+	if QUALITIES[data.quality] then
+		state.quality = data.quality
+	end
+	if type(data.screen) == 'string' and (data.screen == 'auto' or data.screen:match('^%d+x%d+$')) then
+		state.screen = data.screen
+	end
+	if type(data.costs) == 'table' then
+		for k, v in pairs(data.costs) do
+			if type(k) == 'string' and type(v) == 'number' and v > 0 then
+				state.costs[k] = v
+			end
+		end
+	end
+	return state
+end
+
+local saved = load_upscale_state()
+local quality = saved.quality or (QUALITIES[opts.quality] and opts.quality) or 'auto'
+local screen = saved.screen or 'auto'
+local costs = saved.costs
+
+-- Through a temp file of this process's own, as save_sharpness().
+local function save_upscale_state()
+	if not opts.remember then
+		return
+	end
+	local json = utils.format_json({ quality = quality, screen = screen, costs = costs })
+	local tmp = UPSCALE_FILE .. '.' .. utils.getpid() .. '.tmp'
+	local f = json and io.open(tmp, 'w')
+	if not f then
+		msg.warn('cannot write ' .. tmp)
+		return
+	end
+	f:write(json)
+	f:close()
+	os.remove(UPSCALE_FILE)
+	if not os.rename(tmp, UPSCALE_FILE) then
+		msg.warn('cannot replace ' .. UPSCALE_FILE)
+	end
+end
+
+-- The screen override as two numbers, or nil (auto).
+local function screen_override()
+	local w, h = screen:match('^(%d+)x(%d+)$')
+	if w then
+		return tonumber(w), tonumber(h)
+	end
+	return nil
+end
+
+-- What the display reads, the source size, and the scale between them (fullscreen
+-- fit). `scale` and the sizes are nil while unknown.
+local function read_display()
+	local d = {}
 	local vw, vh = mp.get_property_number('width'), mp.get_property_number('height')
 	-- width/height are before rotation: a 1080x1920 phone video shown upright on
 	-- 2560x1440 counted as 1.33x (Movie + sharpening) where it is a downscale.
@@ -341,12 +462,23 @@ local function read_display_scale()
 	if vw and vh and rotate % 180 == 90 then
 		vw, vh = vh, vw
 	end
-	local dw = mp.get_property_number('display-width') or mp.get_property_number('osd-width')
-	local dh = mp.get_property_number('display-height') or mp.get_property_number('osd-height')
-	if not (vw and vh and dw and dh) or vw <= 0 or vh <= 0 or dw <= 0 or dh <= 0 then
-		return nil
+	local real_w = mp.get_property_number('display-width') or mp.get_property_number('osd-width')
+	local real_h = mp.get_property_number('display-height') or mp.get_property_number('osd-height')
+	if real_w and real_h and real_w > 0 and real_h > 0 then
+		d.detected_w, d.detected_h = real_w, real_h
 	end
-	return math.min(dw / vw, dh / vh)
+	local dw, dh = screen_override()
+	if not dw then
+		dw, dh = d.detected_w, d.detected_h
+	end
+	d.dw, d.dh = dw, dh
+	if vw and vh and vw > 0 and vh > 0 then
+		d.vw, d.vh = vw, vh
+	end
+	if d.vw and d.dw then
+		d.scale = math.min(d.dw / d.vw, d.dh / d.vh)
+	end
+	return d
 end
 
 -- The scale is read at most ONCE per action, and only if the action needs it:
@@ -357,18 +489,21 @@ end
 -- display_scale() calls: Movie and sharpness changes took 230-410 ms to show
 -- up (measured 2026-09-26 with tests/gpu/test-switching.lua). Off and Anime
 -- never need the scale, so they do no read at all.
-local NOT_READ = {} -- sentinel: nil is a valid scale ("unknown")
-local current_scale = NOT_READ
+local current_display = nil -- read_display() of this action, nil = not read yet
 
 local function forget_display_scale()
-	current_scale = NOT_READ
+	current_display = nil
+end
+
+local function display()
+	if not current_display then
+		current_display = read_display()
+	end
+	return current_display
 end
 
 local function display_scale()
-	if current_scale == NOT_READ then
-		current_scale = read_display_scale()
-	end
-	return current_scale
+	return display().scale
 end
 
 -- The strength actually applied. Auto = display scale - 1, clamped to
@@ -402,11 +537,93 @@ local function setting_label()
 	return sharpness_label(movie_sharpness)
 end
 
--- Picks the Movie chain by the real scale to the display (see the table above).
+-- ---- Upscaling quality Auto: measured on this PC (2026-10-09) ------------------
+-- The chains were measured and chosen on an RX 9070 XT (Anime4K HQ 4.6 ms per
+-- 1080p frame on 1440p); a GPU a tenth as fast would need ~45 ms and stutter
+-- even at 24 fps. So Auto does not guess from the GPU's name: the first time a
+-- high chain (Anime4K HQ, or Movie's FSRCNNX at 2x and more) runs for a screen
+-- and source size, the render passes' own GPU timers (vo-passes) are read once
+-- it has played MEASURE_AFTER seconds. Over BUDGET_SHARE of a frame's time (at
+-- 1x, the video's own fps) and Auto switches to the fast chain, says so in a
+-- banner with the number, and takes the fast one for that size from then on.
+-- Every chain stays selectable: the Settings menu and the upscale menu list
+-- High and Fast with what each cost here and mark Auto's pick (the user's rule,
+-- 2026-10-09: "measure but still show the user what will be selected and then
+-- give him the option to choose other too").
+local BUDGET_SHARE = 0.5
+local MEASURE_AFTER = 3
+
+-- The source's size class, by its pixel count as a 16:9 height (1920x800 is a
+-- 1080p-class picture, not a 720p one).
+local function source_class(d)
+	if not d.vw then
+		return nil
+	end
+	local h = math.sqrt(d.vw * d.vh * 9 / 16)
+	for _, c in ipairs({ { 400, '360p' }, { 600, '480p' }, { 800, '720p' }, { 1200, '1080p' }, { 1600, '1440p' } }) do
+		if h <= c[1] then
+			return c[2]
+		end
+	end
+	return '2160p'
+end
+
+local function cost_key(id, d)
+	d = d or display()
+	local class = source_class(d)
+	if not (d.dw and class) then
+		return nil
+	end
+	return string.format('%s|%dx%d|%s', id, d.dw, d.dh, class)
+end
+
+local function cost_of(preset, d)
+	local key = cost_key(preset.id, d)
+	return key and costs[key]
+end
+
+local function video_fps()
+	for _, prop in ipairs({ 'container-fps', 'estimated-vf-fps' }) do
+		local fps = mp.get_property_number(prop)
+		if fps and fps > 1 and fps <= 300 then
+			return fps
+		end
+	end
+	return 30
+end
+
+local function frame_budget_ms()
+	return 1000 / video_fps() * BUDGET_SHARE
+end
+
+-- Auto's choice: the high chain unless it was measured too slow here.
+local function auto_pick(high, fast)
+	local ms = cost_of(high)
+	if ms and ms > frame_budget_ms() then
+		return fast
+	end
+	return high
+end
+
+local function pick(high, fast)
+	if quality == 'fast' then
+		return fast
+	elseif quality == 'high' then
+		return high
+	end
+	return auto_pick(high, fast)
+end
+
+local function current_anime_preset()
+	return pick(UPSCALE_ANIME, UPSCALE_ANIME_FAST)
+end
+
+-- Picks the Movie chain by the real scale to the display (see the table above):
+-- at 2x and more FSRCNNX + SSimSuperRes, unless the quality takes the fast one.
 local function current_movie_preset()
 	local s = display_scale()
 	if s and s >= MOVIE_FSRCNNX_MIN_SCALE then
-		return UPSCALE_MOVIE_FSRCNNX
+		return pick(UPSCALE_MOVIE_FSRCNNX, UPSCALE_MOVIE_SSSR)
 	end
 	return UPSCALE_MOVIE_SSSR
 end
@@ -485,7 +702,7 @@ local function current_upscale_preset()
 	if not is_faststream_content() then
 		return nil
 	end
-	return is_anime_content() and UPSCALE_ANIME or current_movie_preset()
+	return is_anime_content() and current_anime_preset() or current_movie_preset()
 end
 
 -- Upscale button modes: 0=off, 1=Auto (current_upscale_preset(), re-evaluated
@@ -504,7 +721,7 @@ local function preset_for_mode(mode)
 	elseif mode == 1 then
 		return current_upscale_preset()
 	elseif mode == 2 then
-		return UPSCALE_ANIME
+		return current_anime_preset()
 	elseif mode == 3 then
 		return current_movie_preset()
 	end
@@ -545,7 +762,7 @@ local function announce_preset(preset, suffix)
 		notify('Shaders: off')
 		return
 	end
-	local detail = preset.name:gsub('%s*%[.*%]$', '')
+	local detail = short_name(preset)
 	if preset.sharpen then
 		if sharpen_active(preset) then
 			detail = detail .. ' · sharpen ' .. setting_label()
@@ -555,7 +772,7 @@ local function announce_preset(preset, suffix)
 			detail = detail .. ' · sharpen off (not enlarged)'
 		end
 	end
-	notify('Shaders: ' .. (preset == UPSCALE_ANIME and 'Anime' or 'Movie') .. (suffix or ''), detail)
+	notify('Shaders: ' .. (is_anime_preset(preset) and 'Anime' or 'Movie') .. (suffix or ''), detail)
 end
 
 local function apply_shader_preset(preset, suffix)
@@ -624,7 +841,7 @@ end
 -- Starts at 1 (Auto), not 0: on FastStream content that is the right preset
 -- with no clicks; on a local file it resolves to no shaders (see
 -- is_faststream_content()).
-local upscale_active_preset = nil -- nil | UPSCALE_ANIME | UPSCALE_MOVIE_SSSR | UPSCALE_MOVIE_FSRCNNX
+local upscale_active_preset = nil -- nil | UPSCALE_ANIME(_FAST) | UPSCALE_MOVIE_SSSR | UPSCALE_MOVIE_FSRCNNX
 local upscale_active_key = 'off' -- chain_key() of what is loaded
 
 -- The preset family on screen ('anime' | 'movie' | 'off') in
@@ -634,7 +851,7 @@ local upscale_active_key = 'off' -- chain_key() of what is loaded
 -- 2026-10-03 for the shader cache's capture, removed 2026-10-05.)
 local function publish_family(preset)
 	local family = 'off'
-	if preset == UPSCALE_ANIME then
+	if is_anime_preset(preset) then
 		family = 'anime'
 	elseif preset then
 		family = 'movie'
@@ -651,6 +868,7 @@ publish_family(nil)
 -- next to it. The full preset name is still in the tooltip on hover.
 local UPSCALE_BADGES = {
 	[UPSCALE_ANIME.name] = 'Anim',
+	[UPSCALE_ANIME_FAST.name] = 'Anim',
 	[UPSCALE_MOVIE_SSSR.name] = 'Movi',
 	[UPSCALE_MOVIE_FSRCNNX.name] = 'Movi',
 }
@@ -690,7 +908,180 @@ local function update_upscale_button()
 	})
 end
 
-local function open_upscale_menu()
+local QUALITY_NAMES = { auto = 'Auto', high = 'High', fast = 'Fast' }
+
+local function ms_text(ms)
+	return ms and string.format('%.1f ms', ms) or 'not measured yet'
+end
+
+-- What the quality items talk about: the family on screen, else the file's.
+local function quality_family()
+	if upscale_active_preset then
+		return is_anime_preset(upscale_active_preset) and 'anime' or 'movie'
+	end
+	return is_anime_content() and 'anime' or 'movie'
+end
+
+local function family_chains(family)
+	if family == 'anime' then
+		return UPSCALE_ANIME, UPSCALE_ANIME_FAST
+	end
+	return UPSCALE_MOVIE_FSRCNNX, UPSCALE_MOVIE_SSSR
+end
+
+-- "Auto (High)" etc.
+local function quality_label()
+	if quality ~= 'auto' then
+		return QUALITY_NAMES[quality]
+	end
+	local high, fast = family_chains(quality_family())
+	return 'Auto (' .. (auto_pick(high, fast) == fast and 'Fast' or 'High') .. ')'
+end
+
+-- uosc menu items, with keep_open: a choice shows its effect in the open menu
+-- (update_menus()). The Settings menu (Scripts/settings.lua) embeds the same
+-- items from user-data/gpu-toggles/quality.
+local function quality_items()
+	local family = quality_family()
+	local high, fast = family_chains(family)
+	local auto_fast = auto_pick(high, fast) == fast
+	local budget = frame_budget_ms()
+	local function chain_hint(preset, recommended)
+		local hint = short_name(preset) .. ' · ' .. ms_text(cost_of(preset))
+		return recommended and (hint .. ' · recommended') or hint
+	end
+	return {
+		{
+			title = 'Auto (measured on this PC)',
+			hint = auto_fast and 'Fast now' or 'High now',
+			value = 'script-message-to gpu_toggles set-quality auto',
+			active = quality == 'auto',
+			keep_open = true,
+		},
+		{
+			title = 'High',
+			hint = chain_hint(high, not auto_fast),
+			value = 'script-message-to gpu_toggles set-quality high',
+			active = quality == 'high',
+			keep_open = true,
+		},
+		{
+			title = 'Fast',
+			hint = chain_hint(fast, auto_fast),
+			value = 'script-message-to gpu_toggles set-quality fast',
+			active = quality == 'fast',
+			keep_open = true,
+			separator = true,
+		},
+		{
+			title = string.format('Fits: up to %.0f ms per frame', budget),
+			hint = string.format('half a frame at %.3g fps', video_fps()),
+			muted = true,
+			selectable = false,
+		},
+		{
+			title = 'Measure again',
+			hint = 'forget what was measured on this PC',
+			value = 'script-message-to gpu_toggles forget-measurements',
+			keep_open = true,
+		},
+	}
+end
+
+local function screen_label()
+	local d = display()
+	if screen == 'auto' then
+		return d.detected_w and string.format('Auto (%dx%d)', d.detected_w, d.detected_h) or 'Auto'
+	end
+	return screen
+end
+
+local function screen_items()
+	local d = display()
+	local detected = d.detected_w and string.format('%dx%d', d.detected_w, d.detected_h)
+	local items = {
+		{
+			title = 'Auto (the screen mpv is on)',
+			hint = detected or 'not known yet',
+			value = 'script-message-to gpu_toggles set-screen auto',
+			active = screen == 'auto',
+			keep_open = true,
+			separator = true,
+		},
+	}
+	local listed = false
+	for _, size in ipairs(SCREENS) do
+		listed = listed or size == screen
+		items[#items + 1] = {
+			title = size,
+			hint = size == detected and 'this screen' or nil,
+			value = 'script-message-to gpu_toggles set-screen ' .. size,
+			active = screen == size,
+			keep_open = true,
+		}
+	end
+	if screen ~= 'auto' and not listed then
+		items[#items + 1] = { title = screen, active = true, keep_open = true }
+	end
+	return items
+end
+
+local function sharpness_items()
+	local auto = movie_sharpness == SHARPEN_AUTO
+	local items = {
+		{
+			title = 'Auto (by scale)',
+			hint = string.format('%.2f now', effective_sharpness()),
+			value = 'script-message-to gpu_toggles set-movie-sharpness auto',
+			active = auto,
+			keep_open = true,
+			separator = true,
+		},
+	}
+	for _, level in ipairs(SHARPEN_LEVELS) do
+		items[#items + 1] = {
+			title = level.name,
+			hint = level.value > 0 and string.format('%.1f', level.value) or nil,
+			value = 'script-message-to gpu_toggles set-movie-sharpness ' .. level.value,
+			active = not auto and math.abs(level.value - movie_sharpness) < 1e-6,
+			keep_open = true,
+		}
+	end
+	return items
+end
+
+local function chain_costs()
+	local out = {}
+	for _, preset in ipairs({ UPSCALE_ANIME, UPSCALE_ANIME_FAST, UPSCALE_MOVIE_FSRCNNX, UPSCALE_MOVIE_SSSR }) do
+		out[preset.id] = cost_of(preset)
+	end
+	return out
+end
+
+-- user-data/gpu-toggles/quality: the settings, what Auto picks, what was
+-- measured here, and the menu items (Scripts/settings.lua, the tests).
+local function publish_quality()
+	local d = display()
+	mp.set_property_native('user-data/gpu-toggles/quality', {
+		setting = quality,
+		label = quality_label(),
+		anime = current_anime_preset().id,
+		movie = current_movie_preset().id,
+		screen = screen,
+		screen_label = screen_label(),
+		detected = d.detected_w and string.format('%dx%d', d.detected_w, d.detected_h) or nil,
+		used = d.dw and string.format('%dx%d', d.dw, d.dh) or nil,
+		source = source_class(d),
+		budget_ms = frame_budget_ms(),
+		costs = chain_costs(),
+		sharpness_label = setting_label(),
+		quality_items = quality_items(),
+		screen_items = screen_items(),
+		sharpness_items = sharpness_items(),
+	})
+end
+
+local function open_upscale_menu(update)
 	-- Auto is only offered (and highlighted) for FastStream content; on any
 	-- other file it is the same as Off, so "Off" is the highlighted entry then.
 	local faststream = is_faststream_content()
@@ -712,26 +1103,10 @@ local function open_upscale_menu()
 		{ title = 'Anime', value = 'script-message-to gpu_toggles set-upscale 2', active = upscale_mode == 2 }
 	items[#items + 1] =
 		{ title = 'Movie', value = 'script-message-to gpu_toggles set-upscale 3', active = upscale_mode == 3 }
-	local auto = movie_sharpness == SHARPEN_AUTO
-	local levels = {
-		{
-			title = 'Auto (by scale)',
-			hint = string.format('%.2f now', effective_sharpness()),
-			value = 'script-message-to gpu_toggles set-movie-sharpness auto',
-			active = auto,
-			separator = true,
-		},
-	}
-	for _, level in ipairs(SHARPEN_LEVELS) do
-		levels[#levels + 1] = {
-			title = level.name,
-			hint = level.value > 0 and string.format('%.1f', level.value) or nil,
-			value = 'script-message-to gpu_toggles set-movie-sharpness ' .. level.value,
-			active = not auto and math.abs(level.value - movie_sharpness) < 1e-6,
-		}
-	end
 	items[#items].separator = true
-	items[#items + 1] = { title = 'Movie sharpness', hint = setting_label(), items = levels, separator = true }
+	items[#items + 1] = { title = 'Quality', hint = quality_label(), items = quality_items() }
+	items[#items + 1] =
+		{ title = 'Movie sharpness', hint = setting_label(), items = sharpness_items(), separator = true }
 	-- shader-cache/main.lua: deletes mpv's own compiled shaders (never AMD's
 	-- driver cache) and compiles every chain again in the background
 	items[#items + 1] = {
@@ -742,13 +1117,20 @@ local function open_upscale_menu()
 	local data = { type = 'upscale-menu', title = 'Upscale', items = items }
 	local json, err = utils.format_json(data)
 	if json then
-		mp.commandv('script-message-to', 'uosc', 'open-menu', json)
+		if update then
+			-- uosc acts on it only while this menu is open
+			mp.commandv('script-message-to', 'uosc', 'update-menu', json)
+		else
+			mp.commandv('script-message-to', 'uosc', 'open-menu', json)
+		end
 	else
 		msg.error('Failed to format upscale menu JSON: ' .. tostring(err))
 	end
 end
 
 -- ---- Upscale cycle (Shift+A, toolbar) ---------------------------------------
+local schedule_measure -- below: times the chain that was just applied
+
 -- `announce` is true for a user-initiated change (key, menu, toolbar) and
 -- false for the automatic per-file re-evaluation, which should stay quiet
 -- when nothing actually changed.
@@ -769,6 +1151,7 @@ local function apply_upscale(announce)
 			announce_preset(preset, suffix)
 		end
 		update_upscale_button()
+		schedule_measure()
 		return
 	end
 
@@ -784,6 +1167,87 @@ local function apply_upscale(announce)
 	end
 	publish_family(upscale_active_preset)
 	update_upscale_button()
+	schedule_measure()
+end
+
+-- Both open menus show a change at once (uosc ignores update-menu for a menu
+-- that is not open; the Settings menu follows user-data/gpu-toggles/quality).
+local function update_menus()
+	open_upscale_menu(true)
+	publish_quality()
+end
+
+-- The render passes' GPU time per frame, in ms (sum of every fresh pass's
+-- average), or nil without timers (--vo=null) or frames.
+local function read_render_ms()
+	local vp = mp.get_property_native('vo-passes')
+	local fresh = type(vp) == 'table' and vp.fresh
+	if type(fresh) ~= 'table' or #fresh == 0 then
+		return nil
+	end
+	local ns = 0
+	for _, pass in ipairs(fresh) do
+		ns = ns + (tonumber(pass.avg) or 0)
+	end
+	return ns > 0 and ns / 1e6 or nil
+end
+
+local measure_timer, measure_tries = nil, 0
+local told = {} -- slow-chain banners, once per chain, screen and source size
+
+local function measure()
+	measure_timer = nil
+	local preset = upscale_active_preset
+	if not preset or not opts.remember then
+		return
+	end
+	-- not while paused or buffering, nor while the background shader warm-up
+	-- draws on the same GPU (Scripts/shader-cache)
+	local sc = mp.get_property_native('user-data/shader-cache') or {}
+	local ms = nil
+	if not (mp.get_property_native('pause') or mp.get_property_native('core-idle') or sc.state == 'warming') then
+		ms = read_render_ms()
+	end
+	forget_display_scale()
+	local key = cost_key(preset.id)
+	if not ms or not key then
+		measure_tries = measure_tries + 1
+		if key and measure_tries < 20 then
+			measure_timer = mp.add_timeout(MEASURE_AFTER, measure)
+		end
+		return
+	end
+	ms = math.floor(ms * 10 + 0.5) / 10
+	costs[key] = ms
+	save_upscale_state()
+	local budget = frame_budget_ms()
+	if ms > budget and not told[key] then
+		told[key] = true
+		local fast = (preset == UPSCALE_ANIME and UPSCALE_ANIME_FAST)
+			or (preset == UPSCALE_MOVIE_FSRCNNX and UPSCALE_MOVIE_SSSR)
+		local spent = string.format('%s took %.1f ms per frame here (%.0f fit)', short_name(preset), ms, budget)
+		if fast and quality == 'auto' then
+			apply_upscale(false) -- auto_pick() takes the fast chain now
+			notify('Upscaling quality: Fast', spent .. ' · Settings to change')
+		elseif fast then
+			notify('Upscaling may stutter', spent .. ' · Settings > Upscaling quality > Fast')
+		else
+			notify('Upscaling may stutter', spent .. ' · Shift+A / Shift+Y turns it off')
+		end
+	end
+	update_menus()
+end
+
+-- Times the chain on screen, once per chain, screen and source size.
+schedule_measure = function()
+	if measure_timer then
+		measure_timer:kill()
+		measure_timer = nil
+	end
+	measure_tries = 0
+	if upscale_active_preset and opts.remember and not cost_of(upscale_active_preset) then
+		measure_timer = mp.add_timeout(MEASURE_AFTER, measure)
+	end
 end
 
 local function cycle_upscale()
@@ -802,12 +1266,8 @@ end
 -- chain is what is actually running, so Auto having picked Anime on a
 -- FastStream anime stream counts as Anime being on. Switching to the other
 -- preset replaces the chain in one step - the two can never run together.
-local function is_movie_preset(preset)
-	return preset == UPSCALE_MOVIE_SSSR or preset == UPSCALE_MOVIE_FSRCNNX
-end
-
 local function toggle_anime()
-	upscale_mode = upscale_active_preset == UPSCALE_ANIME and 0 or 2
+	upscale_mode = is_anime_preset(upscale_active_preset) and 0 or 2
 	apply_upscale(true)
 end
 
@@ -847,6 +1307,73 @@ local function set_movie_sharpness(value)
 		not is_movie_preset(upscale_active_preset) and 'used when Movie is on' or nil
 	)
 	update_upscale_button()
+	update_menus()
+end
+
+-- What runs now, for the banners of the settings below.
+local function running_detail()
+	return upscale_active_preset and ('now ' .. short_name(upscale_active_preset)) or 'used when upscaling is on'
+end
+
+-- script-message-to gpu_toggles set-quality <auto|high|fast>
+local function set_quality(value)
+	if not QUALITIES[value] then
+		msg.warn('set-quality: invalid value ' .. tostring(value))
+		return
+	end
+	quality = value
+	save_upscale_state()
+	if upscale_active_preset then
+		apply_upscale(false)
+	end
+	notify('Upscaling quality: ' .. quality_label(), running_detail())
+	update_menus()
+end
+
+-- script-message-to gpu_toggles set-screen <auto|WxH>
+local function set_screen(value)
+	if value ~= 'auto' and not (type(value) == 'string' and value:match('^%d+x%d+$')) then
+		msg.warn('set-screen: invalid value ' .. tostring(value))
+		return
+	end
+	screen = value
+	save_upscale_state()
+	forget_display_scale()
+	if upscale_active_preset then
+		apply_upscale(false)
+	end
+	notify('Screen for upscaling: ' .. screen_label(), running_detail())
+	update_menus()
+end
+
+-- script-message-to gpu_toggles forget-measurements: Auto starts from High
+-- again and measures anew (a new GPU, or a driver that changed the speed).
+local function forget_measurements()
+	costs = {}
+	told = {}
+	save_upscale_state()
+	if upscale_active_preset then
+		apply_upscale(false)
+	end
+	notify('Measurements cleared', 'the next upscaled video is measured again')
+	update_menus()
+end
+
+-- script-message-to gpu_toggles set-cost <chain id> <ms>: a measurement by hand
+-- (the tests: --vo=null has no GPU timers). For the current screen and source.
+local function set_cost(id, value)
+	local ms = tonumber(value)
+	local key = cost_key(tostring(id))
+	if not key or not ms or ms <= 0 then
+		msg.warn('set-cost: needs a chain id, a number and a known screen + source size')
+		return
+	end
+	costs[key] = ms
+	save_upscale_state()
+	if upscale_active_preset then
+		apply_upscale(false)
+	end
+	update_menus()
 end
 
 -- ---- Key bindings (input.conf / uosc menu reach these via "script-binding
@@ -877,8 +1404,23 @@ mp.add_key_binding(nil, 'toggle-movie', entry(toggle_movie))
 -- ---- Script messages (bound in input.conf / uosc menu) --------------------
 mp.register_script_message('cycle-upscale', entry(cycle_upscale))
 mp.register_script_message('set-upscale', entry(set_upscale))
-mp.register_script_message('open-upscale-menu', entry(open_upscale_menu))
+mp.register_script_message(
+	'open-upscale-menu',
+	entry(function()
+		open_upscale_menu(false)
+	end)
+)
 mp.register_script_message('set-movie-sharpness', entry(set_movie_sharpness))
+mp.register_script_message('set-quality', entry(set_quality))
+mp.register_script_message('set-screen', entry(set_screen))
+mp.register_script_message('forget-measurements', entry(forget_measurements))
+mp.register_script_message('set-cost', entry(set_cost))
+-- Scripts/settings.lua asks for the current state when its menu opens. Not
+-- through entry(): it is no action (the warm-up counts actions).
+mp.register_script_message('publish-quality', function()
+	forget_display_scale()
+	publish_quality()
+end)
 
 -- Re-apply the upscale mode on every file load (apply_upscale() no-ops if the
 -- resulting preset hasn't changed): mode 1 (Auto) re-evaluates content type,

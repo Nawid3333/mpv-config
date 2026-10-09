@@ -38,7 +38,10 @@ local M = {}
 -- grain, stills, 1:1 windows, 8K, the menu's video settings.
 -- No bump on 2026-10-05, when the learned cases were removed: the warm-up then
 -- draws less, and a cache warmed with them still holds everything it draws.
-M.WARMUP_VERSION = 4
+-- 5 (2026-10-09): every clip also with quality Fast (Anime4K's Fast set, Movie
+-- without FSRCNNX), and clip sizes for the branches the standard ones miss on
+-- this screen (warmup.lua add_screen_runs); the stamp records the screen.
+M.WARMUP_VERSION = 5
 
 -- The stamp and the control files live in the cache folder itself, so
 -- clearing the cache clears the stamp too. mpv's own cleanup only ever
@@ -59,6 +62,7 @@ M.REASONS = {
 	shaders = 'shaders or presets changed',
 	mpv = 'mpv was updated',
 	manual = 'rebuild chosen in the menu',
+	display = 'mpv is on another screen size',
 }
 
 -- Same resolution as vo_gpu_next.c cache_init(): the option, else ~~cache/.

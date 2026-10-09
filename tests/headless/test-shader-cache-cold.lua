@@ -29,11 +29,12 @@ H.run(function()
 		string.format('playing %s, done %s', tostring(R.t.playing), tostring(R.t.done))
 	)
 	H.eq('the video kept playing', mp.get_property_native('pause'), false)
-	H.check('a full warm-up plays every run', (info.summary or ''):find('over 8 steps', 1, true) ~= nil, info.summary)
+	-- 2 test runs x 6 steps (off, Anime, Movie, Movie unsharpened, Movie Fast, Anime Fast - 2026-10-09)
+	H.check('a full warm-up plays every run', (info.summary or ''):find('over 12 steps', 1, true) ~= nil, info.summary)
 	local p = info.progress or {}
 	H.check(
 		'progress for the bar reached the end',
-		p.total == 8 and p.done == 8,
+		p.total == 12 and p.done == 12,
 		string.format('%s/%s', p.done, p.total)
 	)
 	local stamp = R.read_stamp()

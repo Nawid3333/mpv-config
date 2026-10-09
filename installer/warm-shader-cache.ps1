@@ -70,11 +70,13 @@ $lines = @(
     "--script=$(Join-Path $scripts 'gpu-toggles.lua')",
     "--script=$(Join-Path $scripts 'uosc')",
     "--script=$(Join-Path $scripts 'notify.lua')",
+    "--script=$(Join-Path $scripts 'settings.lua')",
     "--script=$(Join-Path $scripts 'shader-cache/warmup.lua')",
     '--ao=null', '--force-window=yes', '--idle=yes', '--no-terminal', '--input-ipc-server=',
     "--script-opts-append=shader_warmup-check=$($Check ? 'yes' : 'no')",
     # it steps through the Movie sharpness levels: not the user's choice to remember
-    '--script-opts-append=gpu_toggles-remember=no'
+    '--script-opts-append=gpu_toggles-remember=no',
+    '--script-opts-append=settings-write=no'
 )
 # Warming steps untimed (a stepped frame shows at once, ~5 ms instead of ~92);
 # -Check keeps real playback timing, so it tests what a real video needs.

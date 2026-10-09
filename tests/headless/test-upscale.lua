@@ -14,7 +14,16 @@ local ANIME = table.concat({
 	'Anime4K_Restore_CNN_M.glsl',
 	'Anime4K_Upscale_CNN_x2_M.glsl',
 }, ';')
+local ANIME_FAST = table.concat({
+	'Anime4K_Clamp_Highlights.glsl',
+	'Anime4K_Upscale_Denoise_CNN_x2_M.glsl',
+	'Anime4K_AutoDownscalePre_x2.glsl',
+	'Anime4K_AutoDownscalePre_x4.glsl',
+	'Anime4K_Restore_CNN_S.glsl',
+	'Anime4K_Upscale_CNN_x2_S.glsl',
+}, ';')
 local MOVIE = 'SSimSuperRes.glsl;CfL_Prediction.glsl;adaptive-sharpen.glsl'
+local MOVIE_FSRCNNX = 'FSRCNNX_x2_16-0-4-1.glsl;SSimSuperRes.glsl;CfL_Prediction.glsl;adaptive-sharpen.glsl'
 local MOVIE_NO_SHARPEN = 'SSimSuperRes.glsl;CfL_Prediction.glsl'
 local OFF = ''
 
@@ -153,4 +162,70 @@ H.run(function()
 	send('set-upscale', '3')
 	H.load(H.media_path('plain/clip.mkv'))
 	H.expect('Movie chosen on one file stays on for the next file', chain, MOVIE)
+
+	-- ---- Upscaling quality (2026-10-09): High, Fast, and Auto by what was measured ----
+	-- Headless has no GPU timers and no display: a screen size and a measurement are
+	-- given by hand (set-screen, set-cost); the timing itself is the gpu tier's.
+	local function published(key)
+		return function()
+			return (mp.get_property_native('user-data/gpu-toggles/quality') or {})[key]
+		end
+	end
+	send('set-upscale', '2')
+	H.expect('quality Auto, nothing measured -> Anime4K HQ', chain, ANIME)
+	send('set-quality', 'fast')
+	H.expect('quality Fast -> Anime4K Fast set', chain, ANIME_FAST)
+	H.expect('... still published as preset anime', family, 'anime')
+	send('set-quality', 'high')
+	H.expect('quality High -> Anime4K HQ', chain, ANIME)
+	send('set-quality', 'auto')
+	send('set-screen', '2560x1440') -- the 320x180 clip at 8x
+	send('set-cost', 'anime-high', '5')
+	H.expect('Auto + HQ measured at 5 ms (fits a 20 fps frame) -> HQ', chain, ANIME)
+	send('set-cost', 'anime-high', '80')
+	H.expect('Auto + HQ measured at 80 ms (too slow) -> Fast', chain, ANIME_FAST)
+	H.expect('... published: Auto picks anime-fast', published('anime'), 'anime-fast')
+	H.expect('... and the measurement, for this screen and source size', function()
+		return (published('costs')() or {})['anime-high']
+	end, 80)
+	send('set-quality', 'high')
+	H.expect('High chosen by hand runs HQ even when measured too slow', chain, ANIME)
+	send('set-quality', 'auto')
+	H.expect('back to Auto -> Fast again', chain, ANIME_FAST)
+	send('forget-measurements')
+	H.expect('Measure again: Auto starts from HQ', chain, ANIME)
+
+	-- the screen decides Movie's chain (FSRCNNX from 2x) and its sharpening
+	send('set-upscale', '3')
+	H.expect('Movie on a screen 8x the clip -> FSRCNNX chain', chain, MOVIE_FSRCNNX)
+	H.expect('... Auto sharpening at its 1.5 maximum', curve_height, '1.500')
+	send('set-quality', 'fast')
+	H.expect('Movie at quality Fast -> without FSRCNNX', chain, MOVIE)
+	send('set-quality', 'auto')
+	send('set-cost', 'movie-fsrcnnx', '80')
+	H.expect('Auto + FSRCNNX measured too slow -> without it', chain, MOVIE)
+	send('forget-measurements')
+	H.expect('... measured again -> FSRCNNX', chain, MOVIE_FSRCNNX)
+	send('set-screen', '480x270') -- 1.5x
+	H.expect('a screen 1.5x the clip -> SSimSuperRes chain', chain, MOVIE)
+	H.expect('... sharpening 0.5', curve_height, '0.500')
+	send('set-screen', 'auto')
+	H.expect('screen Auto (headless: unknown) -> SSimSuperRes chain', chain, MOVIE)
+	H.expect('... published: the screen setting', published('screen'), 'auto')
+	send('set-quality', 'ultra')
+	send('set-screen', 'big')
+	H.sleep(1)
+	H.eq('an invalid quality or screen is ignored', published('setting')(), 'auto')
+
+	-- remembered for the next start (tests/run-tests.ps1 clears it between tests)
+	local f = io.open(mp.command_native({ 'expand-path', '~~state/upscale.json' }), 'r')
+	local saved = f and utils.parse_json(f:read('*a'))
+	if f then
+		f:close()
+	end
+	H.check(
+		'quality and screen are saved in ~~state/upscale.json',
+		type(saved) == 'table' and saved.quality == 'auto' and saved.screen == 'auto',
+		tostring(saved)
+	)
 end)

@@ -9,15 +9,33 @@ suite checks every feature.
 
 ![The player: a video with the control bar, a subtitle above it and the resolution banner top right](doc/readme/player.jpg)
 
-> **One PC, measured.** Everything here was tuned and measured on a Radeon
-> RX 9070 XT with a 1440p IPS monitor (LG 27GN800-B) on Windows 11. It should
-> work on any Windows PC with a Vulkan GPU, but only that machine has been
-> tested. See [Settings tied to that PC](#settings-tied-to-that-pc).
+> **Tuned on one PC, set up for yours.** Everything was measured on a Radeon
+> RX 9070 XT with a 1440p monitor on Windows 11. On your PC the player reads
+> your screen and your memory, times the upscaling on your GPU, and shows you
+> what it picked: press `F1`. Only that one PC has been tested so far, so
+> [feedback from other PCs](#other-gpus-and-screens) helps a lot.
 
 ## Features
 
+**Set up in the player**
+- `F1` opens the **Welcome** menu: your settings at the top, with the
+  recommended values marked, and then every feature with its key. It also
+  opens by itself the first time you start mpv without a video.
+- Right-click ▸ **Settings** has the same settings. Every option is listed,
+  even when Auto picks one for you:
+  - **Buffering**: how much of a stream is downloaded ahead of where you
+    are watching: 150 MB to 2 GB, or the whole video (kept on disk).
+  - **Start and stalls**: start at once, or wait until a few seconds are
+    downloaded, before playing and after the stream runs dry (a stall).
+  - **Upscaling quality**: Auto, High or Fast, with the time each one took
+    on your GPU.
+  - **Screen for upscaling**, **Movie sharpness**, **HDR brightness**.
+  - **Subtitle and audio language**.
+
 **Upscaling you switch on, chosen by measurement**
-- **Anime** (`Shift+A`): Anime4K's "Mode C+A" (HQ): denoised, cleanly inked lines.
+- **Anime** (`Shift+A`): Anime4K's "Mode C+A": denoised, cleanly inked lines.
+  On slower GPUs it uses Anime4K's own lighter "Fast" set (see
+  [Other GPUs and screens](#other-gpus-and-screens)).
 - **Movie** (`Shift+Y`): picks a chain by the real display scale. Below 2x
   it uses SSimSuperRes; at 2x and above, FSRCNNX + SSimSuperRes. Chroma is
   rebuilt from luma (CfL), and adaptive sharpening runs at an automatic
@@ -91,22 +109,30 @@ and press Enter:
 irm https://raw.githubusercontent.com/Nawid3333/mpv-config/main/installer/setup.ps1 | iex
 ```
 
-Or download this repository (**Code ▸ Download ZIP**), extract it and
-double-click **`install.bat`**. Either way it takes about a minute.
+That line downloads the setup script and runs it (`irm` downloads, `iex`
+runs). To read it first, open
+[`installer/setup.ps1`](installer/setup.ps1). Or download this repository
+(**Code ▸ Download ZIP**), extract it and double-click **`install.bat`**.
+Either way it takes about a minute.
 
-No admin rights, no Git and no Node.js installation are needed, and nothing
-is changed for the whole PC. The setup:
+Everything is installed for your Windows account only, so no admin rights are
+needed and nothing changes for other users of the PC. You don't need to
+install Git or Node.js either. The setup:
 
-1. checks the PC: 64-bit Windows 10 or 11, a graphics driver with Vulkan, and
-   a CPU with AVX2 (Intel from 2013, AMD from 2015);
+1. checks the PC: 64-bit Windows 10 or 11 and a CPU with AVX2 (Intel from
+   2013, AMD from 2015). It warns when it finds no Vulkan graphics driver
+   (see [Other GPUs and screens](#other-gpus-and-screens));
 2. installs this config into `%LOCALAPPDATA%\Programs\mpv`, plus mpv itself
-   (the pinned build, every file checked by SHA-256) and yt-dlp;
-3. connects **FastStream** for Firefox. It installs the small mpv helper the
-   add-on needs, with its own private copy of Node.js. Then it opens the
-   signed FastStream add-on in Firefox; click **Add**;
-4. adds mpv to **Open with** for video and audio files (your default player is
-   not changed), and a Start menu folder **mpv** with *mpv*, *Update mpv* and
-   *Uninstall mpv*.
+   and yt-dlp (which mpv uses for web videos). Every download is checked
+   against its known checksum, so a damaged or altered file is refused;
+3. connects **FastStream**, the Firefox add-on that sends videos from the
+   browser to mpv. A browser add-on cannot start programs by itself, so it
+   needs a small helper program; the setup installs it, with its own private
+   copy of Node.js (the runtime the helper is written for). Then it opens the
+   signed FastStream add-on in Firefox: click **Add**;
+4. adds mpv to the **Open with** list you get when you right-click a video or
+   audio file (your default player is not changed), and a Start menu folder
+   **mpv** with *mpv*, *Update mpv* and *Uninstall mpv*.
 
 When it is done, **restart Firefox** and switch FastStream's MPV mode on (see
 [Use with FastStream](#use-with-faststream), step 4). The first video then
@@ -235,21 +261,73 @@ that needs a login session will not play in mpv.
 | `0`-`9` | Jump to 0 %-90 % |
 | `↑` `↓`, wheel, `m` | Volume ±10, ±2, mute |
 | `i`, `I` | Stats |
+| `F1` | Welcome menu: settings and every feature |
 | `Q` | Quit and save the position (`Ctrl+w` quits) |
 
 Every key and menu entry is in [`input.conf`](portable_config/input.conf).
 
-## Settings tied to that PC
+## Settings
 
-- `target-peak=350` in [`mpv.conf`](portable_config/mpv.conf) is the measured
-  peak brightness of the monitor above. It applies to HDR videos only; set it to
-  your display's peak or remove it.
-- `slang=de,en` / `alang=de,en`: German first, then English. Change them to
-  your languages.
-- `hwdec`: everything decodes with `d3d11va-copy`. Vulkan decoding dropped frames
-  on long local files with this AMD driver (2026-09-16) and lost the graphics
-  device on streams with the October 2026 builds (2026-10-04). `mpv.conf`
-  explains it, and the static tests refuse a vulkan or auto `hwdec`.
+Right-click ▸ **Settings**, or `F1`. They are stored per PC (in
+`portable_config\settings.json` and `upscale.json`, never in git):
+
+| Setting | A new install starts with | Options |
+|---|---|---|
+| Buffering | Auto: by your memory (under 6 GB: 150 MB, under 12 GB: 512 MB, else 1 GB) | 150 MB, 512 MB, 1 GB, 2 GB, the whole video (streams, on disk in the temp folder) |
+| Start and stalls | buffer 3 s first, and after a stall | start at once, 3 s, 5 s, 10 s |
+| Upscaling quality | Auto: measured on your GPU | High, Fast |
+| Screen for upscaling | Auto: the screen mpv is on | 1920x1080, 2560x1440, 3440x1440, 3840x2160 |
+| Movie sharpness | Auto: by the scale | Off, Low, Medium, High |
+| HDR brightness | Auto: your screen's own value | 300 to 1000 nits |
+| Subtitle language | Automatic: your Windows language | English, German, French, Japanese and more, each then English |
+| Audio language | Automatic: the file's default track | the same list |
+
+A PC that ran this config before the settings existed keeps its earlier values
+(German, then English; 350 nits; 1 GB; 3 s).
+
+Decoding is fixed: everything decodes with `d3d11va-copy` on the graphics
+card's video engine. Vulkan decoding dropped frames on long local files with
+an AMD driver (2026-09-16) and lost the graphics device on streams with the
+October 2026 builds (2026-10-04). `mpv.conf` explains it, and the static tests
+refuse a vulkan or auto `hwdec`.
+
+## Other GPUs and screens
+
+**Screens.** The upscaling picks its chain from the real scale between the
+video and your screen, so a 1080p or 4K screen gets the right one by itself:
+
+| Video | 1080p screen | 1440p screen | 4K screen |
+|---|---|---|---|
+| 480p | 2.25x | 3x | 4.5x |
+| 720p | 1.5x | 2x | 3x |
+| 1080p | 1x (no upscaling) | 1.33x | 2x |
+| 4K | 0.5x (downscaled) | 0.67x | 1x |
+
+Movie uses SSimSuperRes below 2x and FSRCNNX + SSimSuperRes from 2x on.
+Anime4K's own stages follow the scale too. The quality was compared at 1.33x,
+1.5x, 2x and 3x, which covers every cell above except 480p on a 4K screen.
+The background shader compile adds clip sizes for any scale your screen
+reaches that the standard sizes miss, and runs again when you change screens.
+
+**GPUs.** Every GPU computes the same picture; only the speed differs. On the
+RX 9070 XT, Anime4K takes about 4.6 ms per 1080p frame on a 1440p screen, and
+Movie 2-5 ms. A GPU a tenth as fast would stutter. So the first time a chain
+runs, Auto reads its time from the GPU's own timers. If it needs more than
+half of a frame's time, Auto switches to Anime4K's lighter "Fast" set (or
+Movie without FSRCNNX) and tells you with the number. **Settings ▸ Upscaling
+quality** shows what was measured, and you can still pick High.
+
+**Requirements:** Windows 10 or 11 (64-bit) and a CPU with AVX2 (Intel from
+2013, AMD from 2015). The picture is drawn with Vulkan; a PC without a working
+Vulkan driver falls back to Direct3D 11, where the first use of each
+upscaler compiles slowly.
+
+**Please tell us how it runs.** Open an
+[issue](https://github.com/Nawid3333/mpv-config/issues) with:
+- your GPU and your screen resolution;
+- what **Settings ▸ Upscaling quality** shows (Auto's pick and the
+  milliseconds);
+- whether anything stutters (press `i` for the stats).
 
 ## Tests
 

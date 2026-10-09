@@ -262,6 +262,8 @@ local function start_warmup()
 		'--script=' .. utils.join_path(cfg, 'Scripts/uosc'),
 		-- gpu-toggles announces each switch as a banner: drawn here as in the player
 		'--script=' .. utils.join_path(cfg, 'Scripts/notify.lua'),
+		-- the HDR brightness the player draws HDR video with (read-only here)
+		'--script=' .. utils.join_path(cfg, 'Scripts/settings.lua'),
 		'--script=' .. script,
 		'--priority=belownormal',
 		-- a stepped frame shows at once instead of after its 24 fps slot
@@ -276,6 +278,7 @@ local function start_warmup()
 		'--script-opts-append=shader_warmup-quick=' .. (info.mode == 'quick' and 'yes' or 'no'),
 		-- it steps through the Movie sharpness levels: not the user's choice
 		'--script-opts-append=gpu_toggles-remember=no',
+		'--script-opts-append=settings-write=no',
 	}
 	if opts.warmup_vo ~= '' then
 		lines[#lines + 1] = '--vo=' .. opts.warmup_vo
@@ -347,11 +350,34 @@ local function when_idle()
 		end
 	end)
 end
+-- The screen the cache was warmed on (2026-10-09): which branches of the chains a
+-- clip reaches depends on it, and warmup.lua adds clip sizes for the branches the
+-- standard ones miss there. Known only once the window is up, so it is compared at
+-- the first playback start, not with the rest. A stamp without a screen (written
+-- before, or by a warm-up without one) never differs.
+local function screen_changed()
+	local stamp = fingerprint.read(fingerprint.STAMP)
+	local w, h = mp.get_property_number('display-width'), mp.get_property_number('display-height')
+	if not (stamp and stamp.display and w and h and w > 0 and h > 0) then
+		return false
+	end
+	return stamp.display ~= string.format('%dx%d', w, h)
+end
+
+local function check_screen()
+	if state == 'fresh' and opts.auto and screen_changed() then
+		publish('stale', { reasons = 'display', mode = 'full' })
+		when_playing()
+	end
+end
+
 mp.register_event('playback-restart', function()
 	if not playing then
 		playing = true
 		if state == 'stale' and opts.auto then
 			when_playing()
+		else
+			check_screen()
 		end
 	end
 end)
@@ -363,7 +389,11 @@ fingerprint.collect(function(result)
 	local reasons, mode = fingerprint.compare(fingerprint.read(fingerprint.STAMP), fp, fingerprint.count_cache_files())
 	local check = { check_ms = math.floor((mp.get_time() - t0) * 1000 + 0.5), fingerprint = fp }
 	if not mode then
-		return publish('fresh', check)
+		publish('fresh', check)
+		if playing then
+			check_screen()
+		end
+		return
 	end
 	check.reasons, check.mode = table.concat(reasons, '+'), mode
 	publish('stale', check)

@@ -41,6 +41,12 @@ portable_config/speed.json
 
 # gpu-toggles.lua state (the Movie sharpness menu's choice; 2026-10-02)
 portable_config/movie-sharpness.json
+# per-PC settings (2026-10-09): settings.lua (languages, HDR brightness),
+# gpu-toggles.lua (upscaling quality, screen, what each chain cost on this GPU),
+# welcome.lua (the first-start banner was shown)
+portable_config/settings.json
+portable_config/upscale.json
+portable_config/welcome.json
 
 # stream-resume.lua state (FastStream playback positions, 7-day expiry;
 # rewritten every few seconds during playback)

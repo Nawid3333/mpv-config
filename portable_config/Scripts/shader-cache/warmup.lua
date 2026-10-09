@@ -278,7 +278,45 @@ else
 	end
 end
 local QUICK = o.matrix == 'test' and 1 or 4 -- the first QUICK runs
-local STEPS_PER_RUN = 4
+-- off, Anime, Movie, Movie unsharpened, then quality Fast (2026-10-09): Movie, Anime
+local STEPS_PER_RUN = 6
+
+-- Clip sizes for the screen this runs on (2026-10-09). The standard sizes were
+-- chosen on a 1440p screen, where they reach every branch the chains take by
+-- scale: Anime4K's (its WHEN lines - no upscale up to 1.2x, x2 + downscale up to
+-- 2x, x2 alone up to 2.4x, x2 + downscale + x2 up to 4x, then x2 twice) and
+-- Movie's (SSimSuperRes + sharpening below 2x, FSRCNNX from 2x). Another screen
+-- misses some - 4K has nothing between 1.2x and 2x (1080p is exactly 2x), 1080p
+-- nothing at 4x or more - so a clip at the middle of each missed branch is
+-- added, in both formats. On 1440p (and 3440x1440) nothing is added.
+local BRANCHES = { { 1.2, 2.0, 1.6 }, { 2.0, 2.4, 2.2 }, { 2.4, 4.0, 3.0 }, { 4.0, math.huge, 4.5 } }
+local STANDARD_HEIGHTS = { 360, 480, 720, 1080, 2160 }
+local function add_screen_runs(dw, dh)
+	local function scale(h)
+		return math.min(dw / (h * 16 / 9), dh / h)
+	end
+	local added = {}
+	for _, b in ipairs(BRANCHES) do
+		local hit = false
+		for _, h in ipairs(STANDARD_HEIGHTS) do
+			local s = scale(h)
+			if s >= b[1] and s < b[2] then
+				hit = true
+				break
+			end
+		end
+		if not hit then
+			-- a 16:9 source at the branch's middle scale, even sizes
+			local h = math.max(2, math.floor(math.min(dh, dw * 9 / 16) / b[3] / 2 + 0.5) * 2)
+			local size = (math.floor(h * 16 / 9 / 2 + 0.5) * 2) .. 'x' .. h
+			for _, fmt in ipairs({ H264, HEVC10 }) do
+				runs[#runs + 1] = { hwdec = 'd3d11va-copy', size = size, fmt = fmt }
+			end
+			added[#added + 1] = size
+		end
+	end
+	return added
+end
 
 -- the shipped cases (shipped-cases.lua): measured gaps of the matrix, drawn
 -- after it in every full warm-up
@@ -430,7 +468,10 @@ local function write_stamp()
 		resume(result)
 	end)
 	local fp = coroutine.yield()
-	if not fingerprint.write(fingerprint.STAMP, fp, fingerprint.count_cache_files()) then
+	-- the screen it was warmed on (main.lua warms again on another one)
+	local w, h = mp.get_property_number('display-width'), mp.get_property_number('display-height')
+	local extra = (w and h and w > 0 and h > 0) and { display = string.format('%dx%d', w, h) } or nil
+	if not fingerprint.write(fingerprint.STAMP, fp, fingerprint.count_cache_files(), extra) then
 		out('RESULT FAIL shader cache stamp :: could not write ' .. fingerprint.path(fingerprint.STAMP))
 		return false
 	end
@@ -438,7 +479,38 @@ local function write_stamp()
 	return true
 end
 
+-- display-width/height, once the (hidden) window is up; nil after `seconds`
+local function wait_display(seconds)
+	local deadline = mp.get_time() + seconds
+	while true do
+		local w, h = mp.get_property_number('display-width'), mp.get_property_number('display-height')
+		if w and h and w > 0 and h > 0 then
+			return w, h
+		end
+		if mp.get_time() >= deadline then
+			return nil
+		end
+		mp.add_timeout(0.1, resume)
+		coroutine.yield()
+	end
+end
+
 co = coroutine.create(function()
+	if o.matrix ~= 'test' and not o.quick then
+		local dw, dh = wait_display(3)
+		if dw then
+			local added = add_screen_runs(dw, dh)
+			out(
+				string.format(
+					'RESULT INFO screen %dx%d: %s',
+					dw,
+					dh,
+					#added > 0 and ('clip sizes added for it: ' .. table.concat(added, ', '))
+						or 'the standard sizes cover it'
+				)
+			)
+		end
+	end
 	local ok, err = ensure_clips(o.quick and QUICK or #runs)
 	if not ok then
 		out('RESULT FAIL warm-up clips :: ' .. err)
@@ -465,19 +537,26 @@ co = coroutine.create(function()
 		mp.set_property('hwdec', r.hwdec)
 		upscale('set-upscale', '0')
 		upscale('set-movie-sharpness', 'auto')
+		upscale('set-quality', 'high')
 		mp.commandv('loadfile', r.path, 'replace')
 		if not wait_restart(20) then
 			out('RESULT FAIL ' .. tag .. ' :: did not start playing')
 			slow_steps = slow_steps + 1
 		else
-			-- the two messages above + gpu-toggles' own file-loaded re-evaluation
-			step(tag .. ' off', done + 3, 'No upscaler · ' .. where)
+			-- the three messages above + gpu-toggles' own file-loaded re-evaluation
+			step(tag .. ' off', done + 4, 'No upscaler · ' .. where)
 			upscale('set-upscale', '2')
-			step(tag .. ' Anime', done + 4, 'Anime · ' .. where)
+			step(tag .. ' Anime', done + 5, 'Anime · ' .. where)
 			upscale('set-upscale', '3')
-			step(tag .. ' Movie', done + 5, 'Movie · ' .. where)
+			step(tag .. ' Movie', done + 6, 'Movie · ' .. where)
 			upscale('set-movie-sharpness', '0')
-			step(tag .. ' Movie, sharpening off', done + 6, 'Movie, no sharpening · ' .. where)
+			step(tag .. ' Movie, sharpening off', done + 7, 'Movie, no sharpening · ' .. where)
+			-- quality Fast (2026-10-09): Movie without FSRCNNX, Anime4K's Fast set
+			upscale('set-movie-sharpness', 'auto')
+			upscale('set-quality', 'fast')
+			step(tag .. ' Movie Fast', done + 9, 'Movie, quality Fast · ' .. where)
+			upscale('set-upscale', '2')
+			step(tag .. ' Anime Fast', done + 10, 'Anime, quality Fast · ' .. where)
 		end
 		if o.quick and i == limit and limit < #runs then
 			if total == 0 then
@@ -531,6 +610,7 @@ co = coroutine.create(function()
 			end
 			mp.set_property_number('video-rotate', c.rotate or 0)
 			mp.set_property('hwdec', decoder_for(c.hwdec))
+			upscale('set-quality', 'high')
 			upscale('set-upscale', CHAIN_MODE[c.chain] or '0')
 			upscale('set-movie-sharpness', c.sharpen and tostring(c.sharpen) or 'auto')
 			mp.commandv('loadfile', path, 'replace')
@@ -545,7 +625,7 @@ co = coroutine.create(function()
 			if c.overlay and overlay_file then
 				mp.commandv('overlay-add', '1', '40', '40', overlay_file, '0', 'bgra', '64', '64', '256')
 			end
-			step(label, done + 3, 'Shipped case · ' .. what)
+			step(label, done + 4, 'Shipped case · ' .. what)
 			if c.overlay then
 				mp.commandv('overlay-remove', '1')
 			end
@@ -563,6 +643,7 @@ co = coroutine.create(function()
 		mp.set_property_number('video-rotate', 0)
 	end
 	upscale('set-movie-sharpness', 'auto')
+	upscale('set-quality', 'auto')
 	upscale('set-upscale', '1')
 	if pipelines > 0 then
 		out(string.format('RESULT INFO %d pipelines compiled by the GPU driver (no cached binary)', pipelines))

@@ -116,6 +116,8 @@ local ICONS = {
 	['source-copy'] = 'content_copy', -- the source menu's Copy entries
 	['stream-error'] = 'language', -- the source button: a FastStream stream that did not open
 	['resume'] = 'history',
+	['settings'] = 'settings', -- Settings menu choices (settings.lua)
+	['welcome'] = 'waving_hand', -- the first start (welcome.lua)
 }
 
 -- The user's size knob: 1 = the original design, 1.35 = noticeably bigger.

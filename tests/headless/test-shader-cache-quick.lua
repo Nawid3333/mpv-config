@@ -30,7 +30,7 @@ H.run(function()
 	H.eq('quick check finished', R.info.state, 'done', R.info.summary)
 	H.check(
 		'quick check stopped after the first clip (0 compiles)',
-		(R.info.summary or ''):find('quick check: 0 compiles over 4 steps', 1, true) ~= nil,
+		(R.info.summary or ''):find('quick check: 0 compiles over 6 steps', 1, true) ~= nil,
 		R.info.summary
 	)
 	H.sleep(0.5)

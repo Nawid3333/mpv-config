@@ -308,6 +308,24 @@ New-Item -ItemType Directory -Force $InstallDir | Out-Null
         $r = Invoke-Script uninstall.ps1 @('-Root', $sr, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', $hd)
         Test-Check $t '... but not one set up for another mpv folder' ($r.Code -eq 0 -and (Test-Path (Join-Path $hd 'config.json'))) $r.Out
     }
+    # "Open with" another mpv registered (2026-10-09: the owner's Program Files mpv, for the
+    # whole PC) - a stand-in key under HKCU, never a real App Paths entry
+    $appKey = 'HKCU:\Software\mpv-config-tests\AppPaths-mpv.exe'
+    $null = New-Item -Path $appKey -Force
+    Set-ItemProperty -Path $appKey -Name '(default)' -Value (Join-Path $env:WINDIR 'System32\cmd.exe')
+    try {
+        $sr2 = Join-Path $ob 'installed2'
+        $r = Invoke-Script setup.ps1 @('-InstallDir', $sr2, '-Zip', $zip1, '-Commit', $c1, '-LfsSource', $lfs,
+            '-NoMpv', '-NoFastStream', '-NoShortcuts', '-Yes', '-AppPathsKeys', $appKey)
+        Test-Check $t 'setup.ps1 leaves Open with to another mpv that is registered' ($r.Code -eq 0 -and $r.Out -match 'Another mpv is registered') $r.Out
+        $r = Invoke-Script uninstall.ps1 @('-Root', $sr2, '-Yes', '-KeepFolder', '-AppPathsKey', $appKey)
+        Test-Check $t "uninstall.ps1 does not unregister another mpv's Open with" (
+            $r.Code -eq 0 -and $r.Out -match 'belong to another mpv' -and
+            (Get-ItemPropertyValue $appKey '(default)') -like '*cmd.exe') $r.Out
+    }
+    finally {
+        Remove-Item -Path 'HKCU:\Software\mpv-config-tests' -Recurse -Force -ErrorAction SilentlyContinue
+    }
     $r = Invoke-Script uninstall.ps1 @('-Root', $clone, '-Yes', '-KeepFolder', '-NoFileTypes')
     Test-Check $t 'uninstall.ps1 refuses a git clone' ($r.Code -eq 1 -and $r.Out -match 'git clone' -and (Test-Path $clone)) $r.Out
     $r = Invoke-Script uninstall.ps1 @('-Root', $foreign, '-Yes', '-KeepFolder', '-NoFileTypes')
@@ -470,7 +488,8 @@ function Invoke-StaticCheck {
     # Options each profile may set. A profile swallowing anything else is how
     # the 2026-09-21 bug happened (cache/buffer options scoped to FastStream
     # only). Adding a profile or an option to one: extend this list on purpose.
-    $profileAllow = @{ 'hdr-target-peak' = @('target-peak') }
+    # (none since 2026-10-09: [hdr-target-peak] became Scripts/settings.lua's HDR brightness)
+    $profileAllow = @{}
     $scopeBad = @()
     foreach ($p in $profiles.Keys) {
         if (-not $profileAllow.ContainsKey($p)) { $scopeBad += "unknown profile [$p] (add it to `$profileAllow in run-tests.ps1)"; continue }
@@ -528,6 +547,23 @@ function Invoke-StaticCheck {
         $uoscMain.Contains("'user-data/uosc/bottom-ui'") -and $uoscMain.Contains('volume = volume_box')) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t 'uosc local change present: main.lua publishes user-data/uosc/ui-scale (notify, subtitle-sync, music-info)' (
         $uoscMain.Contains("'user-data/uosc/ui-scale'")) 're-apply it after a uosc update (AGENTS.md)'
+    # the feature tour names the keys input.conf binds, with the same command (settings.lua's
+    # Welcome menu, 2026-10-09)
+    $welcomeLua = Get-Content -Raw (Join-Path $Cfg 'Scripts/settings.lua')
+    $tourRuns = @([regex]::Matches($welcomeLua, "run\(\s*'[^']*',\s*'([^']+)',\s*'([^']+)'\s*\)"))
+    $tourBad = @()
+    $tourKeys = 0
+    foreach ($m in $tourRuns) {
+        $key, $cmd = $m.Groups[1].Value, $m.Groups[2].Value
+        if ($key -notmatch '^(Shift\+)?\w$') { continue } # 'Settings', 'source button': not keys
+        $tourKeys++
+        if ($inputConf -notmatch "(?m)^$([regex]::Escape($key))\s+$([regex]::Escape($cmd))(\s|$)") { $tourBad += "$key -> $cmd" }
+    }
+    Test-Check $t "settings.lua: each key the feature tour names runs that command in input.conf ($tourKeys keys)" (
+        $tourKeys -gt 5 -and $tourBad.Count -eq 0) ($tourBad -join '; ')
+    $uoscIntl = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/lib/intl.lua')
+    Test-Check $t 'uosc local change present: intl.lua reads the subtitle languages from settings.json (settings.lua)' (
+        $uoscIntl.Contains("'~~state/settings.json'") -and $uoscIntl.Contains('settings_slang() or')) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t 'uosc local change present: main.lua draws the buffer for streams only (local files: no hatching)' (
         $uoscMain -match 'and state\.is_stream\s*\r?\n\s*and \(#cached_ranges') 're-apply it after a uosc update (AGENTS.md)'
     $uoscTimeline = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/elements/Timeline.lua')
@@ -592,6 +628,7 @@ function Invoke-StaticCheck {
         'portable_config/shader-misses.log', 'portable_config/shader-cases.json', 'portable_config/speed.json.1234.tmp',
         'portable_config/cache/shader_0123456789abcdef', 'portable_config/watch_later/0123456789ABCDEF',
         'portable_config/watch_history.jsonl', 'mpv-shot0001.jpg', 'yt-dlp.conf', 'cookies.txt', 'notes.txt',
+        'portable_config/settings.json', 'portable_config/upscale.json', 'portable_config/welcome.json',
         'test-media/clip.mkv', '.claude/settings.local.json', '.env'
     )
     $notIgnored = @($private | Where-Object { & git -C $RepoRoot check-ignore -q --no-index -- $_; $LASTEXITCODE -ne 0 })
@@ -953,7 +990,7 @@ function Initialize-TestRoot {
     # fresh config copy every run; no caches, no state (nor the shader capture
     # log and learned cases an older config left behind: they hold real viewing)
     $dst = Join-Path $root 'portable_config'
-    & robocopy $Cfg $dst /MIR /XD cache watch_later /XF speed.json stream-resume.json shader-misses.log shader-cases.json '*.tmp' /NFL /NDL /NJH /NJS /NP | Out-Null
+    & robocopy $Cfg $dst /MIR /XD cache watch_later /XF speed.json stream-resume.json shader-misses.log shader-cases.json settings.json upscale.json welcome.json '*.tmp' /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
     $global:LASTEXITCODE = 0
     New-Item -ItemType Directory -Force (Join-Path $WorkDir 'logs') | Out-Null
@@ -1143,7 +1180,8 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
 }
 
 function Clear-State([string]$Root) {
-    foreach ($f in 'speed.json', 'stream-resume.json', 'stream-resume.json.tmp', 'shader-misses.log', 'movie-sharpness.json') {
+    foreach ($f in 'speed.json', 'stream-resume.json', 'stream-resume.json.tmp', 'shader-misses.log', 'movie-sharpness.json',
+        'settings.json', 'upscale.json', 'welcome.json') {
         Remove-Item -LiteralPath (Join-Path $Root "portable_config/$f") -ErrorAction SilentlyContinue
     }
     foreach ($f in 'stamp', 'failed', 'interrupted', 'lock', 'progress', 'args') {
@@ -1167,9 +1205,13 @@ function Invoke-RuntimeTest {
         # a phase without a File starts mpv empty (idle), as a double-click on mpv.exe does;
         # an av:// File (a lavfi source) is opened as it is, not from the media folder
         $fileArgs = !$ph.File ? @('--idle=yes') : $ph.File -like 'av://*' ? @('--', $ph.File) : @('--', (Join-Path $Media $ph.File))
-        $mpvArgs = @("--script=$script", "--log-file=$log", '--no-terminal') + $ExtraArgs + @($ph.ContainsKey('Args') ? $ph.Args : @()) + $fileArgs
+        # the first-start welcome banner (welcome.lua) would show in every test: off unless a phase turns it on
+        $mpvArgs = @("--script=$script", "--log-file=$log", '--no-terminal', '--script-opts-append=welcome-auto=no') +
+        $ExtraArgs + @($ph.ContainsKey('Args') ? $ph.Args : @()) + $fileArgs
+        # MPV_TEST_PHASE: a test that runs the same script in several processes tells them apart by it
         $r = Invoke-Mpv $Exe $mpvArgs @{
             MPV_TEST_MEDIA = $Media.Replace('\', '/'); MPV_TEST_ROOT = $root.Replace('\', '/'); MPV_TEST_TIMEOUT = $TimeoutSeconds - 10
+            MPV_TEST_PHASE = $ph.ContainsKey('Phase') ? $ph.Phase : ''
         } -TimeoutSeconds $TimeoutSeconds
         $label = $Test.Phases.Count -gt 1 ? "[$phase/$($Test.Phases.Count)] " : ''
         $seen = 0
@@ -1256,6 +1298,19 @@ $NoWarmupLeft = {
     $left | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 }
 
+# settings: before the third process, the test root becomes a PC that ran this config
+# before settings.lua existed - no settings.json, a speed.json (remember-speed.lua)
+$MakeLegacyPc = {
+    $cfgDir = Join-Path $root 'portable_config'
+    Remove-Item -LiteralPath (Join-Path $cfgDir 'settings.json') -ErrorAction SilentlyContinue
+    Set-Content -LiteralPath (Join-Path $cfgDir 'speed.json') '{"speed":1}' -NoNewline
+}
+
+# welcome: the third process is a first start again, with no file
+$ForgetWelcome = {
+    Remove-Item -LiteralPath (Join-Path $root 'portable_config/welcome.json') -ErrorAction SilentlyContinue
+}
+
 $HeadlessTests = @(
     @{ Name = 'mouse'; Phases = @(@{ Script = 'headless/test-mouse.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'notify'; Phases = @(@{ Script = 'headless/test-notify.lua'; File = 'plain/clip.mkv' }) }
@@ -1281,6 +1336,16 @@ $HeadlessTests = @(
             @{ Script = 'headless/test-sharpness-restore.lua'; File = 'plain/clip.mkv' })
     }
     @{ Name = 'config'; Phases = @(@{ Script = 'headless/test-config.lua'; File = 'plain/clip.mkv' }) }
+    @{ Name = 'settings'; Phases = @(
+            @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'new' }
+            @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'restored'; After = $MakeLegacyPc }
+            @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'legacy' })
+    }
+    @{ Name = 'welcome'; Phases = @(
+            @{ Script = 'headless/test-welcome.lua'; File = 'plain/clip.mkv'; Phase = 'first'; Args = @('--script-opts-append=welcome-auto=yes') }
+            @{ Script = 'headless/test-welcome.lua'; File = 'plain/clip.mkv'; Phase = 'again'; Args = @('--script-opts-append=welcome-auto=yes'); After = $ForgetWelcome }
+            @{ Script = 'headless/test-welcome.lua'; File = $null; Phase = 'idle'; Args = @('--script-opts-append=welcome-auto=yes') })
+    }
     @{ Name = 'stream-resume'; Phases = @(
             @{ Script = 'headless/test-stream-resume-save.lua'; File = 'fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv' }
             @{ Script = 'headless/test-stream-resume-restore.lua'; File = 'fs-anime-token2/ep1-newtoken#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv' })

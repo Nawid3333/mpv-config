@@ -5,7 +5,8 @@
 .DESCRIPTION
     uninstall.bat (Start menu: Uninstall mpv) runs this (2026-10-09):
 
-      1. the "Open with" entries (mpv --unregister);
+      1. the "Open with" entries (mpv --unregister), if they are this mpv's -
+         every mpv shares them, and another one registered keeps them;
       2. the Start menu folder "mpv", if its shortcut starts this mpv;
       3. the FastStream helper, if the setup installed it for this mpv
          (%LOCALAPPDATA%\FastStreamMpvHost and its HKCU registry key) - a
@@ -32,6 +33,9 @@
 
 .PARAMETER NoFileTypes
     Test use: leave the "Open with" entries alone.
+
+.PARAMETER AppPathsKey
+    Test use: where mpv --register records which mpv it registered.
 #>
 [CmdletBinding()]
 param(
@@ -39,7 +43,8 @@ param(
     [switch]$Yes,
     [switch]$KeepFolder,
     [string]$HelperDir = (Join-Path $env:LOCALAPPDATA 'FastStreamMpvHost'),
-    [switch]$NoFileTypes
+    [switch]$NoFileTypes,
+    [string]$AppPathsKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\mpv.exe'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -64,10 +69,17 @@ try {
         })
     if ($running.Count) { throw 'mpv is still running - close it and run this again' }
 
-    # 1. "Open with"
-    if (-not $NoFileTypes -and (Test-Path -LiteralPath (Join-Path $Root 'mpv.com'))) {
-        $null = & (Join-Path $Root 'mpv.com') --no-config --unregister 2>&1
-        Write-Host '"Open with" entries removed.'
+    # 1. "Open with" - mpv --unregister removes them whichever mpv registered them
+    #    (any mpv can, the manual says): only when they are this mpv's
+    if (-not $NoFileTypes) {
+        $registered = Get-ItemPropertyValue -ErrorAction SilentlyContinue $AppPathsKey '(default)'
+        if ($registered -and $registered -ne $mpvExe) {
+            Write-Host "The Open with entries belong to another mpv ($registered): left as they are."
+        }
+        elseif ($registered -and (Test-Path -LiteralPath (Join-Path $Root 'mpv.com'))) {
+            $null = & (Join-Path $Root 'mpv.com') --no-config --unregister 2>&1
+            Write-Host '"Open with" entries removed.'
+        }
     }
 
     # 2. the Start menu folder, only if it is this mpv's

@@ -2,13 +2,27 @@ local intl_dir = mp.get_script_directory() .. '/intl/'
 local locale = {}
 local cache = {}
 
+-- Local change (not upstream uosc): the subtitle languages are a per-PC setting
+-- since 2026-10-09 (~~state/settings.json, written by Scripts/settings.lua), no
+-- longer a line in mpv.conf. settings.lua sets the slang property while uosc
+-- starts - mpv starts the scripts in parallel - so uosc's own language is read
+-- from the file, and from the property only when the file says nothing.
+local function settings_slang()
+	local f = io.open(mp.command_native({'expand-path', '~~state/settings.json'}), 'r')
+	if not f then return nil end
+	local data = utils.parse_json(f:read('*a'))
+	f:close()
+	if type(data) ~= 'table' or type(data.slang) ~= 'string' or data.slang == '' then return nil end
+	return comma_split(data.slang)
+end
+
 -- https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/supported-languages?pivots=store-installer-msix#list-of-supported-languages
 function get_languages()
 	local languages = {}
 
 	for _, lang in ipairs(comma_split(options.languages)) do
 		if (lang == 'slang') then
-			local slang = mp.get_property_native('slang')
+			local slang = settings_slang() or mp.get_property_native('slang')
 			if slang then
 				itable_append(languages, slang)
 			end

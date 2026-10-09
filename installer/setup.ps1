@@ -22,7 +22,8 @@
          the FastStream add-on opened in Firefox for one click
          (installer\install-faststream.ps1; skip with -NoFastStream);
       5. "Open with" entries for video and audio files (mpv --register, for
-         this Windows user only; skip with -NoFileTypes) and a Start menu
+         this Windows user only; skip with -NoFileTypes) - unless another mpv
+         is registered already, which keeps them - and a Start menu
          folder "mpv" with mpv, "Update mpv" and "Uninstall mpv"
          (skip with -NoShortcuts).
 
@@ -45,6 +46,10 @@
 
 .PARAMETER NoMpv
     Test use: skip mpv, yt-dlp and the check that mpv starts.
+
+.PARAMETER AppPathsKeys
+    Test use: where a registration records which mpv it registered (this
+    user's, and the whole PC's, which an admin install like mpv-install.bat makes).
 #>
 [CmdletBinding()]
 param(
@@ -58,7 +63,9 @@ param(
     [string]$Zip,
     [string]$Commit,
     [string]$LfsSource,
-    [switch]$NoMpv
+    [switch]$NoMpv,
+    [string[]]$AppPathsKeys = @('HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\mpv.exe',
+        'HKLM:\Software\Microsoft\Windows\CurrentVersion\App Paths\mpv.exe')
 )
 
 # Everything runs inside this function: through "irm | iex" the script runs in the
@@ -67,7 +74,8 @@ param(
 function Invoke-MpvSetup {
     param(
         [string]$InstallDir, [string]$Repo, [string]$Ref, [switch]$NoFastStream, [switch]$NoFileTypes,
-        [switch]$NoShortcuts, [switch]$Yes, [string]$Zip, [string]$Commit, [string]$LfsSource, [switch]$NoMpv
+        [switch]$NoShortcuts, [switch]$Yes, [string]$Zip, [string]$Commit, [string]$LfsSource, [switch]$NoMpv,
+        [string[]]$AppPathsKeys
     )
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
@@ -188,7 +196,23 @@ function Invoke-MpvSetup {
     }
 
     # -- 5. Windows integration ---------------------------------------------------------------------
-    if (-not $NoFileTypes -and (Test-Path -LiteralPath (Join-Path $dir 'mpv.com'))) {
+    # mpv --register writes per-user entries every mpv shares (App Paths\mpv.exe, the
+    # io.mpv.* file types), and this user's would hide a registration for the whole PC
+    # (2026-10-09: the owner's mpv in Program Files, registered machine-wide by an admin
+    # install): another mpv that is registered and still there keeps them.
+    $registered = $null
+    if (-not $NoFileTypes) {
+        foreach ($key in $AppPathsKeys) {
+            $p = Get-ItemPropertyValue -ErrorAction SilentlyContinue $key '(default)'
+            if ($p -and $p -ne $mpvExe -and (Test-Path -LiteralPath $p)) { $registered = $p; break }
+        }
+    }
+    if ($registered) {
+        Step '"Open with" entries for video and audio files'
+        Write-Host "Another mpv is registered for Open with ($registered): left as it is." -ForegroundColor Yellow
+        Write-Host "  To offer this one instead: $(Join-Path $dir 'mpv-register.bat')" -ForegroundColor Yellow
+    }
+    elseif (-not $NoFileTypes -and (Test-Path -LiteralPath (Join-Path $dir 'mpv.com'))) {
         Step '"Open with" entries for video and audio files'
         $null = & (Join-Path $dir 'mpv.com') --no-config --register 2>&1
         if ($LASTEXITCODE -eq 0) { Write-Host 'mpv is offered for video and audio files (Open with). Your default player is not changed.' -ForegroundColor Green }
@@ -226,7 +250,7 @@ function Invoke-MpvSetup {
 }
 
 $code = Invoke-MpvSetup -InstallDir $InstallDir -Repo $Repo -Ref $Ref -NoFastStream:$NoFastStream -NoFileTypes:$NoFileTypes `
-    -NoShortcuts:$NoShortcuts -Yes:$Yes -Zip $Zip -Commit $Commit -LfsSource $LfsSource -NoMpv:$NoMpv
+    -NoShortcuts:$NoShortcuts -Yes:$Yes -Zip $Zip -Commit $Commit -LfsSource $LfsSource -NoMpv:$NoMpv -AppPathsKeys $AppPathsKeys
 # Run as a file (install.bat) it hands its exit code on. Through "irm | iex" it must not
 # exit: $PSCommandPath is then empty, or - iex inside someone's own script - that script.
 if ($PSCommandPath -and (Split-Path -Leaf $PSCommandPath) -eq 'setup.ps1') { exit $code }

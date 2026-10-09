@@ -7,7 +7,10 @@
 # which any preset uses any more - keep this list in sync with the presets):
 #  - Anime4K v4.0.1 (bloc97/Anime4K release zip): the 6 files of the Anime
 #    preset (UPSCALE_ANIME): Clamp_Highlights, Upscale_Denoise_CNN_x2_VL,
-#    AutoDownscalePre_x2, AutoDownscalePre_x4, Restore_CNN_M, Upscale_CNN_x2_M.
+#    AutoDownscalePre_x2, AutoDownscalePre_x4, Restore_CNN_M, Upscale_CNN_x2_M;
+#    and since 2026-10-09 the 3 more of its "Fast" set (UPSCALE_ANIME_FAST, the
+#    upscaling quality for slower GPUs - Anime4K's own low-end template):
+#    Upscale_Denoise_CNN_x2_M, Restore_CNN_S, Upscale_CNN_x2_S.
 #  - FSRCNNX (igv/FSRCNN-TensorFlow release 1.1): Movie preset at >=2x.
 #  - SSimSuperRes (canonical copy from dyphire/mpv-config; igv's own repos are
 #    gone; LGPL, Shiandow), pinned to commit 07619250dd3f (2023-01-24, the
@@ -44,6 +47,9 @@ $anime4kFiles = [ordered]@{
     'Anime4K_AutoDownscalePre_x4.glsl'       = '5af62d8cd844916dc1126613e13bad3beab195787f93a71200b47c6ec78f2e41'
     'Anime4K_Restore_CNN_M.glsl'             = '67ea3ed26539e8de3b7d307688535d2ff17e8d147e11dda0247da7770dbecf41'
     'Anime4K_Upscale_CNN_x2_M.glsl'          = '716e02098a68f0d648761f2b96b4dd139e1cb09b174bb369fca3aa34328fff7e'
+    'Anime4K_Upscale_Denoise_CNN_x2_M.glsl'  = '8c72b042e2301fe66a45c3089720459148e2504cd72af16f9c0d5017ff14181e'
+    'Anime4K_Restore_CNN_S.glsl'             = '97c24dc370ab300c108bfaa09db7f175aeff343674842c299cf3940a3d330427'
+    'Anime4K_Upscale_CNN_x2_S.glsl'          = '4c53ec2e287908f7ee7bcb266b0170421626d663576468b7d7dafc62962649a4'
 }
 $glslFiles = @(
     @{ u = 'https://github.com/igv/FSRCNN-TensorFlow/releases/download/1.1/FSRCNNX_x2_16-0-4-1.glsl'; n = 'FSRCNNX_x2_16-0-4-1.glsl'; h = 'd5a24a271e5d9a3f7f7a053b150c460a44c25b3cf7f770857d57cc3a2e1c9965' },
@@ -149,7 +155,7 @@ if ($missing.Count -gt 0) {
 
 Write-Host "`nThe upscale presets (upscale button: left-click cycles Off / Auto / Anime / Movie;" -ForegroundColor Green
 Write-Host 'Shift+A turns Anime on and off, Shift+Y Movie):' -ForegroundColor Green
-Write-Host '  Anime            : Anime4K C+A (HQ), all resolutions'
+Write-Host '  Anime            : Anime4K C+A (HQ), all resolutions; quality Fast: Anime4K C+A (Fast)'
 Write-Host '  Movie (<2x)      : SSimSuperRes + CfL chroma + adaptive-sharpen'
 Write-Host '  Movie (>=2x)     : FSRCNNX + SSimSuperRes + CfL chroma + adaptive-sharpen'
 Write-Host '  (sharpening strength: upscale menu > Movie sharpness, default in script-opts/gpu_toggles.conf)'
