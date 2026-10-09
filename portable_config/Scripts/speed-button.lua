@@ -65,6 +65,20 @@ end
 --- info and the shader/resume messages. Also reached from input.conf (s/d,
 --- [ ] { }, the menu's extra speeds) as `show-speed`, after a `no-osd` speed
 --- change, so every speed change looks the same.
+-- uosc draws a badge inside its button's fixed box, and more than 4 characters
+-- spill onto the next button (the same limit as gpu-toggles' UPSCALE_BADGES):
+-- from 10.5x on the "x" goes, and a speed s/d made odd is rounded (review, 2026-10-09).
+local function badge_of(speed)
+	local text = format_speed(speed)
+	if #text > 4 then
+		text = text:gsub('x$', '')
+	end
+	if #text > 4 then
+		text = string.format('%d', math.floor(speed + 0.5))
+	end
+	return text
+end
+
 local function show_speed()
 	local speed = mp.get_property_native('speed', 1)
 	mp.commandv('script-message-to', 'notify', 'show', 'speed', 'Speed ' .. format_speed(speed), '', '', '', 'left')
@@ -90,7 +104,7 @@ local function update_button()
 	local speed = mp.get_property_native('speed', 1)
 	local data = {
 		icon = 'speed',
-		badge = format_speed(speed),
+		badge = badge_of(speed),
 		tooltip = string.format('Playback speed: %s - click: next, right-click: menu', format_speed(speed)),
 		command = { 'script-message-to', mp.get_script_name(), 'cycle-speed' },
 		menu_command = { 'script-message-to', mp.get_script_name(), 'open-speed-menu' },

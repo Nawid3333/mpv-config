@@ -710,7 +710,12 @@ local function current_upscale_preset()
 	if not is_faststream_content() then
 		return nil
 	end
-	return is_anime_content() and current_anime_preset() or current_movie_preset()
+	-- not `a and b or c`: with Anime off as too slow here (nil), that ran Movie on
+	-- an anime stream (review, 2026-10-09)
+	if is_anime_content() then
+		return current_anime_preset()
+	end
+	return current_movie_preset()
 end
 
 -- Upscale button modes: 0=off, 1=Auto (current_upscale_preset(), re-evaluated

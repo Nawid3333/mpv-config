@@ -365,6 +365,12 @@ local function screen_changed()
 end
 
 local function check_screen()
+	-- a warm-up that failed for this fingerprint is not retried for a new screen
+	-- either, as for every other reason (review, 2026-10-09: it started again at
+	-- every start); Rebuild shaders in the menu still runs it
+	if fingerprint.same(fingerprint.read(fingerprint.FAILED), fp) then
+		return
+	end
 	if state == 'fresh' and opts.auto and screen_changed() then
 		publish('stale', { reasons = 'display', mode = 'full' })
 		when_playing()

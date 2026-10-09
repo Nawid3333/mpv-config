@@ -320,20 +320,54 @@ end
 
 ---@param card table
 ---@return number width, number height real pixels
+-- A detail too wide for the card wraps, word by word, onto up to
+-- MAX_DETAIL_LINES lines (review, 2026-10-09: it was clipped at the card's edge,
+-- and the longer banners - "Upscaling off here ... Settings > Upscaling quality
+-- runs it anyway" - lost exactly the part that says what to do). Whatever does
+-- not fit even then goes on the last line, clipped as before.
+local DETAIL_LINE = 15
+local MAX_DETAIL_LINES = 3
+
+local function wrap(str, size, room)
+	if str == '' or text_width(str, size) <= room then
+		return { str }
+	end
+	local lines, line = {}, ''
+	for word in str:gmatch('%S+') do
+		local try = line == '' and word or (line .. ' ' .. word)
+		if line ~= '' and text_width(try, size) > room then
+			lines[#lines + 1] = line
+			line = word
+		else
+			line = try
+		end
+	end
+	if line ~= '' then
+		lines[#lines + 1] = line
+	end
+	while #lines > MAX_DETAIL_LINES do
+		lines[MAX_DETAIL_LINES] = lines[MAX_DETAIL_LINES] .. ' ' .. table.remove(lines, MAX_DETAIL_LINES + 1)
+	end
+	return lines
+end
+
 local function card_size(card)
 	local height = card.progress and px(HEIGHT_PROGRESS) or card.detail ~= '' and px(HEIGHT_DETAIL) or px(HEIGHT_TITLE)
 	if card.progress then
+		card.lines = { card.detail }
 		return px(PROGRESS_WIDTH), height
 	end
 	if not card.width or card.width_scale ~= scale then
-		local text = math.max(
-			text_width(card.title, px(TITLE_SIZE * FONT_SCALE)),
-			text_width(card.detail, px(DETAIL_SIZE * FONT_SCALE))
-		)
+		local detail_size = px(DETAIL_SIZE * FONT_SCALE)
+		card.lines = wrap(card.detail, detail_size, px(MAX_WIDTH) - icon_width(card) - 2 * px(PAD_X))
+		local text = text_width(card.title, px(TITLE_SIZE * FONT_SCALE))
+		for _, line in ipairs(card.lines) do
+			text = math.max(text, text_width(line, detail_size))
+		end
 		card.width = math.min(px(MAX_WIDTH), math.ceil(text) + icon_width(card) + 2 * px(PAD_X))
 		card.width_scale = scale
 	end
-	return card.width, height
+	return card.width, height + (#card.lines - 1) * px(DETAIL_LINE)
 end
 
 local native_offset = 0
@@ -360,6 +394,7 @@ local function publish(drawn)
 			progress = card.progress,
 			left = card.left,
 			icon = card.icon,
+			lines = card.lines,
 			box = drawn and card.box or nil,
 		}
 	end
@@ -394,14 +429,23 @@ draw = function()
 		if card.icon then
 			local size = px(card.detail ~= '' and ICON_SIZE_TALL or ICON_SIZE)
 			-- centred on the text lines, not on a progress card's bar
-			local text_h = card.detail ~= '' and px(HEIGHT_DETAIL) or px(HEIGHT_TITLE)
+			-- centred on the text: the whole card, except a progress card's bar strip
+			local text_h = card.progress and (card.detail ~= '' and px(HEIGHT_DETAIL) or px(HEIGHT_TITLE)) or bh
 			events[#events + 1] = icon_event(x0 + pad_x + size / 2, y + text_h / 2, size, card.icon)
 		end
 		events[#events + 1] =
 			text_event(text_x, y + px(TITLE_Y), px(TITLE_SIZE * FONT_SCALE), TITLE_COLOR, card.title, clip)
 		if card.detail ~= '' then
-			events[#events + 1] =
-				text_event(text_x, y + px(DETAIL_Y), px(DETAIL_SIZE * FONT_SCALE), DETAIL_COLOR, card.detail, clip)
+			for i, line in ipairs(card.lines or { card.detail }) do
+				events[#events + 1] = text_event(
+					text_x,
+					y + px(DETAIL_Y) + (i - 1) * px(DETAIL_LINE),
+					px(DETAIL_SIZE * FONT_SCALE),
+					DETAIL_COLOR,
+					line,
+					clip
+				)
+			end
 		end
 		if card.progress then
 			-- a rounded bar under the text, across the whole card

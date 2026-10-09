@@ -104,7 +104,9 @@ end
 ---@return string long, string short
 local function source_of()
 	local path = state.path or ''
-	if path:find('fs-content=', 1, true) or path:find('fs-id=', 1, true) or path:find('fs-page=', 1, true) then
+	-- a FastStream tag is a whole item of the URL fragment, as the host appends it
+	-- (FastStream #155) - not the text anywhere in a site's address (review, 2026-10-09)
+	if fragment_value(path, 'fs-content=') or fragment_value(path, 'fs-id=') or fragment_value(path, PAGE_MARKER) then
 		return 'FastStream', 'Fast'
 	end
 	if path:find('://', 1, true) then
@@ -194,6 +196,7 @@ local function update_button()
 		command = { 'script-message-to', mp.get_script_name(), 'open-menu' },
 		menu_command = { 'script-message-to', mp.get_script_name(), 'open-menu' },
 	}
+	mp.set_property_native('user-data/source-info/badge', data.badge) -- for the tests
 	local json = utils.format_json(data)
 	if json and json ~= last_button_json then
 		last_button_json = json

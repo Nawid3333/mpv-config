@@ -75,6 +75,10 @@ local function press(value)
 			mp.set_property('speed', prev)
 			notify('Speed ' .. fmt(prev), 'same key again: ' .. fmt(target))
 			remembered[value] = target
+		else
+			-- nothing to go back to (r at 1x): the press still says the speed
+			-- (review, 2026-10-09: it showed nothing at all)
+			notify('Speed ' .. fmt(current), '')
 		end
 	else
 		remembered[value] = current

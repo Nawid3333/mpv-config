@@ -83,11 +83,26 @@ end
 -- The source line. `path` is the full URL for a stream and the local path
 -- otherwise (the same string the FastStream markers arrive in either way).
 ---@return string
+-- FastStream's tag: a whole fs-content= item of the URL fragment, as gpu-toggles,
+-- stream-resume and source-info read theirs (FastStream #155) - not the text
+-- anywhere in the address, which a site's own query can hold (review, 2026-10-09).
+-- Plain string compares: a stray "%" in the path never starts a Lua pattern class.
+local function faststream_tagged(path)
+	local hash = path:find('#', 1, true)
+	if not hash then
+		return false
+	end
+	for item in (path:sub(hash + 1) .. '&'):gmatch('([^&]*)&') do
+		if item:sub(1, 11) == 'fs-content=' then
+			return true
+		end
+	end
+	return false
+end
+
 local function source_of()
 	local path = mp.get_property('path') or ''
-	-- plain find (gpu-toggles.lua's is_faststream_content): a stray "%" in the
-	-- path must never start a Lua pattern class.
-	if path:find('fs-content=', 1, true) then
+	if faststream_tagged(path) then
 		return 'FastStream'
 	end
 	if path:find('://', 1, true) then

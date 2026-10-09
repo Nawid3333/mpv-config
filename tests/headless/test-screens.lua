@@ -70,6 +70,17 @@ H.run(function()
 			(s['2560x1440@144'] or {}).hdr_peak == 350 and (s['3840x2160@120'] or {}).hdr_peak == 600,
 			utils.format_json(s)
 		)
+		-- the size before the refresh rate (review, 2026-10-09): the known screen of
+		-- that size, no new one
+		screen(3840, 2160, 0)
+		H.eq('a size without a refresh rate is the known screen of that size', new_screen_banner(), nil)
+		H.eq(
+			'... (3840x2160 @ 120 Hz)',
+			(mp.get_property_native('user-data/settings') or {}).screen,
+			'3840x2160 @ 120 Hz'
+		)
+		H.expect('... with its 600 nits', peak, '600')
+		screen(2560, 1440, 144)
 		screen(0, 0, 0)
 		H.eq(
 			'a screen of 0x0 is ignored',

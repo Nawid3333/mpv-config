@@ -72,4 +72,13 @@ H.run(function()
 	-- Anime; wait it out so the check below sees only the video-info banner.
 	H.sleep(2.2)
 	H.eq('still one banner', ids(), 'video-info')
+
+	-- "fs-content=" only in a query is no FastStream tag (FastStream #155; review,
+	-- 2026-10-09: video-info matched it anywhere in the address)
+	H.load(H.media_path('fs-forged-query/ep&x=fs-content=anime.mkv'))
+	H.expect(
+		'a query holding fs-content= is a local file, not FastStream',
+		field('video-info', 'detail'),
+		'H.264 · 8-bit · local file'
+	)
 end)

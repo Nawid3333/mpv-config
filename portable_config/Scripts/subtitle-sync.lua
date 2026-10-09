@@ -136,10 +136,11 @@ end
 -- h:mm:ss.cc
 local function parse_time(str)
 	local h, m, s = str:match('^%s*(%d+):(%d+):([%d%.]+)%s*$')
-	if not h then
+	s = h and tonumber(s) -- nil for "01..2": a Lua error here would end the whole tool
+	if not s then
 		return nil
 	end
-	return tonumber(h) * 3600 + tonumber(m) * 60 + tonumber(s)
+	return tonumber(h) * 3600 + tonumber(m) * 60 + s
 end
 
 local ASS_FIELDS = { 'layer', 'start', 'end', 'style', 'name', 'marginl', 'marginr', 'marginv', 'effect', 'text' }

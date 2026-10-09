@@ -92,6 +92,15 @@ function Invoke-MpvSetup {
         $p = Start-Process -FilePath $ps -ArgumentList $line -NoNewWindow -Wait -PassThru
         return $p.ExitCode
     }
+    # A native program's output, stderr included. Windows PowerShell 5.1 turns every stderr
+    # line into a terminating error under 'Stop' once 2>&1 redirects it (checked
+    # 2026-10-09: a single warning from mpv, 7-Zip or FastStream's install.ps1 ended the
+    # install); the exit code decides here.
+    function Invoke-Native([string]$Exe, [string[]]$Arguments) {
+        $ErrorActionPreference = 'Continue'
+        $out = @(& $Exe @Arguments 2>&1 | ForEach-Object { "$_" })
+        return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
+    }
 
     Write-Host 'mpv for Windows (anime and film) + FastStream - setup' -ForegroundColor White
     Write-Host "Folder: $InstallDir  (no admin rights needed)"
@@ -174,8 +183,8 @@ function Invoke-MpvSetup {
         $rc = Invoke-Child (Join-Path $dir 'installer\update.ps1') @('-Root', $dir, '-NoFastStream')
         if ($rc -ne 0) { Write-Host 'mpv or yt-dlp could not be installed (see above). Run the setup again to retry.' -ForegroundColor Red; return 1 }
         # the build is made for CPUs with AVX2: on others mpv dies at its first instruction
-        $out = & (Join-Path $dir 'mpv.com') --no-config --version 2>&1
-        $code = $LASTEXITCODE
+        $r = Invoke-Native (Join-Path $dir 'mpv.com') @('--no-config', '--version')
+        $out, $code = $r.Out, $r.Code
         if ($code -eq -1073741795) {
             Write-Host 'mpv cannot run on this CPU: it has no AVX2 (Intel before 2013, AMD before 2015, some Celeron/Pentium/Atom). This setup uses mpv builds that need it.' -ForegroundColor Red
             return 1
@@ -203,7 +212,8 @@ function Invoke-MpvSetup {
     $registered = $null
     if (-not $NoFileTypes) {
         foreach ($key in $AppPathsKeys) {
-            $p = Get-ItemPropertyValue -ErrorAction SilentlyContinue $key '(default)'
+            # mpv-install.bat writes it unquoted; a quoted one is the same path
+            $p = "$(Get-ItemPropertyValue -ErrorAction SilentlyContinue $key '(default)')".Trim('"')
             if ($p -and $p -ne $mpvExe -and (Test-Path -LiteralPath $p)) { $registered = $p; break }
         }
     }
@@ -214,9 +224,9 @@ function Invoke-MpvSetup {
     }
     elseif (-not $NoFileTypes -and (Test-Path -LiteralPath (Join-Path $dir 'mpv.com'))) {
         Step '"Open with" entries for video and audio files'
-        $null = & (Join-Path $dir 'mpv.com') --no-config --register 2>&1
-        if ($LASTEXITCODE -eq 0) { Write-Host 'mpv is offered for video and audio files (Open with). Your default player is not changed.' -ForegroundColor Green }
-        else { Write-Host "mpv --register failed (exit $LASTEXITCODE); mpv itself works." -ForegroundColor Yellow }
+        $r = Invoke-Native (Join-Path $dir 'mpv.com') @('--no-config', '--register')
+        if ($r.Code -eq 0) { Write-Host 'mpv is offered for video and audio files (Open with). Your default player is not changed.' -ForegroundColor Green }
+        else { Write-Host "mpv --register failed (exit $($r.Code)): $($r.Out | Select-Object -Last 2) - mpv itself works." -ForegroundColor Yellow }
     }
     if (-not $NoShortcuts) {
         Step 'Start menu'

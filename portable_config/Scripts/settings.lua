@@ -778,10 +778,48 @@ end)
 -- A screen seen for the first time is remembered; the very first one takes the HDR
 -- brightness from before (a PC from before keeps its 350 nits), any later one starts
 -- at Auto and is announced.
-local function screen_seen(w, h, fps)
+local screen_retry = nil
+local function screen_seen(w, h, fps, tries)
 	local sc = screen_from(w, h, fps)
 	if not sc or (current_screen and current_screen.key == sc.key) then
 		return
+	end
+	-- The refresh rate can come a moment after the size (review, 2026-10-09):
+	-- "2560x1440@0" would be remembered as a screen of its own, and the real
+	-- "2560x1440@144" announced as new with its HDR brightness back at Auto.
+	local size = sc.key:match('^(%d+x%d+)@')
+	if sc.key:match('@0$') then
+		for key, known in pairs(settings.screens) do
+			if key:match('^(%d+x%d+)@') == size then
+				sc = { key = key, label = known.label } -- the screen of that size seen before
+				break
+			end
+		end
+		if sc.key:match('@0$') and (tries or 0) < 5 then
+			-- wait for the refresh rate; a screen that never reports one is kept without it
+			if screen_retry then
+				screen_retry:kill()
+			end
+			screen_retry = mp.add_timeout(0.5, function()
+				screen_retry = nil
+				screen_seen(
+					mp.get_property_number('display-width'),
+					mp.get_property_number('display-height'),
+					mp.get_property_number('display-fps'),
+					(tries or 0) + 1
+				)
+			end)
+			return
+		end
+		if current_screen and current_screen.key == sc.key then
+			return
+		end
+	elseif settings.screens[size .. '@0'] and not settings.screens[sc.key] then
+		-- remembered without a refresh rate before: the same screen, now complete
+		settings.screens[sc.key] = settings.screens[size .. '@0']
+		settings.screens[sc.key].label = sc.label
+		settings.screens[size .. '@0'] = nil
+		save()
 	end
 	current_screen = sc
 	if not settings.screens[sc.key] then

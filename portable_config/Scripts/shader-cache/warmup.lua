@@ -48,9 +48,10 @@
 --
 -- The process loads only gpu-toggles.lua (the chains), uosc (its UI is drawn
 -- over every real video, so its passes belong in the cache), notify.lua (the
--- banner gpu-toggles shows at each switch, as in the player) and this script
--- (--load-scripts=no): nothing that keeps state (remember-speed,
--- stream-resume, autoload) runs here. Progress goes to shader-warmup.progress in
+-- banner gpu-toggles shows at each switch, as in the player), settings.lua (the
+-- HDR brightness the player draws HDR video with, read-only: settings-write=no)
+-- and this script (--load-scripts=no): nothing that keeps state (remember-speed,
+-- stream-resume, autoload, welcome) runs here. Progress goes to shader-warmup.progress in
 -- the cache folder, for main.lua's small bar and the manual script's terminal.
 -- (Until 2026-09-26 the manual run covered the monitor with a "Preparing video
 -- shaders" screen and took Esc/q - removed at the user's request: no blocking

@@ -49,6 +49,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# A native program's output, stderr included. Windows PowerShell 5.1 turns every stderr
+# line into a terminating error under 'Stop' once 2>&1 redirects it (checked
+# 2026-10-09: a single warning from mpv, 7-Zip or FastStream's install.ps1 ended the
+# install); the exit code decides here.
+function Invoke-Native([string]$Exe, [string[]]$Arguments) {
+    $ErrorActionPreference = 'Continue'
+    $out = @(& $Exe @Arguments 2>&1 | ForEach-Object { "$_" })
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
+}
+
 try {
     $Root = (Resolve-Path -LiteralPath $Root).Path
     if (Test-Path -LiteralPath (Join-Path $Root '.git')) {
@@ -72,13 +82,14 @@ try {
     # 1. "Open with" - mpv --unregister removes them whichever mpv registered them
     #    (any mpv can, the manual says): only when they are this mpv's
     if (-not $NoFileTypes) {
-        $registered = Get-ItemPropertyValue -ErrorAction SilentlyContinue $AppPathsKey '(default)'
+        $registered = "$(Get-ItemPropertyValue -ErrorAction SilentlyContinue $AppPathsKey '(default)')".Trim('"')
         if ($registered -and $registered -ne $mpvExe) {
             Write-Host "The Open with entries belong to another mpv ($registered): left as they are."
         }
         elseif ($registered -and (Test-Path -LiteralPath (Join-Path $Root 'mpv.com'))) {
-            $null = & (Join-Path $Root 'mpv.com') --no-config --unregister 2>&1
-            Write-Host '"Open with" entries removed.'
+            $r = Invoke-Native (Join-Path $Root 'mpv.com') @('--no-config', '--unregister')
+            if ($r.Code -eq 0) { Write-Host '"Open with" entries removed.' }
+            else { Write-Host "mpv --unregister failed (exit $($r.Code)): $($r.Out | Select-Object -Last 2)" -ForegroundColor Yellow }
         }
     }
 

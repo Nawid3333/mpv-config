@@ -116,6 +116,14 @@ H.run(function()
 		return (mp.get_property('path') or ''):find('fs%-content=anime', 1, false) ~= nil
 	end, 5)
 	open_menu('the FastStream file also opens its menu')
+	local function badge()
+		return mp.get_property_native('user-data/source-info/badge')
+	end
+	H.expect('... its button reads Fast', badge, 'Fast')
+	-- "fs-content=" only in a query is no FastStream tag (review, 2026-10-09)
+	H.load(H.media_path('fs-forged-query/ep&x=fs-content=anime.mkv'))
+	H.expect('a query holding fs-content= reads File, not Fast', badge, 'File')
+	H.load(H.media_path('fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv'))
 
 	-- The site-page copy: the fs-page= fragment, percent-encoded, decodes
 	-- back to the page URL. Driven the same way the menu event would arrive.

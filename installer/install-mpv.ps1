@@ -50,6 +50,16 @@ $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $script:failCode = 1
 
+# A native program's output, stderr included. Windows PowerShell 5.1 turns every stderr
+# line into a terminating error under 'Stop' once 2>&1 redirects it (checked
+# 2026-10-09: a single warning from mpv, 7-Zip or FastStream's install.ps1 ended the
+# install); the exit code decides here.
+function Invoke-Native([string]$Exe, [string[]]$Arguments) {
+    $ErrorActionPreference = 'Continue'
+    $out = @(& $Exe @Arguments 2>&1 | ForEach-Object { "$_" })
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
+}
+
 function Get-Sha256([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -153,8 +163,8 @@ try {
         }
         $x = Join-Path $work 'x'
         $7z = Get-7zExe
-        $out = & $7z x -y "-o$x" $file 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "7-Zip could not extract $(Split-Path -Leaf $file) (exit $LASTEXITCODE): $($out | Select-Object -Last 3)" }
+        $r = Invoke-Native $7z @('x', '-y', "-o$x", $file)
+        if ($r.Code -ne 0) { throw "7-Zip could not extract $(Split-Path -Leaf $file) (exit $($r.Code)): $($r.Out | Select-Object -Last 3)" }
         # every file proven before the first one is copied
         foreach ($rel in $files.Keys) {
             $sha = Get-Sha256 (Join-Path $x $rel)

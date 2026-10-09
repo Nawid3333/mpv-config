@@ -140,6 +140,9 @@ H.run(function()
 	hide('t5')
 	hide('t6')
 	H.expect('left and right cleared', ids, '')
+	H.key('r')
+	H.expect('r at 1x (nothing to go back to): the banner still says the speed', field('speed', 'title'), 'Speed 1x')
+	hide('speed')
 	H.expect('... mpv OSD text back at its place', offset, 0)
 
 	-- every script's message is a banner
@@ -154,4 +157,25 @@ H.run(function()
 	mp.commandv('script-message-to', 'gpu_toggles', 'set-movie-sharpness', '1')
 	H.expect('the sharpness menu: a banner', field('shaders', 'title'), 'Movie sharpness: Medium')
 	H.eq('... saying when it applies', field('shaders', 'detail')(), 'used when Movie is on')
+
+	-- A long detail wraps instead of being cut at the card's edge (review,
+	-- 2026-10-09: "Upscaling off here" lost its "Settings > ..." part).
+	local long = 'Anime4K C+A (Fast) took 76.6 ms per frame on this GPU (21 fit) · '
+		.. 'Settings > Upscaling quality runs it anyway'
+	show('wrap-test', 'Upscaling off here', long, '0')
+	H.wait_until(function()
+		return card('wrap-test') ~= nil
+	end, 2)
+	local lines = field('wrap-test', 'lines')() or {}
+	H.check('a long detail wraps onto 2-3 lines', #lines >= 2 and #lines <= 3, tostring(#lines))
+	H.eq('... every word kept, in order', table.concat(lines, ' '), long)
+	local before = offset()
+	show('wrap-short', 'Short', 'one line', '0')
+	H.wait_until(function()
+		return card('wrap-short') ~= nil
+	end, 2)
+	H.eq('a short detail stays on one line', #(field('wrap-short', 'lines')() or {}), 1)
+	hide('wrap-short')
+	hide('wrap-test')
+	H.check('the stack grew by the wrapped card (offset)', before > 0, tostring(before))
 end)

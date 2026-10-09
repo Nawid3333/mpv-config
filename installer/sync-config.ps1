@@ -182,6 +182,7 @@ try {
 
         $new = [ordered]@{}
         $lfsCount = 0
+        $lfsKept = 0
         foreach ($f in Get-ChildItem -LiteralPath $src -Recurse -File -Force) {
             $rel = $f.FullName.Substring($src.Length).TrimStart('\', '/').Replace('\', '/')
             if (-not (Test-SafePath $rel)) { throw "the ZIP holds a path outside the folder: $rel" }
@@ -189,8 +190,14 @@ try {
             if ($ptr) {
                 $lfsCount++
                 $tmp = Join-Path $work ('lfs-' + $ptr.Oid)
+                $installed = Join-Path $Root $rel
                 if (-not $LfsSource) { $LfsSource = "https://media.githubusercontent.com/media/$Repo/$Commit" }
-                if (Test-Path -LiteralPath $LfsSource -PathType Container) {
+                if ((Get-Sha256 $installed) -eq $ptr.Oid) {
+                    # already here (2026-10-09: every update downloaded all ~19 MB again)
+                    Copy-Item -LiteralPath $installed -Destination $tmp
+                    $lfsKept++
+                }
+                elseif (Test-Path -LiteralPath $LfsSource -PathType Container) {
                     Copy-Item -LiteralPath (Join-Path $LfsSource $rel) -Destination $tmp
                 }
                 else {
@@ -260,7 +267,7 @@ try {
     }
 
     $from = if ($oldCommit) { "$($oldCommit.Substring(0, 7)) -> $short" } else { $short }
-    Write-Host "Config installed ($from): $written file(s) written, $removed removed, $lfsCount from Git LFS." -ForegroundColor Green
+    Write-Host "Config installed ($from): $written file(s) written, $removed removed, $lfsCount from Git LFS ($($lfsCount - $lfsKept) downloaded)." -ForegroundColor Green
     foreach ($s in $saved) { Write-Host "  your changed file was saved as $s" -ForegroundColor Yellow }
     foreach ($k in $keptGone) { Write-Host "  kept $k - the config no longer has it, but you changed it" -ForegroundColor Yellow }
     exit 0

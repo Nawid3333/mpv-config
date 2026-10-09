@@ -39,7 +39,8 @@ re-created by the scripts in `installer/`.
 | `yt-dlp.exe` | no (gitignored, since 2026-10-03) | `updater.bat`: `yt-dlp -U`, or a fresh download checked against GitHub's SHA-256 |
 
 > `d3dcompiler_43.dll` is only used by mpv's D3D11/ANGLE render path, which
-> this config does not take (`gpu-context=winvk`). It is kept anyway: it ships
+> this config takes only as a fallback (`gpu-context=winvk,d3d11`: a GPU without
+> a working Vulkan driver). It is kept anyway: it ships
 > with the upstream build, `hwdec=d3d11va-copy` (every file since 2026-10-04,
 > when Vulkan video decoding lost the GPU device) may need it, and 4.4 MB is not
 > worth the risk of pruning a player DLL. Don't "clean it up".

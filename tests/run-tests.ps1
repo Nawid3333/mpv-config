@@ -200,10 +200,14 @@ function Invoke-OneClickCheck([string]$t) {
     Set-Content -LiteralPath (Join-Path $root 'portable_config/input.conf') 'my keys' -NoNewline
     Set-Content -LiteralPath (Join-Path $root 'old2/edited.lua') 'my edit' -NoNewline
     Set-Content -LiteralPath (Join-Path $root 'portable_config/speed.json') '{"speed":3}' -NoNewline
-    $r = Invoke-Script sync-config.ps1 @('-Root', $root, '-Zip', $zip2, '-Commit', $c2, '-LfsSource', $lfs)
+    # an empty LFS source: the font is already installed, so nothing may be fetched
+    $noLfs = Join-Path $ob 'lfs-empty'
+    $null = New-Item -ItemType Directory -Force $noLfs
+    $r = Invoke-Script sync-config.ps1 @('-Root', $root, '-Zip', $zip2, '-Commit', $c2, '-LfsSource', $noLfs)
     $mine = @(Get-ChildItem (Join-Path $root 'portable_config') -Filter 'input.conf.mine-*')
     Test-Check $t '... an update writes the new files' (
         $r.Code -eq 0 -and (Read-Manifest $root).commit -eq $c2 -and (Read-Text (Join-Path $root 'portable_config/mpv.conf')) -eq 'v2') $r.Out
+    Test-Check $t '... a Git LFS file already installed is not downloaded again' ($r.Code -eq 0 -and $r.Out -match '\(0 downloaded\)') $r.Out
     Test-Check $t '... a file you changed is set aside as <name>.mine-<time> before it is replaced' (
         (Read-Text (Join-Path $root 'portable_config/input.conf')) -eq 'keys v2' -and $mine.Count -eq 1 -and
         (Read-Text $mine[0].FullName) -eq 'my keys') $r.Out
@@ -260,11 +264,14 @@ function Invoke-OneClickCheck([string]$t) {
         Set-Content $updatesJson (@{ addons = @{ 'thanatus@Nawid' = @{ updates = @(@{
                             version = '9.9.9'; update_link = 'https://example.invalid/fs.xpi'; update_hash = 'sha256:' + ('0' * 64)
                         }) } } } | ConvertTo-Json -Depth 6)
-        # the fork's install.ps1, standing in: it records what it was given
+        # the fork's install.ps1, standing in: it records what it was given, and writes a
+        # line to stderr as a warning does - which ended Windows PowerShell 5.1's install
+        # under 'Stop' until 2026-10-09 (installer\*.ps1 Invoke-Native)
         $hs = Join-Path $ob 'helper-src'
         Write-TestTree $hs @{
             'faststream-mpv-host.mjs' = '// stand-in'
             'install.ps1'             = 'param([string]$MpvPath, [string]$NodePath, [string]$InstallDir, [switch]$NoRegister)
+[Console]::Error.WriteLine("a note on stderr")
 New-Item -ItemType Directory -Force $InstallDir | Out-Null
 @{ mpvPath = $MpvPath; node = $NodePath; noRegister = [bool]$NoRegister } | ConvertTo-Json | Set-Content (Join-Path $InstallDir "config.json")'
         }
