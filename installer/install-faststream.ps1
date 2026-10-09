@@ -272,7 +272,13 @@ try {
         if (-not $HelperOnly -and -not $NoFirefox) {
             $firefox = Find-Firefox
             if (-not $firefox) {
-                Write-Host 'Firefox is not installed. FastStream is a Firefox add-on: install Firefox (https://www.mozilla.org/firefox/), then run the setup again.' -ForegroundColor Yellow
+                # Not an error (2026-10-09: a Zen user read "run the setup again" as a failed
+                # setup): mpv and the helper are in place; only the add-on step needs Firefox.
+                Write-Host 'Firefox is not installed, so the FastStream add-on was not added. mpv and the FastStream helper are installed.' -ForegroundColor Yellow
+                Write-Host '  For Firefox: install it (https://www.mozilla.org/firefox/), then run the setup again to add the add-on.' -ForegroundColor Yellow
+                Write-Host '  Other browsers built on Firefox (Zen, LibreWolf, Floorp) are not tested: add FastStream there yourself from' -ForegroundColor Yellow
+                Write-Host '  https://github.com/Nawid3333/FastStream/releases. Zen 1.22 and newer has a Windows bug that keeps add-ons from' -ForegroundColor Yellow
+                Write-Host '  reaching programs on the PC (github.com/zen-browser/desktop/issues/15432), so MPV mode may not work in Zen.' -ForegroundColor Yellow
             }
             elseif (Test-AddonInstalled) {
                 Write-Host 'FastStream is already in Firefox (Firefox keeps it updated).' -ForegroundColor Green

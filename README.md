@@ -211,6 +211,11 @@ finishes, restart Firefox and continue with step 4.
 2. **Install the extension.** Download the signed `.xpi` from the fork's
    [Releases](https://github.com/Nawid3333/FastStream/releases) and open it in
    Firefox 142 or newer. Firefox then updates it by itself.
+   Browsers built on Firefox (Zen, LibreWolf, Floorp) are not tested, and the
+   one-click setup adds the add-on to Firefox only. Zen 1.22 and newer has a
+   Windows bug that keeps add-ons from reaching programs on the PC
+   ([zen-browser/desktop#15432](https://github.com/zen-browser/desktop/issues/15432)),
+   so MPV mode may not work in Zen; use Firefox until Zen fixes it.
 3. **Install the helper.** A browser extension cannot start programs by
    itself, so a small helper is registered once. It needs
    [Node.js](https://nodejs.org/) 22 or newer. Get the fork's source (Code ▸
