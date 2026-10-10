@@ -120,6 +120,12 @@ jobs:
           # not under mpv/: a passing build deletes every mpv/* branch
           PR_BRANCH: mpv-update
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # The .exe files stay LFS pointers: this job never reads them. Its checkouts of
+          # main (below, and commit_pin's) had git-lfs fetch every binary that changed
+          # since the checked-out commit, with no credentials to do it (the token is only
+          # the fetch's header): "smudge filter lfs failed" the first time one changed,
+          # mpv-single.exe (#67, 2026-10-10).
+          GIT_LFS_SKIP_SMUDGE: '1'
         run: |
           set -euo pipefail
 
