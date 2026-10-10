@@ -577,6 +577,14 @@ function Invoke-StaticCheck {
     Test-Check $t 'shader warm-up: no case or run decodes with vulkan' ($vkWarm.Count -eq 0) ($vkWarm -join ', ')
 
     # -- input.conf specifics --------------------------------------------------
+    # uosc takes a menu title part starting with --- as a separator only when it is all it
+    # says: "Video > Shaders (phase 3, ...) ---" was a greyed-out menu item with that text
+    # (2026-10-10). Every part of every #! title that has --- in it must be just ---.
+    $menuParts = @(($inputConf -split "`n") | Where-Object { $_ -match '#!\s*(.*)$' } | ForEach-Object {
+            ($_ -replace '^.*?#!\s*', '') -split '\s*>\s*' })
+    $badSeparators = @($menuParts | Where-Object { $_ -match '---' -and $_.Trim() -ne '---' })
+    Test-Check $t "input.conf: every menu separator is a plain --- ($(@($menuParts | Where-Object { $_.Trim() -eq '---' }).Count))" (
+        $badSeparators.Count -eq 0) ($badSeparators -join ' | ')
     Test-Check $t 'input.conf: no seek key flashes the timeline (seeks are silent)' ($inputConf -notmatch 'flash-timeline')
     $seekLines = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]+\s+(osd-\w+\s+)?seek\b' })
     Test-Check $t 'input.conf: every seek binding is no-osd' ($seekLines.Count -eq 0) ($seekLines -join ' | ')

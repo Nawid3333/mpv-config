@@ -1,7 +1,7 @@
 -- gpu-toggles.lua
 -- Shader upscaling. Shift+A lives in input.conf; it sends a script message to
 -- this script so the state and OSD feedback live in one place. The uosc
--- "upscale" toolbar button and the Video > Shaders menu reuse the same script
+-- "upscale" toolbar button and the Video > Upscale menu reuse the same script
 -- messages, so there is one source of truth for key, menu, and toolbar.
 --
 -- Upscale cycle (phase 6, 2026-09-12; simplified to one preset per content
@@ -764,7 +764,7 @@ local BASE_DSCALE = mp.get_property('dscale')
 
 -- A banner top right (Scripts/notify.lua draws every message; the same id
 -- replaces the last one, so fast switching shows one banner). Title: what runs;
--- grey line: the chain, e.g. "Shaders: Movie" over
+-- grey line: the chain, e.g. "Upscale: Movie" over
 -- "SSimSuperRes + CfL chroma · sharpen Auto (1.00)".
 local function notify(title, detail)
 	mp.commandv('script-message-to', 'notify', 'show', 'shaders', title, detail or '')
@@ -772,7 +772,7 @@ end
 
 local function announce_preset(preset, suffix)
 	if not preset then
-		notify('Shaders: off')
+		notify('Upscale: off')
 		return
 	end
 	local detail = short_name(preset)
@@ -785,7 +785,7 @@ local function announce_preset(preset, suffix)
 			detail = detail .. ' · sharpen off (not enlarged)'
 		end
 	end
-	notify('Shaders: ' .. (is_anime_preset(preset) and 'Anime' or 'Movie') .. (suffix or ''), detail)
+	notify('Upscale: ' .. (is_anime_preset(preset) and 'Anime' or 'Movie') .. (suffix or ''), detail)
 end
 
 local function apply_shader_preset(preset, suffix)
@@ -819,7 +819,7 @@ local function apply_shader_preset(preset, suffix)
 		if BASE_DSCALE and mp.get_property('dscale') ~= BASE_DSCALE then
 			mp.set_property('dscale', BASE_DSCALE)
 		end
-		notify('Shaders: off', 'files of this preset are missing - see the log')
+		notify('Upscale: off', 'files of this preset are missing - see the log')
 		return false
 	end
 
@@ -1243,7 +1243,7 @@ local function apply_upscale(announce)
 		upscale_active_key = 'off'
 	end
 	if off_note then
-		notify('Upscaling off here', off_note) -- in place of "Shaders: off"
+		notify('Upscaling off here', off_note) -- in place of "Upscale: off"
 	end
 	publish_family(upscale_active_preset)
 	update_upscale_button()

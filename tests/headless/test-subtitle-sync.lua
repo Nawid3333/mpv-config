@@ -212,6 +212,10 @@ H.run(function()
 	mp.set_property('sid', '1')
 	H.key('t')
 	H.expect('no ffmpeg: the lines are collected as they are read', field('subs'), 'live')
+	H.check(
+		'... and the row says where to put ffmpeg',
+		(state().subs_note or ''):find('ffmpeg.exe next to mpv.exe', 1, true) ~= nil
+	)
 	mp.set_property_native('pause', false)
 	H.expect('... the first lines arrive while it plays', function()
 		return (state().cues or 0) >= 1

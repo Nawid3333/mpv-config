@@ -428,7 +428,7 @@ fingerprint.collect(function(result)
 	end
 end)
 
--- "Rebuild shaders" (menu: Video > Shaders, and the upscale button's menu):
+-- "Rebuild shaders" (menu: Video > Upscale, and the upscale button's menu):
 -- deletes mpv's OWN compiled shaders - the shader_<16 hex> files in its cache
 -- folder - and warms everything again at once, whatever the stamp says (also
 -- after a failed attempt). AMD's driver cache (%LOCALAPPDATA%\AMD\VkCache)

@@ -33,8 +33,9 @@
 --     every line, parsed by mpv itself. For a track INSIDE the video it is only
 --     what has been read so far (a seek drops the rest), so an embedded text
 --     track is extracted in full with ffmpeg (next to mpv.exe or on PATH).
---     Without ffmpeg, and for tracks inside a stream, the row collects the
---     lines as playback reads them (a few seconds ahead); picture subtitles
+--     Without ffmpeg (not shipped: the row says where to put one), and for
+--     tracks inside a stream, the row collects the lines as playback reads
+--     them (a few seconds ahead); picture subtitles
 --     (PGS/DVD) have no text list, so their lines appear as they are shown
 --     (sub-start/sub-end).
 -- FastStream's extras that are not ported: its voice-activity model (an ONNX
@@ -345,7 +346,8 @@ local function load_subs()
 	end
 	local ffmpeg = find_ffmpeg()
 	if not ffmpeg then
-		go_live(key, 'no ffmpeg: lines appear as they are read')
+		-- the hint: ffmpeg is not shipped (his decision, 2026-10-10); one put there is found
+		go_live(key, 'no ffmpeg: lines appear as they are read · put ffmpeg.exe next to mpv.exe to read them all')
 		return
 	end
 	sub_job = mp.command_native_async({
@@ -1036,6 +1038,7 @@ local function publish()
 		audio_delay = get_delay('audio-delay'),
 		view = view,
 		subs = subs.status,
+		subs_note = subs.note,
 		cues = #subs.cues,
 		first_cue = subs.cues[1] and subs.cues[1].s or nil,
 		audio = audio.error and 'error' or (audio.count > 0 and 'ready' or (audio_source() and 'reading' or 'none')),
