@@ -46,7 +46,7 @@ local TEXT = 0xFFFFFF -- the title, white like uosc's text
 
 local value = ffi.new('unsigned long[1]')
 
----@param hwnd ffi.cdata*
+---@param hwnd userdata the window's HWND (an ffi cdata pointer)
 ---@param attribute integer
 ---@param v integer
 ---@return integer hresult

@@ -173,6 +173,26 @@ H.run(function()
 	end
 	send('set-upscale', '2')
 	H.expect('quality Auto, nothing measured -> Anime4K HQ', chain, ANIME)
+	-- A measurement (or a screen) saved the conf's quality with it, and from then on the
+	-- file won over a quality= changed in gpu_toggles.conf (final review, 2026-10-10).
+	local function saved_state()
+		local f = io.open(mp.command_native({ 'expand-path', '~~state/upscale.json' }), 'r')
+		local state = f and utils.parse_json(f:read('*a'))
+		if f then
+			f:close()
+		end
+		return state
+	end
+	send('set-screen', '2560x1440')
+	send('set-cost', 'anime-high', '5')
+	local state = saved_state()
+	H.check(
+		'a measurement saved without a quality chosen in the menu leaves the conf in charge',
+		type(state) == 'table' and state.costs and state.quality == nil,
+		utils.format_json(state)
+	)
+	send('forget-measurements')
+	send('set-screen', 'auto')
 	send('set-quality', 'fast')
 	H.expect('quality Fast -> Anime4K Fast set', chain, ANIME_FAST)
 	H.expect('... still published as preset anime', family, 'anime')

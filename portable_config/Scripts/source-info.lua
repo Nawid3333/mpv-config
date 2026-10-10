@@ -316,7 +316,9 @@ end
 ---@param args string[]
 local function launch(args)
 	if opts.launch then
-		utils.subprocess_detached(args)
+		-- { args = ... }: mpv's subprocess_detached is commandv('run', unpack(t.args)), and
+		-- the bare array threw - nothing opened (2026-10-02 to 2026-10-10)
+		utils.subprocess_detached({ args = args })
 	else
 		mp.set_property_native('user-data/source-info/launched', args)
 	end

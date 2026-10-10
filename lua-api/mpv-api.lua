@@ -171,6 +171,30 @@ function mp.add_forced_key_binding(key, name, fn, flags) end
 ---@param name string
 function mp.remove_key_binding(name) end
 
+---Define a section of key bindings (player/lua/defaults.lua; not in the manual).
+---Each entry: {key, fn_down, fn_up?}.
+---@param list table
+---@param section? string
+---@param flags? string "default" or "force"
+function mp.set_key_bindings(list, section, flags) end
+
+---Turn a section from set_key_bindings on.
+---@param section? string
+---@param flags? string|table e.g. "allow-hide-cursor+allow-vo-dragging"
+function mp.enable_key_bindings(section, flags) end
+
+---Turn a section from set_key_bindings off.
+---@param section? string
+function mp.disable_key_bindings(section) end
+
+---Limit a section's mouse bindings to a rectangle of the window.
+---@param x0 number
+---@param y0 number
+---@param x1 number
+---@param y1 number
+---@param section? string
+function mp.set_mouse_area(x0, y0, x1, y1, section) end
+
 ---Call fn once after `time` seconds.
 ---@param time number seconds
 ---@param fn fun()

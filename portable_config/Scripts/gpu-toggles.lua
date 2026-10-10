@@ -416,7 +416,11 @@ local function load_upscale_state()
 end
 
 local saved = load_upscale_state()
-local quality = saved.quality or (QUALITIES[opts.quality] and opts.quality) or 'auto'
+-- The quality chosen in the menu, or nil. Only that one is saved: saving the conf's
+-- along with a measurement (or a screen) pinned it, and a quality= changed in the conf
+-- afterwards did nothing (final review, 2026-10-10).
+local chosen_quality = saved.quality
+local quality = chosen_quality or (QUALITIES[opts.quality] and opts.quality) or 'auto'
 local screen = saved.screen or 'auto'
 local costs = saved.costs
 
@@ -425,7 +429,7 @@ local function save_upscale_state()
 	if not opts.remember then
 		return
 	end
-	local json = utils.format_json({ quality = quality, screen = screen, costs = costs })
+	local json = utils.format_json({ quality = chosen_quality, screen = screen, costs = costs })
 	local tmp = UPSCALE_FILE .. '.' .. utils.getpid() .. '.tmp'
 	local f = json and io.open(tmp, 'w')
 	if not f then
@@ -902,6 +906,11 @@ local function update_upscale_button()
 		if preset then
 			badge = UPSCALE_BADGES[preset.name] or '?'
 			tooltip = 'Upscale: ' .. preset.name .. sharpen_suffix(preset) .. ' (Auto, for this file)'
+		elseif mp.get_property_number('height') and is_faststream_content() then
+			-- A FastStream stream Auto measured too slow for this GPU: the line
+			-- below promised it would start by itself (final review, 2026-10-10).
+			badge = 'Off'
+			tooltip = 'Upscale: off here - too slow on this GPU (Auto; Settings > Upscaling quality)'
 		else
 			badge = 'Off'
 			tooltip = 'Upscale: off (FastStream streams start automatically)'
@@ -1405,6 +1414,7 @@ local function set_quality(value)
 		return
 	end
 	quality = value
+	chosen_quality = value
 	save_upscale_state()
 	-- also when Auto has it off right now: a choice made here may turn it back on
 	if upscale_mode ~= 0 then

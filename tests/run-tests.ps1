@@ -481,6 +481,20 @@ function Invoke-StaticCheck {
         }
     }
     Test-Check $t 'our scripts show messages as notify.lua banners, not mpv OSD text' ($osdCalls.Count -eq 0) ($osdCalls -join ', ')
+
+    # -- utils.subprocess(_detached) takes { args = {...} } ------------------
+    # mpv's subprocess_detached is `mp.commandv("run", unpack(t.args))`: a bare array
+    # threw, and source-info's "Open in browser" opened nothing from 2026-10-02 (#20) to
+    # 2026-10-10. Its tests run with source_info-launch=no, so only this line sees it.
+    $bareArgs = @()
+    foreach ($f in $ownLua) {
+        $i = 0
+        foreach ($line in Get-Content $f.FullName) {
+            $i++
+            if ($line -notmatch '^\s*--' -and $line -match 'utils\.subprocess(_detached)?\s*\(' -and $line -notmatch 'utils\.subprocess(_detached)?\s*\(\s*\{\s*args\s*=') { $bareArgs += "$($f.Name):$i" }
+        }
+    }
+    Test-Check $t 'utils.subprocess(_detached) is called with { args = ... }' ($bareArgs.Count -eq 0) ($bareArgs -join ', ')
     $osdMsg = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]+\s+osd-msg\s' })
     Test-Check $t 'input.conf: no binding forces mpv OSD text (osd-msg)' ($osdMsg.Count -eq 0) ($osdMsg -join ' | ')
     $osdStyle = @(@('profile=osd-box', 'osd-align-x=right', 'osd-align-y=top') | Where-Object { $_ -notin $mpvConf })
