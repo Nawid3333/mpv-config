@@ -783,7 +783,8 @@ end
 
 local function clock(t, decimals)
 	local sign = t < 0 and '-' or ''
-	t = math.abs(t)
+	-- rounded to what is shown before it is split up: 59.96 s read 0:60.0
+	t = decimals and math.floor(math.abs(t) * 10 ^ decimals + 0.5) / 10 ^ decimals or math.abs(t)
 	local h, m = math.floor(t / 3600), math.floor(t / 60) % 60
 	local s = t - math.floor(t / 60) * 60
 	local sec = decimals and string.format('%0' .. (3 + decimals) .. '.' .. decimals .. 'f', s)
@@ -1246,11 +1247,18 @@ local KEYS = {
 	{ 'Shift+right', NUDGE, 'audio-delay' },
 }
 
-local function close(revert)
+-- quiet: no banner (the file ended: auto-start.lua has set both delays back to 0 by then,
+-- and "Sync kept, +0.00 s" came after every file the panel was open on)
+local function close(revert, quiet)
 	if not active then
 		return
 	end
 	active = false
+	-- a drag of the time row paused playback, and only the button coming up played on:
+	-- closed before that (Esc, Enter, t, the file's end), mpv stayed paused
+	if drag and drag.moved and drag.row == 'time' and not drag.was_paused then
+		mp.set_property_native('pause', false)
+	end
 	drag = nil
 	if timer then
 		timer:kill()
@@ -1280,14 +1288,16 @@ local function close(revert)
 		set_delay('audio-delay', start_audio)
 	end
 	-- a banner top right (Scripts/notify.lua draws every message)
-	mp.commandv(
-		'script-message-to',
-		'notify',
-		'show',
-		'subtitle-sync',
-		revert and 'Sync undone' or 'Sync kept',
-		string.format('subtitles %+.2f s · audio %+.2f s', get_delay('sub-delay'), get_delay('audio-delay'))
-	)
+	if not quiet then
+		mp.commandv(
+			'script-message-to',
+			'notify',
+			'show',
+			'subtitle-sync',
+			revert and 'Sync undone' or 'Sync kept',
+			string.format('subtitles %+.2f s · audio %+.2f s', get_delay('sub-delay'), get_delay('audio-delay'))
+		)
+	end
 	if overlay then
 		overlay:remove()
 		overlay = nil
@@ -1357,7 +1367,7 @@ mp.observe_property('user-data/uosc/bottom-ui', 'native', function(_, value)
 	bottom_key = utils.format_json(value) or ''
 end)
 mp.register_event('end-file', function()
-	close(false)
+	close(false, true)
 	reset_audio(nil)
 	subs = { status = 'none', cues = { longest = 0 }, version = subs.version + 1 }
 	seen, sub_cache = {}, {}

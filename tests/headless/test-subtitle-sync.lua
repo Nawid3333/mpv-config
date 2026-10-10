@@ -145,6 +145,47 @@ H.run(function()
 	H.expect('t again closes and keeps it too', prop('sub-delay'), 0, 0.001)
 	mp.set_property_number('audio-delay', 0)
 
+	-- closed in the middle of a drag of the time row: the drag paused playback and only the
+	-- button coming up played on, so Esc, Enter, t or the file's end left mpv paused
+	H.key('t')
+	H.expect('t opens it again', field('open'), true)
+	mp.set_property_native('pause', false)
+	local ty, tx = row_y('time'), state().cx - 150
+	mp.commandv('mouse', tostring(tx), tostring(ty))
+	mp.commandv('keydown', 'MBTN_LEFT')
+	H.sleep(0.05)
+	for i = 1, 5 do
+		mp.commandv('mouse', tostring(tx - 20 * i), tostring(ty))
+		H.sleep(0.03)
+	end
+	H.expect('a drag of the time row pauses', function()
+		return mp.get_property_native('pause')
+	end, true)
+	H.key('ESC')
+	H.expect('Esc in the middle of the drag closes the panel', field('open'), false)
+	H.eq('... and it plays on, as before the drag', mp.get_property_native('pause'), false)
+	mp.commandv('keyup', 'MBTN_LEFT')
+	H.sleep(0.2)
+	mp.set_property_native('pause', true)
+
+	-- the panel open when the file ends: it closes with no banner. Both delays are back at 0
+	-- by then (auto-start.lua), and "Sync kept, +0.00 s" came after every such file.
+	H.key('t')
+	H.expect('t opens it once more', field('open'), true)
+	mp.commandv('script-message-to', 'notify', 'hide', 'subtitle-sync')
+	H.sleep(0.2)
+	H.load(mp.get_property('path'))
+	H.expect('the file ending closes the panel', field('open'), false)
+	H.sleep(0.3)
+	local banner
+	for _, c in ipairs((mp.get_property_native('user-data/notify') or {}).cards or {}) do
+		if c.id == 'subtitle-sync' then
+			banner = c.title
+		end
+	end
+	H.eq('... and shows no banner', banner, nil)
+	mp.set_property_native('pause', true)
+
 	-- a track inside the clip (made with ffmpeg by run-tests.ps1, if it has one)
 	local embedded = H.media_path('sync-embedded/talk.mkv')
 	local f = io.open(embedded, 'rb')

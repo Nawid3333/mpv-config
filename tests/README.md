@@ -84,6 +84,7 @@ Headless (`headless/test-*.lua`):
 | remember-speed | two processes: the speed chosen in one is restored in the next |
 | auto-start | a file loaded into a paused player (also after EOF) starts playing; a pause during playback stays |
 | subtitles | `c`: selects the first track, toggles visibility, loads a matching file when there is no track |
+| subtitle-folder | mpv.conf's `sub-file-paths`: a subtitle in a `sub\` folder next to the video loads with it (`;` between folders on Windows) |
 | subtitle-sync | `t`, the sync timeline, on a clip whose sound is a beep at 2/6/10/14/18 s with a .srt line on each beep: all 5 lines read (external track, `sub-lines`) and the second-mpv audio analysis finds the 5 beeps within 60 ms; Left/Right and Shift+Left/Right, the wheel on each row (and zoom on the time row, volume untouched), dragging each row (subtitles, audio, scrub), a click on a line jumps to its start, a click on the time row jumps there, a click outside the panel still plays/pauses; Esc puts both delays back, Enter/t keep them, keys normal again after; a track INSIDE the clip (made with ffmpeg, skipped without it): all lines through ffmpeg, and with ffmpeg missing the lines collected as playback reads them, kept over a seek |
 | menus | the upscale and speed menus (JSON built in Lua) and right-click really open in uosc |
 | autoload | sibling videos queued, the audio file next to them not (`same_type=yes`) |
@@ -131,8 +132,13 @@ move in the same instant makes that first step the origin (traced 2026-09-27:
 Not covered (needs a real window and pointer, or lives outside this repo): what
 uosc draws (layout, the two remaining times, badges on screen), the sync panel's
 look (checked by screenshot in a hidden window when it was built), thumbfast
-previews, `mpv-single.exe`, the FastStream extension/native host, file
-associations, the installers' downloads.
+previews, the FastStream extension/native host, file associations, the
+installers' downloads.
+
+`mpv-single.exe` (the "Open with" launcher) is checked in the headless tier, built from
+`mpv-single.cs` with .NET Framework's `csc.exe` into its own folder, mpv with `vo=null`/`ao=null`:
+three files opened at once go into one mpv and its playlist, a file opened later replaces them.
+It is skipped while any mpv runs (the launcher's pipe name is shared) and where `mpv.com` is missing.
 
 ## Is the shader warm-up worth keeping? (`-Tier shadercost`)
 

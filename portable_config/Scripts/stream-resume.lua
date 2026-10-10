@@ -79,14 +79,16 @@ local function resume_id(path)
 end
 
 --- Read the saved entries, dropping expired and malformed ones. A missing or
---- corrupt file reads as empty; the next save rewrites it.
+--- corrupt file reads as empty; the next save moves a corrupt one aside and
+--- writes a new one.
 --- The second result is true when something was dropped, i.e. the file on
 --- disk still holds entries that should be gone.
 --- The third result is true when the file exists but could not be read: saving
---- over it would then erase every other entry, so a save skips that round.
+--- over it would then erase every other entry, so a save keeps it beside first.
+---@param path string|nil the state file (default) or a copy of it
 ---@return table<string, {pos: number, duration: number, updated: number}>, boolean, boolean
-local function load_entries()
-	local file = io.open(state_file, 'r')
+local function load_entries(path)
+	local file = io.open(path or state_file, 'r')
 	if not file then
 		return {}, false, false
 	end
@@ -176,8 +178,24 @@ local function save_position()
 	end
 	local entries, _, unreadable = load_entries()
 	if unreadable then
-		msg.warn('stream-resume.json could not be read; not saving over it this time')
-		return
+		-- Not JSON: the file is written through a temp file and renamed, so another
+		-- window's save is never seen half-written - it is damaged. It is kept beside
+		-- (for a look) and saving goes on: skipped every time, it ended resuming for
+		-- every stream for good.
+		local aside = state_file .. '.corrupt-' .. os.date('%Y%m%d-%H%M%S')
+		if not os.rename(state_file, aside) then
+			msg.warn('stream-resume.json could not be read or moved aside; not saving over it')
+			return
+		end
+		-- What was moved is read again: another mpv window may have saved a good file
+		-- over the damaged one since, and its entries stay.
+		local damaged
+		entries, _, damaged = load_entries(aside)
+		if damaged then
+			msg.warn('stream-resume.json could not be read: kept as ' .. aside .. ', saving anew')
+		else
+			os.remove(aside)
+		end
 	end
 	if keep then
 		entries[current.id] = { pos = pos, duration = duration, updated = os.time() }

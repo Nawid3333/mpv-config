@@ -61,8 +61,10 @@ function Get-PrivacyFinding {
     $r = [ordered]@{}
     # (& $git ...) is the array itself: inside @() it became one element, the array
     $r['no tracked file is one .gitignore excludes'] = & $git (@('ls-files', '-ci', '--exclude-standard', '--', '.') + $Exclude)
+    # -i: Windows paths are written in any case; mpv's own manual has its example path
+    # in lower case (users\USERNAME), like its e-mail addresses below
     $r['no user folder path (C:\Users\<name>) or private claude.ai link'] = & $at (& $git (@('grep') + $cached + @(
-                '-I', '-n', '-E', '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/', '--', '.') + $Exclude) 1)
+                '-I', '-n', '-i', '-E', '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/', '--', '.', ':(exclude)doc/manual.txt') + $Exclude) 1)
     $r['no e-mail address but noreply ones'] = & $at @((& $git (@('grep') + $cached + @(
                     '-I', '-n', '-o', '-E', '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}', '--', '.', ':(exclude)doc/manual.txt') + $Exclude) 1) |
             Where-Object { $_ -notmatch '(noreply@anthropic\.com|noreply@github\.com|@users\.noreply\.github\.com|@example\.(com|org))$' })

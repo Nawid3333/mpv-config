@@ -100,10 +100,15 @@ local function fragment_value(url, marker)
 	return value ~= '' and value or nil
 end
 
---- "FastStream" / "HLS stream" / "stream" / "local file" plus the button badge.
----@return string long, string short
+--- "FastStream" / "HLS stream" / "stream" / "local file" plus the button badge;
+--- nil, nil while nothing is loaded (an idle mpv, between files), which read
+--- "local file" / "File" (2026-10-10 review).
+---@return string|nil long, string|nil short
 local function source_of()
-	local path = state.path or ''
+	local path = state.path
+	if not path then
+		return nil, nil
+	end
 	-- a FastStream tag is a whole item of the URL fragment, as the host appends it
 	-- (FastStream #155) - not the text anywhere in a site's address (review, 2026-10-09)
 	if fragment_value(path, 'fs-content=') or fragment_value(path, 'fs-id=') or fragment_value(path, PAGE_MARKER) then
@@ -196,7 +201,7 @@ local function update_button()
 		command = { 'script-message-to', mp.get_script_name(), 'open-menu' },
 		menu_command = { 'script-message-to', mp.get_script_name(), 'open-menu' },
 	}
-	mp.set_property_native('user-data/source-info/badge', data.badge) -- for the tests
+	mp.set_property_native('user-data/source-info/badge', data.badge or '') -- for the tests
 	local json = utils.format_json(data)
 	if json and json ~= last_button_json then
 		last_button_json = json
@@ -278,7 +283,7 @@ local function build_menu()
 	local script_name = mp.get_script_name()
 	local json, err = utils.format_json({
 		type = 'source-menu',
-		title = 'Source: ' .. source_of(),
+		title = source_of() and ('Source: ' .. source_of()) or 'Source',
 		items = items,
 		-- uosc's callback menu mode (menus.lua): the table is spliced into
 		-- "script-message-to <...callback...> <event json>", so this flat
@@ -361,20 +366,20 @@ end
 --- does: no real Referer, Origin or User-Agent ends in one).
 ---@return table|nil options for loadfile, nil when there are none
 local function reopen_options()
-	local options, fields = {}, {}
+	local file_options, fields = {}, {}
 	for _, field in ipairs(mp.get_property_native('http-header-fields') or {}) do
 		if type(field) == 'string' and field ~= '' and field:sub(-1) ~= '\\' then
 			fields[#fields + 1] = (field:gsub(',', '\\,'))
 		end
 	end
 	if #fields > 0 then
-		options['http-header-fields'] = table.concat(fields, ',')
+		file_options['http-header-fields'] = table.concat(fields, ',')
 	end
 	local title = mp.get_property('options/force-media-title') or ''
 	if title ~= '' then
-		options['force-media-title'] = title
+		file_options['force-media-title'] = title
 	end
-	return next(options) and options or nil
+	return next(file_options) and file_options or nil
 end
 
 local function handle_activate(value)

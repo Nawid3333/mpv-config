@@ -19,14 +19,14 @@ re-created by the scripts in `installer/`.
 | `portable_config/Scripts/*.lua` | Ours: `gpu-toggles.lua`, `speed-button.lua`, `speed-presets.lua`, `remember-speed.lua`, `auto-start.lua`, `subtitle-toggle.lua`, `subtitle-sync.lua`, `stream-resume.lua`, `settings.lua` (the Settings and Welcome menus, the per-PC settings), `welcome.lua` (the first start, F1), `notify.lua` (draws every message as a small banner top right), `title-bar.lua` (the native title bar in black), `music-info.lua` (song details: window title + the panel above uosc's bottom bar), `video-info.lua` (a resolution banner when a video starts), `source-info.lua` (a "source" toolbar button: every link the current file has, ready to copy or open - behavior in AGENTS.md). Vendored: `autoload.lua` (upstream mpv), `thumbfast.lua` |
 | `portable_config/Scripts/shader-cache/` | Ours: the startup shader-cache check and its progress banner (`main.lua`, drawn by `notify.lua`), what it compares (`fingerprint.lua`), the warm-up it runs in the background when the cache is stale (`warmup.lua`) and the hidden window that warm-up runs in (`host.ps1`) |
 | `portable_config/Scripts/uosc/` | uosc UI (v5.13.0, incl. LFS-tracked ziggy binaries) |
-| `portable_config/shaders/*.glsl` | The 10 shaders the presets use: 6 Anime4K v4.0.1 files (Anime preset), FSRCNNX, SSimSuperRes, CfL_Prediction and adaptive-sharpen (Movie presets; adaptive-sharpen is a locally modified copy, not downloaded by the installer) - committed, licenses permit redistribution. Trimmed 2026-09-21 from the full Anime4K pack + ArtCNN + SSimDownscaler, none of which any preset used |
+| `portable_config/shaders/*.glsl` | The 13 shaders the presets use: 9 Anime4K v4.0.1 files (the Anime presets, High and Fast), FSRCNNX, SSimSuperRes, CfL_Prediction and adaptive-sharpen (Movie presets; adaptive-sharpen is a locally modified copy, not downloaded by the installer) - committed, licenses permit redistribution. Trimmed 2026-09-21 from the full Anime4K pack + ArtCNN + SSimDownscaler, none of which any preset used |
 | `portable_config/script-opts/uosc.conf` | uosc settings |
 | `lua-api/` | mpv API stubs for Lua language server (editor support only) |
 | `tests/` | Regression suite: `pwsh tests/run-tests.ps1` (see `tests/README.md`) |
 | `installer/warm-shader-cache.ps1` | Runs that warm-up on request, hidden, progress in the terminal (mpv also runs it by itself in the background whenever the cache is stale) |
 | `doc/manual.txt` | Version-matched mpv manual (extracted text, for grepping) |
-| `mpv-build.json` | Which shinchiro mpv build this setup uses (tag, download URL, SHA-256 of the archive and of every file in it). CI moves it to each new build that passes the regression tests |
-| `updater.bat`, `installer/update.ps1`, `installer/install-mpv.ps1` | Ours: `updater.bat` pulls the repo, installs the pinned mpv build and keeps yt-dlp current |
+| `mpv-build.json` | Which shinchiro mpv build this setup uses (tag, download URL, SHA-256 of the archive and of every file in it). A daily CI job offers each new build that passes the regression tests as one pull request (`mpv-update`); nothing moves the pin by itself |
+| `updater.bat`, `installer/update.ps1`, `installer/install-mpv.ps1` | Ours: `updater.bat` brings the config up to date (`git pull` in a clone), installs the pinned mpv build and keeps yt-dlp current |
 | `install.bat`, `installer/setup.ps1`, `installer/sync-config.ps1`, `installer/install-faststream.ps1`, `uninstall.bat`, `installer/uninstall.ps1` | Ours (2026-10-09): the one-click install for a PC without git - the config as GitHub's ZIP into `%LOCALAPPDATA%\Programs\mpv` (no admin), mpv, yt-dlp, the FastStream helper with a private Node.js, the add-on opened in Firefox, "Open with" + Start menu; `updater.bat` then updates such a folder through `sync-config.ps1` instead of `git pull`. README.md "Install" is the user-facing description, AGENTS.md the behaviour |
 
 ## 2. What is generated, and how mpv's own files are kept
@@ -51,8 +51,9 @@ re-created by the scripts in `installer/`.
 >
 > Shaders and uosc **are** committed — but if they ever drift from upstream,
 > the installers can rebuild them: `install-uosc.ps1` re-fetches uosc v5.13.0
-> + thumbfast, `install-shaders.ps1` re-downloads the 8 used shaders (the Anime4K v4.0.1
-> files the Anime preset needs, FSRCNNX, SSimSuperRes) with pinned URLs.
+> + thumbfast, `install-shaders.ps1` re-downloads the 12 downloadable shaders (the Anime4K v4.0.1
+> files the Anime presets need, FSRCNNX, SSimSuperRes, CfL_Prediction) with pinned URLs; the 13th,
+> the locally modified adaptive-sharpen, is only in the repo.
 
 ## 3. Quick start on a fresh PC
 
@@ -88,17 +89,18 @@ icacls "C:\Program Files\mpv" /grant "$($env:USERNAME):(OI)(CI)M"
 git config core.hooksPath .githooks
 #    The repository is public: commit under your GitHub login and its noreply address
 #    (GitHub > Settings > Emails), whatever git's global user.name says - the guard refuses
-#    anything else. Optional: words that must never be committed (real name, user name,
-#    PC name), one per line, in this clone's .git/info/private-words (never committed):
+#    anything else:
 git config user.name "<login>"
 git config user.email "<id>+<login>@users.noreply.github.com"
+#    Optional: words that must never be committed (real name, user name, PC name), one per
+#    line, in this clone's .git/info/private-words (never committed).
 
 # 3) uosc + thumbfast (UI): committed, with local changes - nothing to do in a clone.
 #    install-uosc.ps1 is for a folder without them (it fetches upstream's copies,
 #    which lack those changes; it says so):
 # powershell -ExecutionPolicy Bypass -File installer\install-uosc.ps1
 
-# 4) GLSL shaders (the 8 files the presets use):
+# 4) GLSL shaders (the 12 downloadable files the presets use; adaptive-sharpen is in the repo):
 powershell -ExecutionPolicy Bypass -File installer\install-shaders.ps1
 
 # 5) File associations / App Paths (optional, admin not required):

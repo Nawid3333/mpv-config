@@ -127,6 +127,18 @@ function Write-Section([string]$Title) {
 # Git LFS objects, FastStream's release and nodejs.org. Run as install.bat and
 # updater.bat run them: in Windows PowerShell 5.1 when it is there.
 # ---------------------------------------------------------------------------
+# A process named mpv, running from $Dir: a copy of ping (no mpv starts). Stop it with
+# Close-StandInMpv.
+function Open-StandInMpv([string]$Dir) {
+    New-Item -ItemType Directory -Force $Dir | Out-Null
+    Copy-Item -LiteralPath (Join-Path $env:WINDIR 'System32\PING.EXE') (Join-Path $Dir 'mpv.exe') -Force
+    return Start-Process -FilePath (Join-Path $Dir 'mpv.exe') -ArgumentList '-n', '60', '127.0.0.1' -WindowStyle Hidden -PassThru
+}
+function Close-StandInMpv($Process) {
+    Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+    $null = $Process.WaitForExit(5000)
+}
+
 function Invoke-OneClickCheck([string]$t) {
     $installer = Join-Path $RepoRoot 'installer'
     # every script Windows PowerShell 5.1 runs: it reads a UTF-8 file without a BOM
@@ -135,6 +147,13 @@ function Invoke-OneClickCheck([string]$t) {
             @([IO.File]::ReadAllBytes($_.FullName) | Where-Object { $_ -gt 127 }).Count
         } | ForEach-Object Name)
     Test-Check $t 'installer scripts and .bat files are plain ASCII (Windows PowerShell 5.1, cmd)' ($nonAscii.Count -eq 0) ($nonAscii -join ', ')
+    # a download that stalls halfway: PowerShell 7, which updater.bat uses when it is there,
+    # waited for ever (measured 2026-10-10); $StallLimit gives it -OperationTimeoutSeconds
+    $noLimit = @(foreach ($f in 'install-faststream.ps1', 'install-mpv.ps1', 'sync-config.ps1', 'update.ps1') {
+            Select-String -LiteralPath (Join-Path $installer $f) -Pattern 'Invoke-WebRequest .*-OutFile' |
+                Where-Object { $_.Line -notmatch '@StallLimit' } | ForEach-Object { "$f`:$($_.LineNumber)" }
+        })
+    Test-Check $t 'every download updater.bat can run in PowerShell 7 ends when it stalls ($StallLimit)' ($noLimit.Count -eq 0) ($noLimit -join ', ')
     $state = @('.install-manifest.json', 'portable_config/input.conf.mine-20261009-120000')
     $notIgnored = @($state | Where-Object { & git -C $RepoRoot check-ignore -q --no-index -- $_; $LASTEXITCODE -ne 0 })
     Test-Check $t '.gitignore covers what the one-click install writes (its manifest, your set-aside files)' ($notIgnored.Count -eq 0) ($notIgnored -join ', ')
@@ -231,6 +250,14 @@ function Invoke-OneClickCheck([string]$t) {
         '-NoMpv', '-NoFastStream', '-NoFileTypes', '-NoShortcuts', '-Yes')
     Test-Check $t 'setup.ps1 installs into a new folder (config step; mpv, FastStream, Windows parts skipped)' (
         $r.Code -eq 0 -and (Read-Manifest $sr).commit -eq $c1) $r.Out
+    # a folder with a space, given with a trailing backslash (tab completion adds one): the
+    # child scripts got -Root "...\new folder\" and the \" swallowed every argument after it.
+    # Its name has a letter outside ASCII too (u umlaut), as a Windows account's can.
+    $srSpace = Join-Path $ob ('new folder ' + [char]0xFC)
+    $r = Invoke-Script setup.ps1 @('-InstallDir', "$srSpace\", '-Zip', $zip1, '-Commit', $c1, '-LfsSource', $lfs,
+        '-NoMpv', '-NoFastStream', '-NoFileTypes', '-NoShortcuts', '-Yes')
+    Test-Check $t '... and into a folder with a space, given with a trailing backslash' (
+        $r.Code -eq 0 -and (Read-Manifest $srSpace).commit -eq $c1) $r.Out
     $foreign = Join-Path $ob 'foreign'
     Write-TestTree $foreign @{ 'something.txt' = 'not ours' }
     $r = Invoke-Script setup.ps1 @('-InstallDir', $foreign, '-Zip', $zip1, '-Commit', $c1, '-LfsSource', $lfs, '-NoMpv', '-Yes')
@@ -291,6 +318,16 @@ New-Item -ItemType Directory -Force $InstallDir | Out-Null
         $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $other, '-HelperDir', $hd, '-HelperOnly', '-Yes') + $common)
         $cfg = Get-Content -Raw (Join-Path $hd 'config.json') | ConvertFrom-Json
         Test-Check $t '... the updater of ANOTHER mpv folder leaves it alone' ($r.Code -eq 0 -and $cfg.mpvPath -eq $mpvStandIn) $r.Out
+        # an mpv folder with a letter outside ASCII (a Windows account named with an umlaut): Windows
+        # PowerShell 5.1 read the marker, UTF-8 without a BOM, as ANSI - the helper was never
+        # up to date, its own folder's updater left it alone, and uninstall kept it
+        $mpvUml = Join-Path $srSpace 'mpv.exe'
+        Write-TestTree $srSpace @{ 'mpv.exe' = 'stand-in' }
+        $hdu = Join-Path $ob 'helper-umlaut'
+        $null = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvUml, '-HelperDir', $hdu) + $common)
+        $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvUml, '-HelperDir', $hdu, '-HelperOnly', '-Yes') + $common)
+        Test-Check $t '... an mpv folder with a letter outside ASCII: its updater finds the helper up to date' (
+            $r.Code -eq 0 -and $r.Out -match 'up to date') $r.Out
         # a helper this script did not install (a FastStream developer's own)
         $dev = Join-Path $ob 'dev-helper'
         Write-TestTree $dev @{ 'config.json' = '{"mpvPath":"C:\\dev\\mpv.exe"}' }
@@ -314,6 +351,8 @@ New-Item -ItemType Directory -Force $InstallDir | Out-Null
         Test-Check $t 'uninstall.ps1 removes the FastStream helper the setup installed for this mpv' ($r.Code -eq 0 -and -not (Test-Path $ours)) $r.Out
         $r = Invoke-Script uninstall.ps1 @('-Root', $sr, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', $hd)
         Test-Check $t '... but not one set up for another mpv folder' ($r.Code -eq 0 -and (Test-Path (Join-Path $hd 'config.json'))) $r.Out
+        $r = Invoke-Script uninstall.ps1 @('-Root', $srSpace, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', $hdu)
+        Test-Check $t '... and removes it for a folder with a letter outside ASCII' ($r.Code -eq 0 -and -not (Test-Path $hdu)) $r.Out
     }
     # "Open with" another mpv registered (2026-10-09: the owner's Program Files mpv, for the
     # whole PC) - a stand-in key under HKCU, never a real App Paths entry
@@ -337,6 +376,17 @@ New-Item -ItemType Directory -Force $InstallDir | Out-Null
     Test-Check $t 'uninstall.ps1 refuses a git clone' ($r.Code -eq 1 -and $r.Out -match 'git clone' -and (Test-Path $clone)) $r.Out
     $r = Invoke-Script uninstall.ps1 @('-Root', $foreign, '-Yes', '-KeepFolder', '-NoFileTypes')
     Test-Check $t '... and a folder the setup did not install' ($r.Code -eq 1 -and $r.Out -match 'not installed by the setup' -and (Test-Path $foreign)) $r.Out
+    # an mpv running from another folder whose name starts the same (installed-old for
+    # installed) is not this folder's: it blocked the update and the uninstall
+    $other = Open-StandInMpv "$sr-old"
+    try {
+        # an update with something to write (the up-to-date check comes before the mpv one)
+        $rs = Invoke-Script sync-config.ps1 @('-Root', $sr, '-Zip', $zip2, '-Commit', $c2, '-LfsSource', $noLfs)
+        $ru = Invoke-Script uninstall.ps1 @('-Root', $sr, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', (Join-Path $ob 'no-helper'))
+    }
+    finally { Close-StandInMpv $other }
+    Test-Check $t 'sync-config.ps1 runs while an mpv from another folder whose name starts the same runs' ($rs.Code -eq 0) $rs.Out
+    Test-Check $t '... and so does uninstall.ps1' ($ru.Code -eq 0) $ru.Out
     Remove-Item $ob -Recurse -Force -ErrorAction SilentlyContinue
 }
 
@@ -641,6 +691,7 @@ function Invoke-StaticCheck {
     # in a config folder.
     $private = @(
         'portable_config/speed.json', 'portable_config/stream-resume.json', 'portable_config/movie-sharpness.json',
+        'portable_config/stream-resume.json.corrupt-20261010-120000',
         'portable_config/shader-misses.log', 'portable_config/shader-cases.json', 'portable_config/speed.json.1234.tmp',
         'portable_config/cache/shader_0123456789abcdef', 'portable_config/watch_later/0123456789ABCDEF',
         'portable_config/watch_history.jsonl', 'mpv-shot0001.jpg', 'yt-dlp.conf', 'cookies.txt', 'notes.txt',
@@ -743,6 +794,14 @@ function Invoke-StaticCheck {
         Test-Check $t '... a pin that names a file outside the build is refused' ($r.Code -eq 1 -and $r.Out -match 'outside the build') $r.Out
         $r = Invoke-Installer pwsh $root $json @('-Archive', $archive)
         Test-Check $t '... and a run with the right archive repairs the edited file' ($r.Code -eq 0 -and (Test-Installed $root)) $r.Out
+        # an mpv running from another folder whose name starts the same (root-old for root) is
+        # not this folder's: it blocked the update
+        Add-Content -LiteralPath (Join-Path $root 'mpv/fonts.conf') 'edited'
+        $sibling = Join-Path $ib 'root-old'
+        $other = Open-StandInMpv $sibling
+        try { $r = Invoke-Installer pwsh $root $json @('-Archive', $archive) }
+        finally { Close-StandInMpv $other }
+        Test-Check $t '... with an mpv running from another folder whose name starts the same' ($r.Code -eq 0 -and (Test-Installed $root)) $r.Out
         # updater.bat runs it with Windows PowerShell 5.1 when pwsh is not installed
         $ps51 = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object Source
         if ($ps51) {
@@ -831,11 +890,16 @@ function Invoke-StaticCheck {
         Test-Check $t 'commit guard: a forced add of an ignored private file (stream-resume.json) is refused' (
             $r.Code -ne 0 -and $r.Out -match 'keeps these out') $r.Out
         $null = Invoke-Git restore --staged -- portable_config/stream-resume.json
-        foreach ($leak in @(('C:' + '\Users\' + 'someone\Videos'), ('https://claude.ai/' + 'code/session_0123'))) {
-            Write-GuardFile 'notes.md' "see $leak"
+        $leaks = [ordered]@{
+            'a user folder path'               = 'C:' + '\Users\' + 'someone\Videos'
+            'a user folder path in lower case' = 'c:' + '\users\' + 'someone\videos'
+            'a private claude.ai link'         = 'https://claude.ai/' + 'code/session_0123'
+        }
+        foreach ($kv in $leaks.GetEnumerator()) {
+            Write-GuardFile 'notes.md' "see $($kv.Value)"
             $null = Invoke-Git add notes.md
             $r = Invoke-Git commit -q -m 'leak'
-            Test-Check $t "commit guard: an added line with $(($leak -like '*claude*') ? 'a private claude.ai link' : 'a user folder path') is refused" (
+            Test-Check $t "commit guard: an added line with $($kv.Key) is refused" (
                 $r.Code -ne 0 -and $r.Out -match 'user folder path or a private claude') $r.Out
         }
         Write-GuardFile 'notes.md' 'see C:\Users\<name>\Videos'
@@ -989,6 +1053,89 @@ function Invoke-StaticCheck {
 }
 
 # ---------------------------------------------------------------------------
+# mpv-single.exe (the "Open with" launcher), built from mpv-single.cs: files
+# opened at once - Explorer starts one launcher per selected file, within a few
+# milliseconds - go into ONE mpv, all of them in its playlist; a file opened
+# later replaces them, as before. Until 2026-10-10 three files at once were
+# three mpv players. mpv runs with vo=null/ao=null and quits at its playlist's
+# end; the launcher's pipe name is the real one, so nothing runs while another
+# mpv does.
+# ---------------------------------------------------------------------------
+function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
+    $t = 'mpv-single'
+    Write-Host ''
+    Write-Host "-- $t" -ForegroundColor White
+    $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    if (-not (Test-Path -LiteralPath $csc)) { Add-Result $t 'mpv-single.exe' 'SKIP' 'no .NET Framework csc.exe to build it'; return }
+    $running = @(Get-Process mpv, mpv-single -ErrorAction SilentlyContinue)
+    if ($running.Count) { Add-Result $t 'mpv-single.exe' 'SKIP' "an mpv runs (pid $($running.Id -join ', ')): the launcher's pipe name is shared"; return }
+    $dir = Join-Path $WorkDir 'mpv-single'
+    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force (Join-Path $dir 'portable_config'), (Join-Path $dir 'media') | Out-Null
+    $built = & $csc /nologo /target:winexe "/out:$(Join-Path $dir 'mpv-single.exe')" (Join-Path $RepoRoot 'mpv-single.cs') 2>&1
+    if (-not (Test-Path -LiteralPath (Join-Path $dir 'mpv-single.exe'))) { Add-Result $t 'mpv-single.cs builds' 'FAIL' ($built -join ' '); return }
+    # mpv.com too, which the launcher starts: the pinned build's folder, not the test root
+    $bin = Split-Path -Parent (Get-Item -LiteralPath $MpvExe).FullName
+    if (-not (Test-Path -LiteralPath (Join-Path $bin 'mpv.com'))) { Add-Result $t 'mpv-single.exe' 'SKIP' "no mpv.com next to $MpvExe"; return }
+    foreach ($f in 'mpv.exe', 'mpv.com', 'd3dcompiler_43.dll') {
+        if (Test-Path -LiteralPath (Join-Path $bin $f)) { Copy-Item -LiteralPath (Join-Path $bin $f) $dir }
+    }
+    # each file stops at 0:06, and mpv quits when its playlist is done
+    Set-Content -LiteralPath (Join-Path $dir 'portable_config/mpv.conf') "vo=null`nao=null`nkeep-open=no`nidle=no`nload-scripts=no`nend=6"
+    foreach ($n in 'a', 'b', 'c', 'd') { Copy-Item -LiteralPath (Join-Path $Media 'plain/clip.mkv') (Join-Path $dir "media/$n.mkv") }
+    $launcher = Join-Path $dir 'mpv-single.exe'
+    $players = { @(Get-Process mpv -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq (Join-Path $dir 'mpv.exe') }) }
+    $launchersDone = {
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        while ($clock.ElapsedMilliseconds -lt 20000 -and
+            @(Get-Process mpv-single -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $launcher }).Count) { Start-Sleep -Milliseconds 100 }
+    }
+    # a property of the mpv behind the launcher's pipe
+    $ask = {
+        param([string]$Name)
+        $pipe = $null
+        try {
+            $pipe = [IO.Pipes.NamedPipeClientStream]::new('.', 'mpv-single', [IO.Pipes.PipeDirection]::InOut)
+            $pipe.Connect(3000)
+            $writer = [IO.StreamWriter]::new($pipe)
+            $writer.AutoFlush = $true
+            $reader = [IO.StreamReader]::new($pipe)
+            $writer.WriteLine('{"command":["get_property","' + $Name + '"],"request_id":41}')
+            for ($i = 0; $i -lt 50; $i++) {
+                $line = $reader.ReadLineAsync()
+                if (-not $line.Wait(3000)) { return $null }
+                if ($line.Result -match '"request_id":\s*41') { return ($line.Result | ConvertFrom-Json).data }
+            }
+            return $null
+        }
+        catch { return $null }
+        finally { if ($pipe) { $pipe.Dispose() } }
+    }
+    try {
+        foreach ($n in 'a', 'b', 'c') { Start-Process -FilePath $launcher -ArgumentList ('"' + (Join-Path $dir "media/$n.mkv") + '"') }
+        & $launchersDone
+        # the old launcher ended at once: its mpv players start a moment later
+        Start-Sleep -Milliseconds 1500
+        $count = @(& $players).Count
+        $playlist = & $ask 'playlist-count'
+        Test-Check $t 'three files opened at once go into one mpv' ($count -eq 1) "$count mpv players"
+        Test-Check $t '... all three in its playlist' ($playlist -eq 3) "playlist-count $playlist"
+        Start-Process -FilePath $launcher -ArgumentList ('"' + (Join-Path $dir 'media/d.mkv') + '"')
+        & $launchersDone
+        $count = @(& $players).Count
+        $playlist = & $ask 'playlist-count'
+        $file = & $ask 'filename'
+        Test-Check $t '... a file opened later replaces them, in the same mpv' (
+            $count -eq 1 -and $playlist -eq 1 -and $file -eq 'd.mkv') "$count mpv players, playlist-count $playlist, playing $file"
+    }
+    finally {
+        $left = & $players
+        $left | Wait-Process -Timeout 30 -ErrorAction SilentlyContinue
+        & $players | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# ---------------------------------------------------------------------------
 # isolated player + media
 # ---------------------------------------------------------------------------
 function Initialize-TestRoot {
@@ -1074,6 +1221,13 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
     if (-not (Test-Path $srt)) {
         Set-Content -LiteralPath $srt -Encoding utf8 -Value "1`n00:00:00,000 --> 00:00:19,000`nregression test subtitle`n"
     }
+    # the same video with its subtitle only in a sub\ folder beside it (sub-file-paths)
+    $folderSrt = Join-Path $m 'subs-folder/sub/movie.srt'
+    if (-not (Test-Path -LiteralPath $folderSrt)) {
+        New-Item -ItemType Directory -Force (Split-Path -Parent $folderSrt) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $m 'subs/movie.mkv') (Join-Path $m 'subs-folder/movie.mkv')
+        Copy-Item -LiteralPath $srt $folderSrt
+    }
     $ep = Join-Path $m 'fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv'
     Initialize-Clip $Exe $ep 320x180 120
     $token2 = Join-Path $m 'fs-anime-token2/ep1-newtoken#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv'
@@ -1120,6 +1274,9 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
         }
         @{ Path = 'music-untagged/01 - Artist Name - Song Title (ft. Guest).flac'; Codec = 'flac' }
         @{ Path = 'music-untagged/02 - Other Artist - Next Song.flac'; Codec = 'flac' }
+        # a track number and a title only, and a band whose name is a number
+        @{ Path = 'music-numbered/07 - Quiet Harbor.flac'; Codec = 'flac' }
+        @{ Path = 'music-band-number/311 - Amber.flac'; Codec = 'flac' }
         @{ Path = 'music-feat/harbor-lights.mp3'; Codec = 'libmp3lame'; Meta = 'title=Harbor Lights (feat. Juno Vale) [Live],artist=Nova Lane;Echo Harbor' }
     )
     foreach ($s in $songs) {
@@ -1327,6 +1484,24 @@ $ForgetWelcome = {
     Remove-Item -LiteralPath (Join-Path $root 'portable_config/welcome.json') -ErrorAction SilentlyContinue
 }
 
+# stream-resume: a damaged state file (not JSON). Every save skipped it, so resuming had
+# ended for every stream for good (2026-10-10 review): the next save keeps it beside and
+# writes a new one.
+$DamageResumeFile = {
+    Set-Content -LiteralPath (Join-Path $root 'portable_config/stream-resume.json') '{"a1b2c3d4e5f60718": {"pos": 4' -NoNewline
+}
+$ResumeSavedAnew = {
+    param($Name, $Label)
+    $cfgDir = Join-Path $root 'portable_config'
+    $saved = try { Get-Content -Raw -LiteralPath (Join-Path $cfgDir 'stream-resume.json') | ConvertFrom-Json } catch { $null }
+    $pos = if ($saved) { $saved.'a1b2c3d4e5f60718'.pos } else { $null }
+    Add-Result $Name "${Label}a damaged stream-resume.json: the position is saved anew" `
+    $(if ($pos -ge 39 -and $pos -le 41) { 'PASS' } else { 'FAIL' }) "saved: $pos"
+    $aside = @(Get-ChildItem -LiteralPath $cfgDir -Filter 'stream-resume.json.corrupt-*')
+    Add-Result $Name "${Label}... and the damaged file is kept beside it" $(if ($aside.Count) { 'PASS' } else { 'FAIL' }) ''
+    $aside | Remove-Item
+}
+
 $HeadlessTests = @(
     @{ Name = 'mouse'; Phases = @(@{ Script = 'headless/test-mouse.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'notify'; Phases = @(@{ Script = 'headless/test-notify.lua'; File = 'plain/clip.mkv' }) }
@@ -1342,7 +1517,9 @@ $HeadlessTests = @(
             @{ Script = 'headless/test-remember-speed-restore.lua'; File = 'plain/clip.mkv' })
     }
     @{ Name = 'auto-start'; Phases = @(@{ Script = 'headless/test-auto-start.lua'; File = 'plain/clip.mkv' }) }
+    @{ Name = 'source-info-idle'; Phases = @(@{ Script = 'headless/test-source-idle.lua'; File = $null }) }
     @{ Name = 'subtitles'; Phases = @(@{ Script = 'headless/test-subtitles.lua'; File = 'subs/movie.mkv' }) }
+    @{ Name = 'subtitle-folder'; Phases = @(@{ Script = 'headless/test-subtitle-folder.lua'; File = 'subs-folder/movie.mkv' }) }
     @{ Name = 'subtitle-sync'; Phases = @(@{ Script = 'headless/test-subtitle-sync.lua'; File = 'sync/talk.mkv' }) }
     @{ Name = 'menus'; Phases = @(@{ Script = 'headless/test-menus.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'autoload'; Phases = @(@{ Script = 'headless/test-autoload.lua'; File = 'autoload/episode1.mkv' }) }
@@ -1368,7 +1545,8 @@ $HeadlessTests = @(
     }
     @{ Name = 'stream-resume'; Phases = @(
             @{ Script = 'headless/test-stream-resume-save.lua'; File = 'fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv' }
-            @{ Script = 'headless/test-stream-resume-restore.lua'; File = 'fs-anime-token2/ep1-newtoken#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv' })
+            @{ Script = 'headless/test-stream-resume-restore.lua'; File = 'fs-anime-token2/ep1-newtoken#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv'; After = $DamageResumeFile }
+            @{ Script = 'headless/test-stream-resume-save.lua'; File = 'fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv'; After = $ResumeSavedAnew })
     }
     @{ Name = 'shader-cache'; Phases = @(
             @{ Script = 'headless/test-shader-cache-cold.lua'; File = 'plain/clip.mkv'; Args = $ShaderCacheOn }
@@ -1416,6 +1594,7 @@ if ($RunHeadless) {
     foreach ($test in $HeadlessTests | Where-Object { $_.Name -like $Filter }) {
         Invoke-RuntimeTest $exe $media $test @('--vo=null', '--ao=null', $ShaderCacheOff)
     }
+    if ('mpv-single' -like $Filter) { Invoke-LauncherCheck $exe $media }
 }
 
 if ($RunGpu) {

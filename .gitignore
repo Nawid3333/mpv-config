@@ -52,6 +52,8 @@ portable_config/welcome.json
 # rewritten every few seconds during playback)
 portable_config/stream-resume.json
 portable_config/stream-resume.json.tmp
+# a damaged one, kept beside when a save replaces it (2026-10-10)
+portable_config/stream-resume.json.corrupt-*
 # the per-process temp files the state files are written through (2026-10-02)
 portable_config/*.tmp
 

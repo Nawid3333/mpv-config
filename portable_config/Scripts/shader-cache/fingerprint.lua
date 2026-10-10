@@ -41,7 +41,8 @@ local M = {}
 -- 5 (2026-10-09): every clip also with quality Fast (Anime4K's Fast set, Movie
 -- without FSRCNNX), and clip sizes for the branches the standard ones miss on
 -- this screen (warmup.lua add_screen_runs); the stamp records the screen.
-M.WARMUP_VERSION = 5
+-- 6 (2026-10-10): shipped-cases.lua draws the 14-tap downscale step (x0.15).
+M.WARMUP_VERSION = 6
 
 -- The stamp and the control files live in the cache folder itself, so
 -- clearing the cache clears the stamp too. mpv's own cleanup only ever

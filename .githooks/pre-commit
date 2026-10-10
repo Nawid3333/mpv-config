@@ -96,7 +96,8 @@ fi
 
 # -- 2c ------------------------------------------------------------------------
 lines=$(git diff --cached --no-color --no-ext-diff -U0 "$against" | sed -n '/^+++ /d; s/^+//p')
-hits=$(printf '%s\n' "$lines" | grep -n -E '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/' | head -5)
+# -i: Windows paths are written in any case (c:\users\... too)
+hits=$(printf '%s\n' "$lines" | grep -n -i -E '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/' | head -5)
 if [ -n "$hits" ]; then
 	refuse "an added line holds a user folder path or a private claude.ai link:" \
 		"$hits" \

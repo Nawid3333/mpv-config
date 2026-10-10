@@ -48,7 +48,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 if (-not $MpvExe) { $MpvExe = Join-Path $repo 'mpv.exe' }
-if (-not (Test-Path $MpvExe) -or (Get-Item $MpvExe).Length -lt 1MB) { throw "$MpvExe is missing - run updater.bat (it installs the pinned build)." }
+if (-not (Test-Path -LiteralPath $MpvExe) -or (Get-Item -LiteralPath $MpvExe).Length -lt 1MB) { throw "$MpvExe is missing - run updater.bat (it installs the pinned build)." }
 
 $config = Join-Path (Split-Path -Parent $MpvExe) 'portable_config'
 $cache = $CacheDir ? $CacheDir : (Join-Path $config 'cache')
@@ -57,7 +57,7 @@ New-Item -ItemType Directory -Force $cache | Out-Null
 # for the warm-up timeout (270 s) + 60 s.
 $lock = Join-Path $cache 'shader-warmup.lock'
 $progressFile = Join-Path $cache 'shader-warmup.progress'
-if ((Test-Path $lock) -and ((Get-Date) - (Get-Item $lock).LastWriteTime).TotalSeconds -lt 330) {
+if ((Test-Path -LiteralPath $lock) -and ((Get-Date) - (Get-Item -LiteralPath $lock).LastWriteTime).TotalSeconds -lt 330) {
     Write-Output 'RESULT FAIL shader warm-up :: mpv is warming this shader cache right now - let it finish'
     exit 2
 }

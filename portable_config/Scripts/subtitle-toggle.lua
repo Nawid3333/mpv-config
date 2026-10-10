@@ -105,6 +105,9 @@ local function smart_toggle()
 				msg.warn('sub-add ' .. file .. ' failed: ' .. tostring(err))
 				return
 			end
+			-- shown too: sub-visibility is mpv's own and stays off for the next files after
+			-- c hid subtitles on one, and the banner said "Subtitles on" over nothing
+			mp.set_property_bool('sub-visibility', true)
 			notify('Subtitles on', 'loaded ' .. loaded_name)
 			msg.info('auto-loaded subtitle: ' .. file)
 			return

@@ -112,7 +112,8 @@ end
 
 local SEPARATORS = { ' - ', ' – ', ' — ' }
 
---- "Artist - Title", "01 - Artist - Title", "01. Artist - Title" -> artist, title.
+--- "Artist - Title", "01 - Artist - Title", "01. Artist - Title" -> artist, title;
+--- "07 - Title" -> no artist, title.
 ---@param name string
 ---@return string|nil artist, string title
 local function from_name(name)
@@ -134,6 +135,11 @@ local function from_name(name)
 	end
 	if #parts >= 3 and parts[1]:match('^%d+$') then
 		table.remove(parts, 1)
+	end
+	-- a track number and a title: the number was shown as the artist. One or
+	-- two digits only, so a band named with a number ("311 - Amber") keeps it.
+	if #parts == 2 and trim(parts[1]):match('^%d%d?$') then
+		return nil, trim(parts[2])
 	end
 	parts[1] = parts[1]:gsub('^%d+%.%s+', '')
 	if #parts == 1 then

@@ -52,6 +52,14 @@ H.run(function()
 	H.eq('without cover art the panel stays', info('visibility')(), 1)
 	H.expect('up next: the following song, from its file name', info('next'), 'Other Artist – Next Song')
 
+	-- "07 - Quiet Harbor": a track number and a title; the number was the artist
+	H.load(H.media_path('music-numbered/07 - Quiet Harbor.flac'))
+	H.expect('untagged "07 - Title": the title', info('title'), 'Quiet Harbor')
+	H.eq('... and no artist (not the track number)', tostring(info('artist')()), 'nil')
+	-- "311 - Amber": three digits are a band's name, not a track number
+	H.load(H.media_path('music-band-number/311 - Amber.flac'))
+	H.expect('untagged "311 - Amber": the artist stays', info('artist'), '311')
+
 	-- feat. inside the title, two ARTIST values
 	H.load(H.media_path('music-feat/harbor-lights.mp3'))
 	H.expect('feat. in the title: moved out, the rest kept', info('title'), 'Harbor Lights [Live]')

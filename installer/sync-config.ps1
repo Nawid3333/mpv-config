@@ -62,6 +62,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# A download that stalls halfway: Windows PowerShell 5.1 gives up after 300 s without data by
+# itself, PowerShell 7 waited for ever (-TimeoutSec does not cover the body; measured
+# 2026-10-10). Its -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for
+# 120 s; a slow download that keeps coming is not cut.
+$StallLimit = if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('OperationTimeoutSeconds')) { @{ OperationTimeoutSeconds = 120 } } else { @{} }
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $script:failCode = 1
 $ManifestName = '.install-manifest.json'
@@ -73,7 +78,7 @@ function Get-Sha256([string]$Path) {
 
 function Invoke-Download([string]$Url, [string]$OutFile) {
     try {
-        Invoke-WebRequest -Uri $Url -OutFile "$OutFile.part" -UseBasicParsing -UserAgent 'mpv-config-installer' -TimeoutSec 120
+        Invoke-WebRequest -Uri $Url -OutFile "$OutFile.part" -UseBasicParsing -UserAgent 'mpv-config-installer' -TimeoutSec 120 @StallLimit
     }
     catch {
         Remove-Item -LiteralPath "$OutFile.part" -Force -ErrorAction SilentlyContinue
@@ -118,7 +123,8 @@ function Copy-Over([string]$Source, [string]$Target) {
 
 function Assert-MpvNotRunning([string]$Root) {
     $running = @(Get-Process mpv -ErrorAction SilentlyContinue | Where-Object {
-            $_.Path -and $_.Path.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)
+            # this folder, not one whose name starts the same (D:\mpv-old for D:\mpv)
+            $_.Path -and $_.Path.StartsWith($Root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
         })
     if ($running.Count) { throw "mpv is running from $Root (pid $($running.Id -join ', ')) - close it and run this again" }
 }
@@ -133,7 +139,7 @@ try {
     $old = @{}
     $oldCommit = ''
     if (Test-Path -LiteralPath $manifestPath) {
-        $m = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+        $m = Get-Content -Raw -Encoding UTF8 -LiteralPath $manifestPath | ConvertFrom-Json
         $oldCommit = "$($m.commit)"
         foreach ($p in $m.files.PSObject.Properties) { $old[$p.Name] = "$($p.Value)" }
         # an update follows what was installed, unless told otherwise

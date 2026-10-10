@@ -496,21 +496,27 @@ local function wait_display(seconds)
 	end
 end
 
+-- The clip sizes this screen's scale branches need beyond the standard ones
+-- (add_screen_runs), appended to runs.
+local function screen_runs()
+	local dw, dh = wait_display(3)
+	if dw then
+		local added = add_screen_runs(dw, dh)
+		out(
+			string.format(
+				'RESULT INFO screen %dx%d: %s',
+				dw,
+				dh,
+				#added > 0 and ('clip sizes added for it: ' .. table.concat(added, ', '))
+					or 'the standard sizes cover it'
+			)
+		)
+	end
+end
+
 co = coroutine.create(function()
 	if o.matrix ~= 'test' and not o.quick then
-		local dw, dh = wait_display(3)
-		if dw then
-			local added = add_screen_runs(dw, dh)
-			out(
-				string.format(
-					'RESULT INFO screen %dx%d: %s',
-					dw,
-					dh,
-					#added > 0 and ('clip sizes added for it: ' .. table.concat(added, ', '))
-						or 'the standard sizes cover it'
-				)
-			)
-		end
+		screen_runs()
 	end
 	local ok, err = ensure_clips(o.quick and QUICK or #runs)
 	if not ok then
@@ -563,7 +569,12 @@ co = coroutine.create(function()
 			if total == 0 then
 				quick_ok = true
 			else
-				-- something changed: do everything
+				-- something changed: do everything, this screen's own sizes too.
+				-- They were left out here, and the stamp still named this screen,
+				-- so main.lua never warmed them (2026-10-10 review).
+				if o.matrix ~= 'test' then
+					screen_runs()
+				end
 				limit = #runs
 				status.title = 'Compiling shaders'
 				status.total = limit * STEPS_PER_RUN + #shipped

@@ -36,11 +36,21 @@ H.run(function()
 		return mp.get_property_native('sub-visibility')
 	end, true)
 
-	-- No sub track at all (auto-loading off): c finds the file itself.
+	-- No sub track at all (auto-loading off): c finds the file itself. Subtitles were hidden
+	-- on the file before, and sub-visibility stays off across files: c shows them as well.
 	mp.set_property('sub-auto', 'no')
+	H.key('c')
+	H.expect('c hides subtitles before the next file', function()
+		return mp.get_property_native('sub-visibility')
+	end, false)
 	H.load(mp.get_property('path'))
 	H.check('reloaded without auto-loaded subs', first_sub() == nil)
 	H.key('c', 0.4)
 	local loaded = first_sub()
 	H.check('c loads the subtitle file from the video folder', loaded ~= nil and loaded.selected == true)
+	H.eq(
+		'... and shows it, though subtitles were hidden on the file before',
+		mp.get_property_native('sub-visibility'),
+		true
+	)
 end)

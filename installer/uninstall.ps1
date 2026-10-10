@@ -75,7 +75,8 @@ try {
         if ($a -notmatch '^(y|yes|j|ja)$') { Write-Host 'Nothing removed.'; exit 0 }
     }
     $running = @(Get-Process mpv -ErrorAction SilentlyContinue | Where-Object {
-            $_.Path -and $_.Path.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)
+            # this folder, not one whose name starts the same (D:\mpv-old for D:\mpv)
+            $_.Path -and $_.Path.StartsWith($Root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
         })
     if ($running.Count) { throw 'mpv is still running - close it and run this again' }
 
@@ -107,11 +108,12 @@ try {
     # 3. the FastStream helper the setup installed for this mpv
     $marker = Join-Path $HelperDir 'installed-by-mpv-config.json'
     if (Test-Path -LiteralPath $marker) {
-        $m = try { Get-Content -Raw -LiteralPath $marker | ConvertFrom-Json } catch { $null }
+        # UTF-8 without a BOM: read as ANSI, a path with a letter outside ASCII never matched
+        $m = try { Get-Content -Raw -Encoding UTF8 -LiteralPath $marker | ConvertFrom-Json } catch { $null }
         if ($m -and "$($m.mpv)" -eq $mpvExe) {
             $key = 'HKCU:\Software\Mozilla\NativeMessagingHosts\com.faststream.mpv'
             $registered = Get-ItemPropertyValue -ErrorAction SilentlyContinue $key '(default)'
-            if ($registered -and $registered.StartsWith($HelperDir, [StringComparison]::OrdinalIgnoreCase)) {
+            if ($registered -and $registered.StartsWith($HelperDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
                 Remove-Item -LiteralPath $key -Recurse -Force
             }
             Remove-Item -LiteralPath $HelperDir -Recurse -Force

@@ -121,15 +121,18 @@ add({ clip = clip(SDR8, 1080, 1920), hwdec = D3D, chain = 'movie' })
 -- Shrunk into a smaller window: the downscaler's kernel widens with the
 -- shrink, and each new tap count is a new shader (an 8K film in a window at
 -- x0.31 compiled where fullscreen x0.33 did not). One ratio per tap step
--- (hermite, mpv's dscale: 2*ceil(1/ratio) taps -> 6, 8, 10, 12, 16), for the
--- three surfaces real files come in (a fourth, vulkan-decoded 8-bit, went with
--- vulkan decoding on 2026-10-04). Off only: the chains run before it.
+-- (hermite, mpv's dscale: 2*ceil(1/ratio) taps -> 6, 8, 10, 12, 14, 16), for
+-- the three surfaces real files come in (a fourth, vulkan-decoded 8-bit, went
+-- with vulkan decoding on 2026-10-04). Off only: the chains run before it.
+-- The 14-tap step (1/7 < ratio <= 1/6) was missing until 2026-10-10: after
+-- x0.18 and x0.14 had been drawn, a 1080p video shrunk to x0.15 compiled 6
+-- shaders, and x0.155 / x0.16 nothing more (measured with the pinned build).
 for _, s in ipairs({
 	{ clip(SDR8, 1920, 1080), D3D },
 	{ clip(SDR10, 1920, 1080), D3D },
 	{ clip(HDR10, 1920, 1080), D3D },
 }) do
-	for _, ratio in ipairs({ 0.45, 0.3, 0.23, 0.18, 0.14 }) do
+	for _, ratio in ipairs({ 0.45, 0.3, 0.23, 0.18, 0.15, 0.14 }) do
 		add({ clip = s[1], hwdec = s[2], chain = 'off', ratio = ratio })
 	end
 end

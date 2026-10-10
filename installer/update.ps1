@@ -42,6 +42,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# A download that stalls halfway: Windows PowerShell 5.1 gives up after 300 s without data by
+# itself, PowerShell 7 waited for ever (-TimeoutSec does not cover the body; measured
+# 2026-10-10). Its -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for
+# 120 s; a slow download that keeps coming is not cut.
+$StallLimit = if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('OperationTimeoutSeconds')) { @{ OperationTimeoutSeconds = 120 } } else { @{} }
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $Root = (Resolve-Path -LiteralPath $Root).Path
 $failed = 0
@@ -79,7 +84,9 @@ elseif ($inside -ne 'true') {
 else {
     & $git.Source -C $Root pull --ff-only
     if ($LASTEXITCODE -ne 0) {
-        Write-Host 'git pull could not fast-forward (local commits or changes in the way) - pull by hand.' -ForegroundColor Yellow
+        # counted: the run ended "Up to date." with the config not pulled
+        $failed++
+        Write-Host 'git pull failed (git says why above): the config is not updated - pull by hand.' -ForegroundColor Yellow
         Write-Host 'Installing the build this checkout pins meanwhile.' -ForegroundColor Yellow
     }
 }
@@ -103,7 +110,7 @@ try {
         if (-not $asset -or $asset.digest -notmatch '^sha256:([0-9a-f]{64})$') { throw "yt-dlp $($release.tag_name) has no yt-dlp.exe with a SHA-256 digest" }
         $want = $Matches[1]
         Write-Host "Downloading yt-dlp $($release.tag_name) ..."
-        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$ytdlp.part" -UseBasicParsing
+        Invoke-WebRequest -Uri $asset.browser_download_url -OutFile "$ytdlp.part" -UseBasicParsing @StallLimit
         $got = (Get-FileHash -LiteralPath "$ytdlp.part" -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($got -ne $want) {
             Remove-Item -LiteralPath "$ytdlp.part" -Force

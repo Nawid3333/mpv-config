@@ -87,8 +87,14 @@ function Invoke-MpvSetup {
     # (output of "& ..." inside a function would become this function's return value).
     function Invoke-Child([string]$Script, [string[]]$Arguments) {
         $all = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $Script) + $Arguments
-        # Start-Process joins the arguments with spaces: quote each (paths can hold spaces)
-        $line = ($all | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } }) -join ' '
+        # Start-Process joins the arguments with spaces: quote each the way Windows splits
+        # them again (paths can hold spaces). Backslashes before a quote are doubled - a
+        # folder ending in \ ("D:\my mpv\") swallowed every argument after it - and an
+        # empty argument stays "" instead of vanishing.
+        $line = ($all | ForEach-Object {
+                if ($_ -ne '' -and $_ -notmatch '[\s"]') { return $_ }
+                '"' + (($_ -replace '(\\*)"', '$1$1\"') -replace '(\\+)$', '$1$1') + '"'
+            }) -join ' '
         $p = Start-Process -FilePath $ps -ArgumentList $line -NoNewWindow -Wait -PassThru
         return $p.ExitCode
     }

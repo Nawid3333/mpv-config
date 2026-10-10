@@ -94,8 +94,9 @@ suite checks every feature.
   A daily GitHub Actions job tries each new build against the test suite and,
   when all tests pass, offers it as one pull request (`mpv-update`) for the
   owner to merge. Nothing moves the pin by itself (since 2026-10-05).
-- `updater.bat` pulls this repository, installs the pinned build (checking
-  every file's SHA-256) and updates yt-dlp.
+- `updater.bat` brings the config up to date (`git pull` in a clone; in a
+  one-click install it downloads what changed), installs the pinned build
+  (checking every file's SHA-256) and updates yt-dlp.
 
 ![The right-click menu](doc/readme/menu.jpg)
 
@@ -154,8 +155,8 @@ inside a video.
 
 ### With Git (to change the config yourself)
 
-You need [Git](https://git-scm.com/) with Git LFS. PowerShell 7 is needed only
-for the tests.
+You need [Git](https://git-scm.com/) with Git LFS. PowerShell 7 is needed for
+the tests and for `installer\warm-shader-cache.ps1`.
 
 ```powershell
 # 1. Clone the repository AS the mpv folder (mpv runs in portable mode next to portable_config\).
@@ -355,10 +356,10 @@ pick High. Measured on two GPUs (GPU time per frame; a 24 fps video has
 | RX 9070 XT, High / Fast | 3.5 / 1.5 ms | 2.0 / 0.9 ms | 1.1 / 0.6 ms |
 | Ryzen 5 7600X built-in graphics, High / Fast | 196 / 75 ms | 115 / 52 ms | 48 / 24 ms |
 
-On the RX 9070 XT, Auto keeps High everywhere. On the built-in graphics,
-Auto takes Fast where it fits (the 480p video). Where even Fast does not fit,
-Auto turns upscaling off for that screen and video size and says so. Settings
-▸ Upscaling quality can still run High or Fast there.
+On the RX 9070 XT, Auto keeps High everywhere. On the built-in graphics even
+Fast needs more than half a frame (20.8 ms at 24 fps; 24 ms for the 480p
+video), so Auto turns upscaling off for that screen and those video sizes and
+says so. Settings ▸ Upscaling quality can still run High or Fast there.
 
 **Requirements:** Windows 10 or 11 (64-bit) and a CPU with AVX2 (Intel from
 2013, AMD from 2015). The picture is drawn with Vulkan; a PC without a working

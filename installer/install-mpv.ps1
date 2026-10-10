@@ -46,6 +46,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# A download that stalls halfway: Windows PowerShell 5.1 gives up after 300 s without data by
+# itself, PowerShell 7 waited for ever (-TimeoutSec does not cover the body; measured
+# 2026-10-10). Its -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for
+# 120 s; a slow download that keeps coming is not cut.
+$StallLimit = if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('OperationTimeoutSeconds')) { @{ OperationTimeoutSeconds = 120 } } else { @{} }
 # Windows PowerShell 5.1 may not offer TLS 1.2 by default; GitHub needs it
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $script:failCode = 1
@@ -72,7 +77,7 @@ function Get-7zExe {
     if ($dir -and (Test-Path (Join-Path $dir '7z.exe'))) { return (Join-Path $dir '7z.exe') }
     # the repo's own copy (Git LFS: a small pointer file until git lfs pull)
     $repo7z = Join-Path (Split-Path $PSScriptRoot -Parent) '7z\7zr.exe'
-    if ((Test-Path $repo7z) -and (Get-Item $repo7z).Length -gt 100KB) { return $repo7z }
+    if ((Test-Path -LiteralPath $repo7z) -and (Get-Item -LiteralPath $repo7z).Length -gt 100KB) { return $repo7z }
     throw 'no 7-Zip found: install 7-Zip, or run git lfs pull for 7z\7zr.exe'
 }
 
@@ -105,7 +110,8 @@ function Copy-BuildFile([string]$Source, [string]$Target) {
 # mpv.exe cannot be replaced while this folder's mpv runs
 function Assert-MpvNotRunning([string]$Root) {
     $running = @(Get-Process mpv -ErrorAction SilentlyContinue | Where-Object {
-            $_.Path -and $_.Path.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase)
+            # this folder, not one whose name starts the same (D:\mpv-old for D:\mpv)
+            $_.Path -and $_.Path.StartsWith($Root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
         })
     if ($running.Count) { throw "mpv is running from $Root (pid $($running.Id -join ', ')) - close it and run this again" }
 }
@@ -149,7 +155,7 @@ try {
             $file = Join-Path $work $build.asset
             Write-Host "Downloading $($build.asset) ..." -ForegroundColor Cyan
             try {
-                Invoke-WebRequest -Uri $build.url -OutFile "$file.part" -UseBasicParsing -UserAgent 'mpv-pin-installer'
+                Invoke-WebRequest -Uri $build.url -OutFile "$file.part" -UseBasicParsing -UserAgent 'mpv-pin-installer' @StallLimit
             }
             catch {
                 $script:failCode = 2

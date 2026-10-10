@@ -80,6 +80,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+# A download that stalls halfway: Windows PowerShell 5.1 gives up after 300 s without data by
+# itself, PowerShell 7 waited for ever (-TimeoutSec does not cover the body; measured
+# 2026-10-10). Its -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for
+# 120 s; a slow download that keeps coming is not cut.
+$StallLimit = if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('OperationTimeoutSeconds')) { @{ OperationTimeoutSeconds = 120 } } else { @{} }
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $script:failCode = 1
 $AddonId = 'thanatus@Nawid'
@@ -109,7 +114,7 @@ function Get-Source([string]$Base, [string]$Rel, [string]$OutFile) {
     }
     $url = $Base.TrimEnd('/') + '/' + $Rel
     try {
-        Invoke-WebRequest -Uri $url -OutFile "$OutFile.part" -UseBasicParsing -UserAgent 'mpv-config-installer' -TimeoutSec 300
+        Invoke-WebRequest -Uri $url -OutFile "$OutFile.part" -UseBasicParsing -UserAgent 'mpv-config-installer' -TimeoutSec 300 @StallLimit
     }
     catch {
         Remove-Item -LiteralPath "$OutFile.part" -Force -ErrorAction SilentlyContinue
@@ -120,7 +125,7 @@ function Get-Source([string]$Base, [string]$Rel, [string]$OutFile) {
 }
 
 function Read-Json([string]$PathOrUrl) {
-    if (Test-Path -LiteralPath $PathOrUrl -PathType Leaf) { return Get-Content -Raw -LiteralPath $PathOrUrl | ConvertFrom-Json }
+    if (Test-Path -LiteralPath $PathOrUrl -PathType Leaf) { return Get-Content -Raw -Encoding UTF8 -LiteralPath $PathOrUrl | ConvertFrom-Json }
     try { return Invoke-RestMethod -Uri $PathOrUrl -UseBasicParsing -TimeoutSec 60 -UserAgent 'mpv-config-installer' }
     catch {
         $script:failCode = 2
@@ -221,21 +226,25 @@ try {
         $ours = Test-Path -LiteralPath $marker
         $doHelper = $true
         if ($existing -and -not $ours) {
-            $cfg = try { Get-Content -Raw -LiteralPath (Join-Path $HelperDir 'config.json') | ConvertFrom-Json } catch { $null }
+            $cfg = try { Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $HelperDir 'config.json') | ConvertFrom-Json } catch { $null }
             $points = if ($cfg -and $cfg.mpvPath) { " (it starts $($cfg.mpvPath))" } else { '' }
             if ($Replace) { Write-Host "Replacing the FastStream helper that was already installed$points." }
             elseif ($HelperOnly) { $doHelper = $false }
             elseif (Read-YesNo "A FastStream helper is already installed$points. Replace it, so FastStream opens THIS mpv?" $Yes) { }
             else {
                 $doHelper = $false
-                Write-Host 'The helper that was already installed stays as it is.' -ForegroundColor Yellow
+                Write-Host "The helper that was already installed stays as it is$points`: FastStream keeps opening that mpv, not this one. To change that, run the setup again and answer y." -ForegroundColor Yellow
             }
         }
         elseif ($HelperOnly -and -not $ours) {
             $doHelper = $false
         }
         if ($doHelper -and $ours) {
-            $m = try { Get-Content -Raw -LiteralPath $marker | ConvertFrom-Json } catch { $null }
+            # UTF-8 without a BOM, as written below: Windows PowerShell 5.1 reads such a file as
+            # ANSI, and a path with a letter outside ASCII (a Windows account named with an
+            # umlaut) never matched - the helper was reinstalled on every run, and its own folder's
+            # updater left it alone as another folder's
+            $m = try { Get-Content -Raw -Encoding UTF8 -LiteralPath $marker | ConvertFrom-Json } catch { $null }
             if ($HelperOnly -and $m -and "$($m.mpv)" -ne $MpvExe) {
                 # set up for another mpv folder: that folder's updater looks after it
                 Write-Host "The FastStream helper starts $($m.mpv), not this mpv: left as it is."
