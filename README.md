@@ -30,7 +30,7 @@ suite checks every feature.
     seek never waits for it.
   - **Upscaling quality**: Auto, High or Fast, with the time each one took
     on your GPU.
-  - **Screen for upscaling**, **Movie sharpness**, **HDR brightness**.
+  - **Screen for upscaling**, **Anime lines**, **Movie sharpness**, **HDR brightness**.
   - **Subtitle and audio language**.
 
 **Upscaling you switch on, chosen by measurement**
@@ -293,6 +293,7 @@ git).
 | **Start and stalls** | Waits for some seconds of video before playing, and again after the stream ran dry. A seek plays at once. | buffer 3 s | Start at once: fastest start, may stall early. 3 s: as tuned. 5 s: smoother on a slow line. 10 s: longest wait, fewest stalls |
 | **Upscaling quality** | How much GPU time the upscaling may take. | Auto: measured on your GPU (High if it fits, else Fast, else off) | High: sharpest, most GPU time. Fast: about half the time, a bit softer. Each shows the time it took on your GPU; a choice here always runs |
 | **Screen for upscaling** | The screen size the upscaling plans for: which Movie chain runs, how much it sharpens. | Auto: the screen mpv is on | 1920x1080, 2560x1440, 3440x1440, 3840x2160 - only for when mpv reads the screen wrong |
+| **Anime lines** | How anime upscaling treats line art: Anime4K's Restore step redraws lines crisper and thinner. | Crisp | Crisp: clean, thin lines; right for blurry sources. As drawn: without Restore, the show's own line weight (for one whose lines look too thin) |
 | **Movie sharpness** | Extra crispness for films after upscaling (it looks sharper; it adds no detail). | Auto: more for bigger enlargements | Off: softest, closest to the source. Low, Medium. High: crispest, may look harsh |
 | **HDR brightness** | For HDR videos only: your screen's peak brightness, from its spec sheet. Set per screen. | Auto: the screen's own value | 300 to 1000 nits. Too high: bright parts clip. Too low: HDR looks dimmer than it could |
 | **Subtitle language** | The subtitle track picked when a video starts: the first of these languages the file has. | Automatic: your Windows language | English, German, French, Japanese and more, each then English |

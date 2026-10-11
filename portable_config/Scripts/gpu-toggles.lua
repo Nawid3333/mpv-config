@@ -405,6 +405,9 @@ local function load_upscale_state()
 	if type(data.screen) == 'string' and (data.screen == 'auto' or data.screen:match('^%d+x%d+$')) then
 		state.screen = data.screen
 	end
+	if data.anime_lines == 'crisp' or data.anime_lines == 'drawn' then
+		state.anime_lines = data.anime_lines
+	end
 	if type(data.costs) == 'table' then
 		for k, v in pairs(data.costs) do
 			if type(k) == 'string' and type(v) == 'number' and v > 0 then
@@ -423,13 +426,20 @@ local chosen_quality = saved.quality
 local quality = chosen_quality or (QUALITIES[opts.quality] and opts.quality) or 'auto'
 local screen = saved.screen or 'auto'
 local costs = saved.costs
+-- Anime lines (2026-10-11, his report: one anime's lines came out too thin): 'crisp' runs
+-- Anime4K's Restore step, which redraws lines crisper and thinner - right for lines a
+-- source blurred, too much for line art that is clean or soft by design. 'drawn' leaves it
+-- out (Anime4K's Mode C: the denoising upscale and the upscale only). One setting for all
+-- anime (his choice), kept in upscale.json.
+local anime_lines = saved.anime_lines or 'crisp'
 
 -- Through a temp file of this process's own, as save_sharpness().
 local function save_upscale_state()
 	if not opts.remember then
 		return
 	end
-	local json = utils.format_json({ quality = chosen_quality, screen = screen, costs = costs })
+	local json =
+		utils.format_json({ quality = chosen_quality, screen = screen, costs = costs, anime_lines = anime_lines })
 	local tmp = UPSCALE_FILE .. '.' .. utils.getpid() .. '.tmp'
 	local f = json and io.open(tmp, 'w')
 	if not f then
@@ -655,8 +665,12 @@ end
 -- sharpen_active(), the sharpener LAST (OUTPUT hook, after all scaling).
 local function preset_shaders(preset)
 	local list = {}
-	for i, name in ipairs(preset.shaders) do
-		list[i] = name
+	local drawn = anime_lines == 'drawn' and is_anime_preset(preset)
+	for _, name in ipairs(preset.shaders) do
+		-- Anime lines "as drawn": no Restore step (see anime_lines).
+		if not (drawn and name:match('^Anime4K_Restore_')) then
+			list[#list + 1] = name
+		end
 	end
 	if sharpen_active(preset) then
 		list[#list + 1] = SHARPEN_SHADER
@@ -1132,6 +1146,31 @@ local function sharpness_items()
 	return items
 end
 
+local function anime_lines_label()
+	return anime_lines == 'drawn' and 'As drawn' or 'Crisp'
+end
+
+local function anime_lines_items()
+	return {
+		note('Anime upscaling redraws lines crisper and thinner.'),
+		note('Too thin for one show? As drawn keeps its own lines.', true),
+		{
+			title = 'Crisp',
+			hint = 'crisper, thinner lines',
+			value = 'script-message-to gpu_toggles set-anime-lines crisp',
+			active = anime_lines == 'crisp',
+			keep_open = true,
+		},
+		{
+			title = 'As drawn',
+			hint = "the show's own lines",
+			value = 'script-message-to gpu_toggles set-anime-lines drawn',
+			active = anime_lines == 'drawn',
+			keep_open = true,
+		},
+	}
+end
+
 local function chain_costs()
 	local out = {}
 	for _, preset in ipairs({ UPSCALE_ANIME, UPSCALE_ANIME_FAST, UPSCALE_MOVIE_FSRCNNX, UPSCALE_MOVIE_SSSR }) do
@@ -1160,6 +1199,8 @@ local function publish_quality()
 		quality_items = quality_items(),
 		screen_items = screen_items(),
 		sharpness_items = sharpness_items(),
+		anime_lines_label = anime_lines_label(),
+		anime_lines_items = anime_lines_items(),
 	})
 end
 
@@ -1187,6 +1228,7 @@ local function open_upscale_menu(update)
 		{ title = 'Movie', value = 'script-message-to gpu_toggles set-upscale 3', active = upscale_mode == 3 }
 	items[#items].separator = true
 	items[#items + 1] = { title = 'Quality', hint = quality_label(), items = quality_items() }
+	items[#items + 1] = { title = 'Anime lines', hint = anime_lines_label(), items = anime_lines_items() }
 	items[#items + 1] =
 		{ title = 'Movie sharpness', hint = setting_label(), items = sharpness_items(), separator = true }
 	-- shader-cache/main.lua: deletes mpv's own compiled shaders (never AMD's
@@ -1402,6 +1444,24 @@ local function set_movie_sharpness(value)
 	update_menus()
 end
 
+local function set_anime_lines(value)
+	if value ~= 'crisp' and value ~= 'drawn' then
+		msg.warn('set-anime-lines: invalid value ' .. tostring(value))
+		return
+	end
+	anime_lines = value
+	save_upscale_state()
+	if is_anime_preset(upscale_active_preset) then
+		apply_upscale(false)
+	end
+	notify(
+		'Anime lines: ' .. anime_lines_label(),
+		not is_anime_preset(upscale_active_preset) and 'used when Anime is on' or nil
+	)
+	update_upscale_button()
+	update_menus()
+end
+
 -- What runs now, for the banners of the settings below.
 local function running_detail()
 	return upscale_active_preset and ('now ' .. short_name(upscale_active_preset)) or 'used when upscaling is on'
@@ -1508,6 +1568,7 @@ mp.register_script_message(
 	end)
 )
 mp.register_script_message('set-movie-sharpness', entry(set_movie_sharpness))
+mp.register_script_message('set-anime-lines', entry(set_anime_lines))
 mp.register_script_message('set-quality', entry(set_quality))
 mp.register_script_message('set-screen', entry(set_screen))
 mp.register_script_message('forget-measurements', entry(forget_measurements))

@@ -547,6 +547,7 @@ local function settings_items(prefix)
 	if gpu and type(gpu.quality_items) == 'table' then
 		sub('quality', 'Upscaling quality', gpu.label, gpu.quality_items)
 		sub('screen', 'Screen for upscaling', gpu.screen_label, gpu.screen_items)
+		sub('lines', 'Anime lines', gpu.anime_lines_label, gpu.anime_lines_items)
 		sub('sharpness', 'Movie sharpness', gpu.sharpness_label, gpu.sharpness_items, true)
 	end
 	sub('slang', 'Subtitle language', lang_label(settings.slang), lang_items('slang', "Windows' language"))

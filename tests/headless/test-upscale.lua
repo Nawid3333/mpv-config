@@ -98,6 +98,21 @@ H.run(function()
 	H.key('Shift+Y')
 	H.expect('Shift+Y again -> off', chain, OFF)
 
+	-- ---- Anime lines (2026-10-11): as drawn leaves out the Restore step ----
+	send('set-upscale', '2')
+	H.expect('Anime is crisp by default (Restore in the chain)', chain, ANIME)
+	send('set-anime-lines', 'drawn')
+	H.expect(
+		'Anime lines as drawn: the chain without its Restore step',
+		chain,
+		(ANIME:gsub('Anime4K_Restore_CNN_M%.glsl;', ''))
+	)
+	send('set-anime-lines', 'nonsense')
+	H.expect('an unknown value changes nothing', chain, (ANIME:gsub('Anime4K_Restore_CNN_M%.glsl;', '')))
+	send('set-anime-lines', 'crisp')
+	H.expect('crisp again: Restore back', chain, ANIME)
+	send('set-upscale', '0')
+
 	-- ---- Movie sharpness menu ----
 	send('set-upscale', '3')
 	send('set-movie-sharpness', '0.5')
