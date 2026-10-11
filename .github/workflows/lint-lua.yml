@@ -5,9 +5,10 @@ name: Lua style
 # a quick edit on GitHub, an agent - cannot silently drift the code style.
 # Vendored Lua (uosc, thumbfast, autoload, lua-api) is excluded by .styluaignore.
 #
-# The stylua version is PINNED to the one used locally (stylua --version): an
-# unpinned "latest" can start formatting differently overnight and fail a push
-# for no reason of ours. To upgrade, bump it here and reformat locally together.
+# The stylua version is PINNED, the same one .vscode/settings.json gives the
+# editor (stylua.targetReleaseVersion): an unpinned "latest" can start formatting
+# differently overnight and fail a push for no reason of ours. stylua-update.yml
+# moves both when StyLua releases, with the code reformatted, on a pull request.
 # Runs on every push (no path filter since 2026-09-24, at the user's request).
 
 on:
@@ -33,5 +34,5 @@ jobs:
       - uses: JohnnyMorganz/stylua-action@76fd70c03e6340ceaf673366712db9b20560b402 # v5.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          version: v2.5.2
+          version: v2.6.0
           args: --check .

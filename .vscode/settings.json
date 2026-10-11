@@ -3,6 +3,6 @@
         "editor.defaultFormatter": "JohnnyMorganz.stylua",
         "editor.formatOnSave": true
     },
-    "stylua.targetReleaseVersion": "v2.5.2",
+    "stylua.targetReleaseVersion": "v2.6.0",
     "powershell.scriptAnalysis.settingsPath": "PSScriptAnalyzerSettings.psd1"
 }
