@@ -618,9 +618,16 @@ function Invoke-StaticCheck {
     # -- uosc: config + the local changes that an update would drop --------------
     Test-Check $t 'uosc.conf: proximity 10000/10100 (whole UI shows together)' (
         $uoscConf -match '(?m)^proximity_in=10000' -and $uoscConf -match '(?m)^proximity_out=10100')
-    foreach ($b in 'button:speed', 'button:upscale', 'button:subtitle_sync', 'button:source', 'button:settings') {
+    foreach ($b in 'button:speed', 'button:upscale', 'button:subtitle_sync', 'button:source', 'button:settings',
+        'button:episode_prev', 'button:episode_next', 'button:autoplay') {
         Test-Check $t "uosc.conf: controls has $b" ($uoscConf -match "(?m)^controls=.*\b$([regex]::Escape($b))\b")
     }
+    # the episode buttons and the gap after them wait for faststream-episodes.lua's flag: without
+    # it uosc draws an unpushed managed button as a question mark, and the gap stays (2026-10-11)
+    $episodeShown = '<user-data/faststream-episodes/shown>'
+    Test-Check $t 'uosc.conf: the episode buttons and their gap show only with user-data/faststream-episodes/shown' (
+        $uoscConf -match "(?m)^controls=.*,$([regex]::Escape(($episodeShown + 'button:episode_prev,' + $episodeShown + 'button:episode_next,' +
+            $episodeShown + 'button:autoplay,' + $episodeShown + 'gap,')))")
     $localChanges = @{
         'elements/Button.lua'        = 'Local change'
         'elements/ManagedButton.lua' = 'Local change'
@@ -641,7 +648,7 @@ function Invoke-StaticCheck {
     $tourKeys = 0
     foreach ($m in $tourRuns) {
         $key, $cmd = $m.Groups[1].Value, $m.Groups[2].Value
-        if ($key -notmatch '^(Shift\+)?\w$') { continue } # 'Settings', 'source button': not keys
+        if ($key -notmatch '^((Shift|Ctrl|Alt)\+)*\w$') { continue } # 'Settings', 'source button': not keys
         $tourKeys++
         if ($inputConf -notmatch "(?m)^$([regex]::Escape($key))\s+$([regex]::Escape($cmd))(\s|$)") { $tourBad += "$key -> $cmd" }
     }
@@ -1533,6 +1540,13 @@ $HeadlessTests = @(
     @{ Name = 'source-info'; Phases = @(@{ Script = 'headless/test-source-info.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=source_info-launch=no') }) }
     @{ Name = 'music-info'; Phases = @(@{ Script = 'headless/test-music-info.lua'; File = 'music-tagged/Nova Lane - Paper Lanterns.mp3' }) }
     @{ Name = 'keys'; Phases = @(@{ Script = 'headless/test-keys.lua'; File = 'long/long.mkv' }) }
+    @{ Name = 'faststream-episodes'; Phases = @(
+            @{ Script = 'headless/test-faststream-episodes.lua'; File = 'plain/clip.mkv' }
+            # the script alone, no uosc: its buttons must not be shown before uosc has them
+            @{ Script = 'headless/test-faststream-episodes-no-uosc.lua'; File = 'fs-movie/film#fs-content=movie&fs-id=0f0f0f0f0f0f0f0f.mkv'
+                Args = @('--load-scripts=no', '--script=~~/Scripts/faststream-episodes.lua')
+            })
+    }
     @{ Name = 'speed'; Phases = @(@{ Script = 'headless/test-speed.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'remember-speed'; Phases = @(
             @{ Script = 'headless/test-remember-speed-save.lua'; File = 'plain/clip.mkv' }

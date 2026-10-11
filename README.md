@@ -197,6 +197,9 @@ config is built as its mpv side:
 - **One window.** The next episode replaces the current one in the same mpv
   window and starts playing. A pause or a subtitle delay from the previous
   episode does not carry over.
+- **Episode buttons.** While FastStream plays a series in the window, the
+  control bar has previous episode, next episode and an autoplay switch
+  (`N`, `n` and `Ctrl+a` on the keyboard).
 - **Decoding.** Streams and local files both decode with `d3d11va-copy` on the
   graphics card's video engine. Vulkan decoding is off since 2026-10-04: it lost
   the graphics device on this AMD card.
@@ -267,6 +270,7 @@ that needs a login session will not play in mpv.
 | `←` `→` / `j` `k` / `z` `x` | Seek 5 s / 10 s / 60 s |
 | `0`-`9` | Jump to 0 %-90 % |
 | `n` / `N` | Next / previous episode of a FastStream series: the page goes on, this window plays it |
+| `Ctrl+a` | FastStream's autoplay of the next episode on/off |
 | `↑` `↓`, wheel, `m` | Volume ±10, ±2, mute |
 | `i`, `I` | Stats |
 | `F1` | Welcome menu: settings and every feature |

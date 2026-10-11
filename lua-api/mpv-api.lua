@@ -100,6 +100,11 @@ function mp.set_property_number(name, value) end
 ---@return boolean success
 function mp.set_property_native(name, value) end
 
+---Delete a property (only some support it, e.g. a user-data/ key).
+---@param name string
+---@return boolean success
+function mp.del_property(name) end
+
 ---Convenience: get property, if nil set it to default, return final value.
 ---@param name string
 ---@param v any
