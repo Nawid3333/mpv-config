@@ -1,5 +1,5 @@
 -- Keyboard bindings from input.conf that are plain mpv commands: seek keys,
--- volume keys/wheel, mute, fine speed. Pressed with mpv's own `keypress`, so
+-- volume keys/wheel, mute, fine speed, FastStream's episode keys. Pressed with mpv's own `keypress`, so
 -- they go through input.conf exactly like a real key. Needs a >= 180 s clip.
 local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$') .. 'lib/harness.lua')
 
@@ -86,4 +86,19 @@ H.run(function()
 	H.expect('s subtracts 0.1 speed', function()
 		return mp.get_property_number('speed')
 	end, 0.9, 0.001)
+
+	-- n / N (2026-10-11): the messages the FastStream helper hears for the next and the
+	-- previous episode. A script message goes to every client, this script too.
+	local heard = {}
+	mp.register_script_message('faststream-next', function()
+		heard[#heard + 1] = 'next'
+	end)
+	mp.register_script_message('faststream-previous', function()
+		heard[#heard + 1] = 'previous'
+	end)
+	H.key('n')
+	H.key('N')
+	H.expect('n and N send faststream-next and faststream-previous', function()
+		return table.concat(heard, ' ')
+	end, 'next previous')
 end)

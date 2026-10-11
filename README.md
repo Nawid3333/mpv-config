@@ -266,6 +266,7 @@ that needs a login session will not play in mpv.
 | `s` / `d` | Speed -0.1 / +0.1 |
 | `←` `→` / `j` `k` / `z` `x` | Seek 5 s / 10 s / 60 s |
 | `0`-`9` | Jump to 0 %-90 % |
+| `n` / `N` | Next / previous episode of a FastStream series: the page goes on, this window plays it |
 | `↑` `↓`, wheel, `m` | Volume ±10, ±2, mute |
 | `i`, `I` | Stats |
 | `F1` | Welcome menu: settings and every feature |

@@ -618,7 +618,9 @@ local function tour_items()
 			items = {
 				info('Allowlisted sites open in this window by themselves', 'MPV mode'),
 				info('A stream continues where you stopped (7 days)', 'Home = start'),
-				info('The next episode replaces this one and plays', 'one window'),
+				run('Next episode: the page goes on, this window plays it', 'n', 'script-message faststream-next'),
+				info('Previous episode', 'N'),
+				info('At the end the next one follows (FastStream: Autoplay)', 'autoplay'),
 				run(
 					'Stream, original page and file links, to copy',
 					'source button',
