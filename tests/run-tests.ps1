@@ -154,6 +154,48 @@ function Invoke-OneClickCheck([string]$t) {
                 Where-Object { $_.Line -notmatch '@StallLimit' } | ForEach-Object { "$f`:$($_.LineNumber)" }
         })
     Test-Check $t 'every download updater.bat can run in PowerShell 7 ends when it stalls ($StallLimit)' ($noLimit.Count -eq 0) ($noLimit -join ', ')
+    # updater.bat while its update replaces it (git pull, sync-config), and install.bat run
+    # from an installed folder while the setup syncs it: cmd reads a batch file by byte
+    # offset, and went on in the new file at the old offset - pieces of lines run as commands,
+    # the update again in a loop (2026-10-12). A stand-in for the script it runs rewrites a
+    # copy with a longer header and exits 0, then 1: one run each, its exit code, no error line.
+    $selfDir = Join-Path $WorkDir 'bat-self'
+    $null = New-Item -ItemType Directory -Force (Join-Path $selfDir 'installer')
+    $emptyIn = Join-Path $selfDir 'stdin.txt'
+    Set-Content -LiteralPath $emptyIn '' -NoNewline
+    foreach ($pair in @(@('updater.bat', 'update.ps1'), @('install.bat', 'setup.ps1'))) {
+        $bat, $runner = $pair
+        foreach ($code in 0, 1) {
+            Copy-Item -LiteralPath (Join-Path $RepoRoot $bat) -Destination (Join-Path $selfDir $bat) -Force
+            Set-Content -LiteralPath (Join-Path $selfDir "installer/$runner") -NoNewline -Value (
+                "`$bat = Join-Path (Split-Path `$PSScriptRoot -Parent) '$bat'; `$text = [IO.File]::ReadAllText(`$bat); " +
+                '[IO.File]::WriteAllText($bat, "@echo off`r`n:: a longer header, as a new version could bring one, so that every later line moves`r`n" + ' +
+                '$text.Substring($text.IndexOf("`r`n") + 2)); Write-Host ''script ran''; exit ' + $code)
+            $selfOut = Join-Path $selfDir "out-$bat-$code.txt"
+            $selfErr = Join-Path $selfDir "err-$bat-$code.txt"
+            $p = Start-Process cmd.exe -ArgumentList "/d /c `"$(Join-Path $selfDir $bat)`"" -PassThru -WindowStyle Hidden `
+                -RedirectStandardInput $emptyIn -RedirectStandardOutput $selfOut -RedirectStandardError $selfErr
+            $done = $p.WaitForExit(60000)
+            if (-not $done) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+            $runs = @(Select-String -LiteralPath $selfOut -Pattern 'script ran').Count
+            $errs = @(Get-Content -LiteralPath $selfErr | Where-Object { $_.Trim() })
+            Test-Check $t "$bat survives $runner replacing it (exit $code)" (
+                $done -and $p.ExitCode -eq $code -and $runs -eq 1 -and $errs.Count -eq 0) (
+                "exit $(if ($done) { $p.ExitCode } else { 'timeout' }), ran $runs time(s), errors: $($errs -join ' | ')")
+        }
+    }
+    # update.ps1 in a folder INSIDE another repository (glm's review, 2026-10-12): git says
+    # "inside a work tree" there too, and git pull ran in the outer repository. -ConfigOnly:
+    # step 1 only. The control: the repository's own top does pull (no remote: it fails).
+    $outer = Join-Path $WorkDir ('update-outer-' + [guid]::NewGuid().ToString('N').Substring(0, 6))
+    $null = New-Item -ItemType Directory -Force (Join-Path $outer 'mpv')
+    & git -C $outer init -q 2>$null
+    $self = (Get-Process -Id $PID).Path
+    $inner = (& $self -NoProfile -File (Join-Path $installer 'update.ps1') -Root (Join-Path $outer 'mpv') -ConfigOnly 2>&1 | Out-String)
+    $top = (& $self -NoProfile -File (Join-Path $installer 'update.ps1') -Root $outer -ConfigOnly 2>&1 | Out-String)
+    Test-Check $t 'update.ps1 does not git pull a repository the mpv folder only sits in' (
+        $inner -match 'inside another git repository' -and $inner -notmatch 'git pull failed' -and $top -match 'git pull failed') (
+        (($inner + ' | ' + $top) -replace '\s+', ' ').Trim())
     $state = @('.install-manifest.json', 'portable_config/input.conf.mine-20261009-120000')
     $notIgnored = @($state | Where-Object { & git -C $RepoRoot check-ignore -q --no-index -- $_; $LASTEXITCODE -ne 0 })
     Test-Check $t '.gitignore covers what the one-click install writes (its manifest, your set-aside files)' ($notIgnored.Count -eq 0) ($notIgnored -join ', ')
@@ -1508,6 +1550,14 @@ $MakeLegacyPc = {
     Set-Content -LiteralPath (Join-Path $cfgDir 'speed.json') '{"speed":1}' -NoNewline
 }
 
+# settings: before the fourth process, a settings.json from before 2026-10-12, with the
+# old Buffering choice (2 GB, as the owner had it)
+$MakeOldBufferPc = {
+    $cfgDir = Join-Path $root 'portable_config'
+    Set-Content -LiteralPath (Join-Path $cfgDir 'settings.json') -NoNewline `
+        '{"slang":"de,en","alang":"de,en","hdr_peak":350,"buffer":"xlarge","buffer_wait":3}'
+}
+
 # welcome: the third process is a first start again, with no file
 $ForgetWelcome = {
     Remove-Item -LiteralPath (Join-Path $root 'portable_config/welcome.json') -ErrorAction SilentlyContinue
@@ -1541,7 +1591,7 @@ $HeadlessTests = @(
     @{ Name = 'music-info'; Phases = @(@{ Script = 'headless/test-music-info.lua'; File = 'music-tagged/Nova Lane - Paper Lanterns.mp3' }) }
     @{ Name = 'keys'; Phases = @(@{ Script = 'headless/test-keys.lua'; File = 'long/long.mkv' }) }
     @{ Name = 'faststream-episodes'; Phases = @(
-            @{ Script = 'headless/test-faststream-episodes.lua'; File = 'plain/clip.mkv' }
+            @{ Script = 'headless/test-faststream-episodes.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=faststream_episodes-heartbeat_stale=2') }
             # the script alone, no uosc: its buttons must not be shown before uosc has them
             @{ Script = 'headless/test-faststream-episodes-no-uosc.lua'; File = 'fs-movie/film#fs-content=movie&fs-id=0f0f0f0f0f0f0f0f.mkv'
                 Args = @('--load-scripts=no', '--script=~~/Scripts/faststream-episodes.lua')
@@ -1568,7 +1618,12 @@ $HeadlessTests = @(
     @{ Name = 'settings'; Phases = @(
             @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'new' }
             @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'restored'; After = $MakeLegacyPc }
-            @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'legacy' })
+            @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'legacy'; After = $MakeOldBufferPc }
+            @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'migrated' })
+    }
+    @{ Name = 'stream-buffer'; Phases = @(
+            @{ Script = 'headless/test-stream-buffer.lua'; File = 'plain/clip.mkv'; Phase = 'stream'; Args = @('--script-opts-append=stream_buffer-local_is_stream=yes', '--script-opts-append=stream_buffer-headroom_mb=0') }
+            @{ Script = 'headless/test-stream-buffer.lua'; File = 'plain/clip.mkv'; Phase = 'local' })
     }
     @{ Name = 'screens'; Phases = @(
             @{ Script = 'headless/test-screens.lua'; File = 'plain/clip.mkv'; Phase = 'first' }
@@ -1626,6 +1681,36 @@ if ($RunHeadless) {
         $said = @(("$($r.StdOut)`n$($r.StdErr)" -split "`r?`n") | Where-Object { $_.Trim() })
         Test-Check 'config-load' 'mpv loads mpv.conf, profiles and scripts with no warning or error' (
             $said.Count -eq 0 -and -not $r.TimedOut -and $r.ExitCode -eq 0) (($said -join ' | ') + ($r.TimedOut ? ' (timed out)' : ''))
+    }
+    # installer/check-keys.ps1 (2026-10-12, TODO item 3): asks every running mpv over its
+    # IPC pipe which keys it uses. Two test mpvs on pipes of their own (never FastStream's):
+    # one with this setup's config, one with --no-config; in Windows PowerShell 5.1, which
+    # check-keys.bat uses on a PC without PowerShell 7.
+    if ('check-keys' -like $Filter) {
+        Write-Host ''
+        Write-Host '-- check-keys' -ForegroundColor White
+        $own = "mpv-regression-keys-own-$PID"
+        $bare = "mpv-regression-keys-bare-$PID"
+        $procs = @(
+            (Start-Process $exe -PassThru -WindowStyle Hidden -ArgumentList '--vo=null', '--ao=null', '--idle=yes', $ShaderCacheOff,
+                '--script-opts-append=welcome-auto=no', "--input-ipc-server=\\.\pipe\$own"),
+            (Start-Process $exe -PassThru -WindowStyle Hidden -ArgumentList '--no-config', '--vo=null', '--ao=null', '--idle=yes',
+                "--input-ipc-server=\\.\pipe\$bare"))
+        try {
+            $ps51 = Get-Command powershell.exe -ErrorAction SilentlyContinue
+            $shell = $ps51 ? $ps51.Source : (Get-Process -Id $PID).Path
+            $out = & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $RepoRoot 'installer/check-keys.ps1') -Root (Split-Path -Parent $exe) 2>&1 | Out-String
+            $blocks = $out -split 'Asking '
+            $ownBlock = ($blocks | Where-Object { $_ -like "*$own*" }) -join ''
+            $bareBlock = ($blocks | Where-Object { $_ -like "*$bare*" }) -join ''
+            Test-Check 'check-keys' "check-keys.ps1: an mpv with this setup's config has this setup's keys" (
+                $ownBlock -match "VERDICT: this mpv has this setup's keys") ($ownBlock.Trim() -replace '\s+', ' ')
+            Test-Check 'check-keys' 'check-keys.ps1: an mpv started with --no-config has the standard keys, and says why' (
+                $bareBlock -match 'without config files \(--no-config\)') ($bareBlock.Trim() -replace '\s+', ' ')
+        }
+        finally {
+            $procs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+        }
     }
     foreach ($test in $HeadlessTests | Where-Object { $_.Name -like $Filter }) {
         Invoke-RuntimeTest $exe $media $test @('--vo=null', '--ao=null', $ShaderCacheOff)

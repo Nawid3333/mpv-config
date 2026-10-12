@@ -23,8 +23,10 @@ suite checks every feature.
   opens by itself the first time you start mpv without a video.
 - Right-click ▸ **Settings** has the same settings. Every option is listed,
   even when Auto picks one for you:
-  - **Buffering**: how much of a stream is downloaded ahead of where you
-    are watching: 150 MB to 2 GB, or the whole video (kept on disk).
+  - **Buffering**: FastStream's buffer settings, with its names and defaults:
+    predownload the whole video, its maximum size, how much is kept in RAM
+    before the rest goes on disk (or nowhere), and the seconds kept ahead and
+    behind. Every number also takes 0, no limit, or any value you type.
   - **Start and stalls**: start at once, or wait until a few seconds are
     downloaded, before playing and after the stream runs dry (a stall). A
     seek never waits for it.
@@ -146,6 +148,10 @@ top right.
   are kept next to the new ones as `<name>.mine-<date>`.
 - **Uninstall:** Start menu ▸ mpv ▸ *Uninstall mpv* (`uninstall.bat`). The
   FastStream add-on stays in Firefox; remove it in `about:addons`.
+- **The keys do nothing?** Run `check-keys.bat` in the mpv folder while that
+  mpv is open. It changes nothing; it asks every running mpv which config it
+  read and what j, k, s, d, q, g and r do, and says whether that is this
+  setup's keys, mpv's standard ones (and why), or a window focus problem.
 - **Options:** another folder, or parts left out:
   `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/Nawid3333/mpv-config/main/installer/setup.ps1))) -InstallDir D:\mpv -NoFastStream`
   (also `-NoFileTypes`, `-NoShortcuts`).
@@ -289,7 +295,12 @@ git).
 
 | Setting | What it does | A new install starts with | Options: pros and cons |
 |---|---|---|---|
-| **Buffering** | How much of a stream is downloaded ahead of you. | Auto: by your memory (under 6 GB: 150 MB, under 12 GB: 512 MB, else 1 GB) | 150 MB: least memory. 512 MB: for 8 GB. 1 GB: as tuned, about 11 minutes of 1080p. 2 GB: fewest stalls, most memory. The whole video: no stalls once loaded, uses disk space (streams only, in the temp folder, deleted when it closes) |
+| **Buffering ▸ Predownload the whole video** | Downloads the entire stream in the background, up to the maximum size. | On | On: no stalls once loaded, seeking anywhere is instant. Off: only the seconds ahead |
+| **Buffering ▸ Maximum size of predownloaded video** | The most a predownload takes (never more than 60 % of the free disk space). | 5 GB | 0: nothing predownloaded, only the seconds ahead. No limit: the whole video, however big. Or type any size |
+| **Buffering ▸ RAM for buffered video** | How much of the video is kept in RAM; beyond it the rest goes on disk (or, with the disk off, nothing more is kept). | Auto: by your memory (under 6 GB: 150 MB, under 12 GB: 512 MB, under 16 GB: 1 GB, else 2 GB) | 0: nothing in RAM (all on disk; with the disk off nothing is kept and videos may stop to load). No limit: all in RAM, none on disk; other programs may slow down on a PC with little memory |
+| **Buffering ▸ Keep video on disk when that RAM is full** | Beyond the RAM above, the stream goes into a temp file (deleted when the video closes). | On | Off: nothing is written to the disk; the buffer stops at the RAM above |
+| **Buffering ▸ Seconds ahead** | Kept ahead of playback when predownload is off, has stopped or ran out of space. | 300 s | 0: nothing ahead, the video stops to load often. No limit: the whole video, even with predownload off |
+| **Buffering ▸ Seconds behind** | Kept behind playback while the whole video is not predownloaded (a predownload keeps everything). | 20 s | 0: seeking back loads it again. No limit: everything played is kept |
 | **Start and stalls** | Waits for some seconds of video before playing, and again after the stream ran dry. A seek plays at once. | buffer 3 s | Start at once: fastest start, may stall early. 3 s: as tuned. 5 s: smoother on a slow line. 10 s: longest wait, fewest stalls |
 | **Upscaling quality** | How much GPU time the upscaling may take. | Auto: measured on your GPU (High if it fits, else Fast, else off) | High: sharpest, most GPU time. Fast: about half the time, a bit softer. Each shows the time it took on your GPU; a choice here always runs |
 | **Screen for upscaling** | The screen size the upscaling plans for: which Movie chain runs, how much it sharpens. | Auto: the screen mpv is on | 1920x1080, 2560x1440, 3440x1440, 3840x2160 - only for when mpv reads the screen wrong |

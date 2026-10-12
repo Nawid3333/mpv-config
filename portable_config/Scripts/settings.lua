@@ -14,10 +14,12 @@
 --            the same settings on top ("decide in the onboarding", the user,
 --            2026-10-09), then every feature with its key.
 --
---   Buffering - how far ahead a stream is read: 150 MB (mpv's default), 512 MB,
---     1 GB (the tuned value), 2 GB, or the whole video on disk (streams only, in
---     the temp folder, deleted when it closes - cache-on-disk). Auto takes the
---     size recommended for this PC's memory. Start and stalls: start at once, or
+--   Buffering - FastStream's buffer options, with its names, meanings and
+--     defaults (2026-10-12; stream-buffer.lua does the buffering): predownload the
+--     whole video (on), its maximum size (5 GB), RAM for buffered video (Auto by
+--     this PC's memory), keep video on disk when that RAM is full (on), seconds
+--     ahead (300) and behind (20). Every number also takes 0 (none) and no limit,
+--     and any value typed in (Custom...). Start and stalls: start at once, or
 --     buffer N seconds first and after a stall (cache-pause-initial/-wait). A
 --     seek never waits for it (2026-10-09, see apply_buffer()).
 --   Upscaling quality, screen, Movie sharpness - gpu-toggles.lua owns them (and
@@ -48,7 +50,10 @@
 -- Stored per PC in ~~state/settings.json (gitignored). A PC that ran this
 -- config before (any state file of it is there) keeps exactly what mpv.conf
 -- gave it until then - German, then English, 350 nits, 1 GB, 3 s - so an update
--- changes nothing there; a new install starts from the recommended values.
+-- changes nothing there; a new install starts from the recommended values. The
+-- buffering moved to FastStream's options on 2026-10-12, and there the owner chose
+-- to move every PC: the old size became the RAM budget, the rest FastStream's
+-- defaults (predownload on, so a stream now goes on disk beyond that RAM).
 local mp = require('mp')
 local msg = require('mp.msg')
 local options = require('mp.options')
@@ -64,9 +69,18 @@ options.read_options(opts, 'settings')
 local STATE_DIR = mp.command_native({ 'expand-path', '~~state/' })
 local FILE = utils.join_path(STATE_DIR, 'settings.json')
 
--- What mpv.conf set for everyone until 2026-10-09.
-local LEGACY = { slang = 'de,en', alang = 'de,en', hdr_peak = 350, buffer = 'large', buffer_wait = 3 }
-local DEFAULTS = { slang = '', alang = '', hdr_peak = 'auto', buffer = 'auto', buffer_wait = 3 }
+-- FastStream's buffer defaults (its DefaultOptions.mjs); ram_budget is Auto here
+-- (by this PC's memory, FastStream's 2 GB from 16 GB on).
+local BUFFERING = {
+	download_all = true,
+	max_video_size = 5e9,
+	buffer_to_disk = true,
+	buffer_ahead = 300,
+	buffer_behind = 20,
+}
+-- What mpv.conf set for everyone until 2026-10-09 (1 GB: the RAM budget now).
+local LEGACY = { slang = 'de,en', alang = 'de,en', hdr_peak = 350, ram_budget = 1e9, buffer_wait = 3 }
+local DEFAULTS = { slang = '', alang = '', hdr_peak = 'auto', ram_budget = 'auto', buffer_wait = 3 }
 -- Files only a PC that already ran this config has (remember-speed.lua,
 -- gpu-toggles.lua, stream-resume.lua, mpv's watch-later, the shader warm-up).
 local LEGACY_MARKERS = {
@@ -95,21 +109,15 @@ local LANGUAGES = {
 	{ 'ko,en', 'Korean, then English' },
 	{ 'zh,en', 'Chinese, then English' },
 }
--- ahead/back in MiB (demuxer-max-bytes / demuxer-max-back-bytes)
-local BUFFERS = {
-	{ id = 'small', title = '150 MB', note = "mpv's default · least memory", ahead = 150, back = 50 },
-	{ id = 'medium', title = '512 MB', note = 'for 8 GB of memory', ahead = 512, back = 64 },
-	{ id = 'large', title = '1 GB', note = 'as tuned', ahead = 1024, back = 128 },
-	{ id = 'xlarge', title = '2 GB', note = 'fewest stalls · most memory', ahead = 2048, back = 256 },
-	{
-		id = 'whole',
-		title = 'The whole video (streams, on disk)',
-		note = 'no stalls once loaded · uses disk space',
-		ahead = 1024,
-		back = 128,
-		disk = true,
-	},
-}
+-- The choices offered for each number (sizes in bytes as FastStream counts them,
+-- 1 GB = 1,000,000,000; -1 = no limit, FastStream's empty field); Custom... takes
+-- any other.
+local MAX_SIZES = { 0, 1e9, 2e9, 5e9, 10e9, 20e9, 50e9, -1 }
+local RAM_SIZES = { 0, 150e6, 512e6, 1e9, 2e9, 4e9, 8e9, -1 }
+local AHEADS = { 0, 30, 60, 120, 300, 600, 1800, -1 }
+local BEHINDS = { 0, 20, 60, 300, 1800, -1 }
+-- the old Buffering choices (until 2026-10-12) as RAM budgets
+local OLD_BUFFERS = { small = 150e6, medium = 512e6, large = 1e9, xlarge = 2e9, whole = 'auto', auto = 'auto' }
 local WAITS = { 0, 3, 5, 10 }
 
 local function exists(path)
@@ -138,17 +146,35 @@ local function valid_lang(v)
 	return type(v) == 'string' and v:match('^[%w,%-]*$') and v or nil
 end
 
-local function buffer_by_id(id)
-	for _, b in ipairs(BUFFERS) do
-		if b.id == id then
-			return b
-		end
+-- A byte size or seconds: -1 (no limit) or 0 and up, whole numbers.
+local function valid_amount(v, max)
+	v = tonumber(v)
+	if not v or v ~= v then
+		return nil
 	end
-	return nil
+	v = math.floor(v)
+	return (v == -1 or (v >= 0 and v <= max)) and v or nil
 end
 
-local function valid_buffer(v)
-	return (v == 'auto' or buffer_by_id(v)) and v or nil
+local function valid_size(v)
+	return valid_amount(v, 1e14)
+end
+
+local function valid_secs(v)
+	return valid_amount(v, 864000)
+end
+
+local function valid_ram(v)
+	return v == 'auto' and v or valid_size(v)
+end
+
+local function valid_bool(v)
+	if v == true or v == 'yes' or v == 'true' then
+		return true
+	elseif v == false or v == 'no' or v == 'false' then
+		return false
+	end
+	return nil
 end
 
 local function valid_wait(v)
@@ -184,22 +210,25 @@ local function read_ram_gb()
 end
 local RAM_GB = read_ram_gb()
 
--- The buffer recommended for this PC: the stream waits in RAM (compressed), so
--- the size follows the memory; the tuned 1 GB from 12 GB on.
-local function recommended_buffer()
+-- The RAM budget recommended for this PC: what is buffered waits in RAM
+-- (compressed) up to it, the rest on disk; FastStream's 2 GB from 16 GB on.
+local function recommended_ram()
 	if not RAM_GB then
-		return 'medium'
+		return 512e6
 	elseif RAM_GB < 6 then
-		return 'small'
+		return 150e6
 	elseif RAM_GB < 12 then
-		return 'medium'
+		return 512e6
+	elseif RAM_GB < 16 then
+		return 1e9
 	end
-	return 'large'
+	return 2e9
 end
 
 local settings = {}
 local from_file = read_file()
 local seeded = nil -- 'legacy' | 'defaults' when this start created the file
+local migrated = false -- the old Buffering choice became the RAM budget this start
 do
 	local base = DEFAULTS
 	if not from_file then
@@ -215,8 +244,22 @@ do
 	settings.slang = valid_lang(src.slang) or base.slang
 	settings.alang = valid_lang(src.alang) or base.alang
 	settings.hdr_peak = valid_peak(src.hdr_peak) or base.hdr_peak
-	settings.buffer = valid_buffer(src.buffer) or base.buffer
+	-- the old Buffering choice (until 2026-10-12) is the RAM budget now
+	local old = OLD_BUFFERS[src.buffer]
+	settings.ram_budget = valid_ram(src.ram_budget) or old or base.ram_budget
+	settings.download_all = valid_bool(src.download_all)
+	if settings.download_all == nil then
+		settings.download_all = BUFFERING.download_all
+	end
+	settings.buffer_to_disk = valid_bool(src.buffer_to_disk)
+	if settings.buffer_to_disk == nil then
+		settings.buffer_to_disk = BUFFERING.buffer_to_disk
+	end
+	settings.max_video_size = valid_size(src.max_video_size) or BUFFERING.max_video_size
+	settings.buffer_ahead = valid_secs(src.buffer_ahead) or BUFFERING.buffer_ahead
+	settings.buffer_behind = valid_secs(src.buffer_behind) or BUFFERING.buffer_behind
 	settings.buffer_wait = valid_wait(src.buffer_wait) or base.buffer_wait
+	migrated = old ~= nil and src.ram_budget == nil
 	-- every screen seen: key 'WxH@Hz' -> { label, seen, hdr_peak }
 	settings.screens = {}
 	if type(src.screens) == 'table' then
@@ -254,14 +297,13 @@ end
 
 -- The decision is made once per PC: the next start must not take the legacy
 -- values just because this session wrote speed.json.
-if seeded then
-	msg.verbose('settings.json: new, from the ' .. seeded .. ' values')
+if seeded or migrated then
+	msg.verbose('settings.json: ' .. (seeded and ('new, from the ' .. seeded .. ' values') or 'buffering moved'))
 	save()
 end
 
--- (both ids are validated; the fallback only satisfies the type checker)
-local function effective_buffer()
-	return buffer_by_id(settings.buffer == 'auto' and recommended_buffer() or settings.buffer) or BUFFERS[3]
+local function effective_ram()
+	return settings.ram_budget == 'auto' and recommended_ram() or settings.ram_budget
 end
 
 -- ---- applying ----------------------------------------------------------------------
@@ -286,34 +328,29 @@ local function apply_initial_wait()
 	mp.set_property('cache-pause-initial', (settings.buffer_wait > 0 and not started) and 'yes' or 'no')
 end
 
--- For the next file (a running demuxer keeps its limits); the wait applies at once.
+-- What stream-buffer.lua buffers the next file with (user-data/settings/buffering,
+-- read at that file's load).
+local function buffering_config()
+	return {
+		download_all = settings.download_all,
+		max_video_size = settings.max_video_size,
+		ram_budget = effective_ram(),
+		buffer_to_disk = settings.buffer_to_disk,
+		buffer_ahead = settings.buffer_ahead,
+		buffer_behind = settings.buffer_behind,
+	}
+end
+
+-- The waits apply at once (the sizes: publish(), for the next file).
 local function apply_buffer()
-	local b = effective_buffer()
-	mp.set_property('demuxer-max-bytes', b.ahead .. 'MiB')
-	mp.set_property('demuxer-max-back-bytes', b.back .. 'MiB')
 	local wait = settings.buffer_wait
 	apply_initial_wait()
 	mp.set_property('cache-pause-wait', tostring(wait > 0 and wait or 1))
 end
 
--- The whole video on disk, for streams only: with cache-on-disk the packets go to
--- a temp file and the byte limits count only their metadata (~50 MB per hour,
--- the manual), so the read-ahead runs to the end (cache-secs). A local file read
--- ahead into a temp copy of itself would only fill the disk.
-local NETWORK =
-	{ http = true, https = true, ytdl = true, edl = true, rtmp = true, rtmps = true, rtsp = true, ftp = true }
-local function is_stream(path)
-	local scheme = type(path) == 'string' and path:match('^(%a[%w+.-]*)://')
-	return scheme ~= nil and NETWORK[scheme:lower()] == true
-end
-
 mp.add_hook('on_load', 50, function()
 	started = false
 	apply_initial_wait() -- the wait before this file's start
-	if effective_buffer().disk and is_stream(mp.get_property('path')) then
-		mp.set_property('file-local-options/cache-on-disk', 'yes')
-		mp.set_property('file-local-options/demuxer-cache-dir', os.getenv('TEMP') or '')
-	end
 end)
 
 -- The first restart of a file is its start; every later one is a seek.
@@ -383,9 +420,9 @@ local function publish()
 		hdr_peak = screen_hdr_peak(),
 		screen = current_screen and current_screen.label or nil,
 		screens = screen_count(),
-		buffer = settings.buffer,
-		buffer_used = effective_buffer().id,
-		buffer_recommended = recommended_buffer(),
+		buffering = buffering_config(),
+		ram_budget = settings.ram_budget,
+		ram_recommended = recommended_ram(),
 		buffer_wait = settings.buffer_wait,
 		ram_gb = RAM_GB and math.floor(RAM_GB + 0.5) or nil,
 		seeded = seeded,
@@ -418,10 +455,48 @@ local function lang_label(v)
 	return v
 end
 
+-- 5000000000 -> '5 GB', 150000000 -> '150 MB' (FastStream counts 1 GB = 10^9 bytes)
+local function size_label(v)
+	if v < 0 then
+		return 'No limit'
+	elseif v >= 1e9 then
+		return (string.format('%.2f', v / 1e9):gsub('%.?0+$', '')) .. ' GB'
+	end
+	return string.format('%d MB', math.floor(v / 1e6 + 0.5))
+end
+
+local function secs_label(v)
+	if v < 0 then
+		return 'No limit'
+	elseif v >= 120 and v % 60 == 0 then
+		return string.format('%d s (%d min)', v, v / 60)
+	end
+	return string.format('%d s', v)
+end
+
+local function on_off(v)
+	return v and 'On' or 'Off'
+end
+
+local function ram_label()
+	local v = size_label(effective_ram())
+	return settings.ram_budget == 'auto' and ('Auto (' .. v .. ')') or v
+end
+
+-- one line for the Buffering entry: what happens to a stream
 local function buffer_label()
-	local b = effective_buffer()
-	local title = b.disk and 'Whole video' or b.title
-	return settings.buffer == 'auto' and ('Auto (' .. title .. ')') or title
+	local ram = effective_ram()
+	local what = (settings.download_all and settings.max_video_size ~= 0) and 'Whole video'
+		or (settings.buffer_ahead < 0 and 'Whole video' or (secs_label(settings.buffer_ahead) .. ' ahead'))
+	local where
+	if ram == 0 then
+		where = settings.buffer_to_disk and 'on disk' or 'nothing kept'
+	elseif ram < 0 then
+		where = 'all in RAM'
+	else
+		where = size_label(ram) .. ' RAM' .. (settings.buffer_to_disk and ', then disk' or ' only')
+	end
+	return what .. ' · ' .. where
 end
 
 local function wait_label(w)
@@ -444,31 +519,191 @@ local function note(title, separator)
 	return { title = title, muted = true, selectable = false, separator = separator }
 end
 
+-- Any other value, typed in (mp.input, mpv's console line).
+local function custom(key, value, listed, label)
+	local items = {}
+	if not listed then
+		items[#items + 1] = { title = label(value), hint = 'typed in', active = true, keep_open = true }
+	end
+	items[#items + 1] = {
+		title = 'Custom...',
+		hint = 'type a value',
+		value = { 'script-message-to', 'settings', 'custom', key },
+		keep_open = true,
+	}
+	return items
+end
+
+-- a number setting: the notes, then each choice (its hint from `hints`), then Custom...
+local function amount_items(key, notes, list, hints, label, current)
+	local items = {}
+	for i, n in ipairs(notes) do
+		items[#items + 1] = note(n, i == #notes)
+	end
+	local listed = current == 'auto' -- the RAM budget's Auto is its own entry
+	for _, v in ipairs(list) do
+		listed = listed or v == current
+		local title = v == 0 and ('0 - ' .. (hints.zero_title or 'none')) or label(v)
+		items[#items + 1] = choice(title, hints[v], key, v, current == v)
+	end
+	for _, item in ipairs(custom(key, current, listed, label)) do
+		items[#items + 1] = item
+	end
+	return items
+end
+
+local function on_off_items(key, notes, on_hint, off_hint)
+	local items = {}
+	for i, n in ipairs(notes) do
+		items[#items + 1] = note(n, i == #notes)
+	end
+	items[#items + 1] = choice('On', on_hint, key, 'yes', settings[key] == true)
+	items[#items + 1] = choice('Off', off_hint, key, 'no', settings[key] == false)
+	return items
+end
+
+-- What stream-buffer.lua does with the stream playing now, if one does.
+local function this_video_note()
+	local b = mp.get_property_native('user-data/stream-buffer')
+	if type(b) ~= 'table' or (b.storage ~= 'ram' and b.storage ~= 'disk') then
+		return nil
+	end
+	local done = b.mode == 'predownload' and 'predownloading' or 'a window'
+	return string.format(
+		'This video: %s, %s in RAM, %s on disk',
+		done,
+		size_label(b.ram_bytes or 0),
+		size_label(b.disk_bytes or 0)
+	)
+end
+
 local function buffer_items()
-	local rec = buffer_by_id(recommended_buffer()) or BUFFERS[2]
-	local ram = RAM_GB and string.format('%.0f GB RAM', RAM_GB) or 'memory unknown'
+	local ram = effective_ram()
+	local rec = recommended_ram()
+	local mem = RAM_GB and string.format('%.0f GB of RAM', RAM_GB) or 'memory unknown'
 	local items = {
-		note('How much of a stream is downloaded ahead of you.'),
-		note('More: fewer stalls on a slow line, more memory.', true),
+		note("FastStream's buffer settings, with its defaults."),
+		note('Apply from the next video on.', true),
+	}
+	local now = this_video_note()
+	if now then
+		items[2].separator = nil
+		items[#items + 1] = note(now, true)
+	end
+	local function sub(title, hint, list, separator)
+		items[#items + 1] = { title = title, hint = hint, items = list, separator = separator }
+	end
+	sub(
+		'Predownload the whole video',
+		on_off(settings.download_all),
+		on_off_items('download_all', {
+			'Download the entire video in the background,',
+			'up to the maximum size below.',
+		}, "FastStream's default · no stalls once loaded", 'only the seconds ahead below')
+	)
+	sub(
+		'Maximum size of predownloaded video',
+		size_label(settings.max_video_size),
+		amount_items(
+			'max_video_size',
+			{
+				'Used only when predownload is on.',
+				'Never more than 60 % of the free disk space.',
+				'0: nothing predownloaded, only the seconds ahead.',
+			},
+			MAX_SIZES,
+			{
+				zero_title = 'predownload nothing',
+				[5e9] = "FastStream's default",
+				[-1] = 'the whole video, however big',
+			},
+			size_label,
+			settings.max_video_size
+		)
+	)
+	local ram_hints = {
+		zero_title = 'none in RAM',
+		[0] = settings.buffer_to_disk and 'all on disk but the next seconds' or 'nothing kept: may stop to load',
+		[-1] = 'all in RAM, none on disk',
+	}
+	ram_hints[rec] = (ram_hints[rec] and (ram_hints[rec] .. ' · ') or '') .. 'recommended'
+	local ram_list = amount_items('ram_budget', {
+		'How much of the video is kept in RAM.',
+		settings.buffer_to_disk and 'Beyond it the video goes on disk (below).'
+			or 'Beyond it nothing more is kept (disk is off).',
+		'No limit: all in RAM - on a PC with little memory',
+		'other programs may slow down.',
+	}, RAM_SIZES, ram_hints, size_label, settings.ram_budget)
+	-- Auto first, after the notes
+	local first = 1
+	while ram_list[first] and ram_list[first].selectable == false do
+		first = first + 1
+	end
+	table.insert(
+		ram_list,
+		first,
 		choice(
 			'Auto (recommended for this PC)',
-			ram .. ' -> ' .. rec.title,
-			'buffer',
+			mem .. ' -> ' .. size_label(rec),
+			'ram_budget',
 			'auto',
-			settings.buffer == 'auto',
+			settings.ram_budget == 'auto',
 			true
+		)
+	)
+	sub('RAM for buffered video', ram_label(), ram_list)
+	sub(
+		'Keep video on disk when that RAM is full',
+		on_off(settings.buffer_to_disk),
+		on_off_items('buffer_to_disk', {
+			'In a temp file, deleted when the video closes.',
+			'Off: nothing is written to the disk; the buffer',
+			'stops at the RAM above.',
+		}, "FastStream's default", 'writes nothing to the disk')
+	)
+	sub(
+		'Seconds ahead',
+		secs_label(settings.buffer_ahead),
+		amount_items(
+			'buffer_ahead',
+			{
+				'Kept buffered ahead of playback when predownload',
+				'is off, has stopped, or has run out of space.',
+			},
+			AHEADS,
+			{
+				zero_title = 'nothing ahead',
+				[0] = 'the video stops to load often',
+				[300] = "FastStream's default",
+				[-1] = 'the whole video, even with predownload off',
+			},
+			secs_label,
+			settings.buffer_ahead
+		)
+	)
+	sub(
+		'Seconds behind',
+		secs_label(settings.buffer_behind),
+		amount_items(
+			'buffer_behind',
+			{
+				'Kept behind playback before trimming, while the',
+				'whole video is not predownloaded (that keeps all).',
+			},
+			BEHINDS,
+			{
+				zero_title = 'drop at once',
+				[0] = 'seeking back loads it again',
+				[20] = "FastStream's default",
+				[-1] = 'everything played is kept',
+			},
+			secs_label,
+			settings.buffer_behind
 		),
-	}
-	for _, b in ipairs(BUFFERS) do
-		local hint = b.note
-		if b.id == rec.id then
-			hint = (hint and (hint .. ' · ') or '') .. 'recommended'
-		end
-		items[#items + 1] = choice(b.title, hint, 'buffer', b.id, settings.buffer == b.id)
-	end
-	items[#items].separator = true
-	items[#items + 1] = note('1 GB is about 11 minutes of a 1080p stream.')
-	items[#items + 1] = note('Applies from the next video on.')
+		true
+	)
+	items[#items + 1] = note('Not in mpv: a download speed limit, and how many')
+	items[#items + 1] = note('downloads run at the same time.')
 	return items
 end
 
@@ -754,14 +989,53 @@ local SETTERS = {
 		local where = current_screen and ('for ' .. current_screen.label) or 'for HDR videos'
 		return 'HDR brightness: ' .. peak_label(v), is_hdr() and (where .. ' · applied to this video') or where
 	end,
-	buffer = function(v)
-		v = valid_buffer(v)
+	download_all = function(v)
+		v = valid_bool(v)
+		if v == nil then
+			return nil
+		end
+		settings.download_all = v
+		return 'Predownload the whole video: ' .. on_off(v), 'from the next video on'
+	end,
+	max_video_size = function(v)
+		v = valid_size(v)
 		if not v then
 			return nil
 		end
-		settings.buffer = v
-		apply_buffer()
-		return 'Buffering: ' .. buffer_label(), 'from the next video on'
+		settings.max_video_size = v
+		return 'Maximum size of predownloaded video: ' .. size_label(v), 'from the next video on'
+	end,
+	ram_budget = function(v)
+		v = valid_ram(v)
+		if not v then
+			return nil
+		end
+		settings.ram_budget = v
+		return 'RAM for buffered video: ' .. ram_label(), 'from the next video on'
+	end,
+	buffer_to_disk = function(v)
+		v = valid_bool(v)
+		if v == nil then
+			return nil
+		end
+		settings.buffer_to_disk = v
+		return 'Keep video on disk: ' .. on_off(v), 'from the next video on'
+	end,
+	buffer_ahead = function(v)
+		v = valid_secs(v)
+		if not v then
+			return nil
+		end
+		settings.buffer_ahead = v
+		return 'Seconds ahead: ' .. secs_label(v), 'from the next video on'
+	end,
+	buffer_behind = function(v)
+		v = valid_secs(v)
+		if not v then
+			return nil
+		end
+		settings.buffer_behind = v
+		return 'Seconds behind: ' .. secs_label(v), 'from the next video on'
 	end,
 	buffer_wait = function(v)
 		v = valid_wait(v)
@@ -774,8 +1048,7 @@ local SETTERS = {
 	end,
 }
 
--- script-message-to settings set <key> <value>
-mp.register_script_message('set', function(key, value)
+local function set_value(key, value)
 	local setter = SETTERS[key]
 	local title, detail
 	if setter then
@@ -791,6 +1064,92 @@ mp.register_script_message('set', function(key, value)
 	if open_type then
 		send_menu(open_type, true)
 	end
+end
+
+-- script-message-to settings set <key> <value>
+mp.register_script_message('set', set_value)
+
+-- ---- a value typed in (Custom...) -------------------------------------------------------
+-- '3 GB', '800 MB', '1.5gb', '800' (MB); '' = no limit (FastStream's empty field)
+local function parse_amount(text, units, default_unit)
+	local t = (text or ''):lower():gsub('^%s+', ''):gsub('%s+$', '')
+	if t == '' or t == '-1' or t == 'no limit' or t == 'unlimited' then
+		return -1
+	end
+	local num, unit = t:match('^(%d+[%.,]?%d*)%s*(%a*)$')
+	local mult = units[unit ~= '' and unit or default_unit]
+	if not (num and mult) then
+		return nil
+	end
+	return math.floor(tonumber((num:gsub(',', '.'))) * mult + 0.5)
+end
+
+local SIZE_UNITS = { kb = 1e3, mb = 1e6, m = 1e6, gb = 1e9, g = 1e9, tb = 1e12 }
+local SECS_UNITS = { s = 1, sec = 1, m = 60, min = 60, h = 3600 }
+local CUSTOM = {
+	max_video_size = {
+		prompt = 'Maximum size of predownloaded video (3 GB, 800 MB; 0 = nothing; empty = no limit):',
+		units = SIZE_UNITS,
+		unit = 'mb',
+	},
+	ram_budget = {
+		prompt = 'RAM for buffered video (3 GB, 800 MB; 0 = none; empty = no limit):',
+		units = SIZE_UNITS,
+		unit = 'mb',
+	},
+	buffer_ahead = {
+		prompt = 'Seconds ahead (90, 10 min; 0 = nothing; empty = no limit):',
+		units = SECS_UNITS,
+		unit = 's',
+	},
+	buffer_behind = {
+		prompt = 'Seconds behind (90, 10 min; 0 = none; empty = no limit):',
+		units = SECS_UNITS,
+		unit = 's',
+	},
+}
+local input_ok, input = pcall(require, 'mp.input')
+
+-- script-message-to settings custom <key>
+mp.register_script_message('custom', function(key)
+	local c = CUSTOM[key]
+	if not c then
+		return
+	end
+	if not input_ok then
+		notify('Typing a value needs a newer mpv', 'mp.input (mpv 0.38+)', 4)
+		return
+	end
+	-- The menu goes while the line is open, and comes back when it closes (Enter or
+	-- Esc): an open uosc menu has keys of its own (type to search), and on CI they
+	-- took what was typed (2026-10-12).
+	local reopen = open_type
+	if reopen then
+		mp.commandv('script-message-to', 'uosc', 'close-menu')
+	end
+	input.get({
+		prompt = c.prompt .. ' ',
+		submit = function(text)
+			local v = parse_amount(text, c.units, c.unit)
+			if not v then
+				notify('Not understood: ' .. tostring(text), c.prompt, 5)
+				return
+			end
+			input.terminate()
+			set_value(key, tostring(v))
+		end,
+		closed = function()
+			if reopen then
+				open_menu(reopen)
+			end
+		end,
+	})
+end)
+
+-- script-message-to settings parse <key> <text>: what Custom... would set (the tests)
+mp.register_script_message('parse', function(key, text)
+	local c = CUSTOM[key]
+	mp.set_property_native('user-data/settings-parsed', c and parse_amount(text, c.units, c.unit) or 'invalid')
 end)
 
 mp.register_script_message('open', function()

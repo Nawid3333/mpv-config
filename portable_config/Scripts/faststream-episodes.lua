@@ -9,9 +9,14 @@
 -- The FastStream helper (host 7) follows the mpv it started over JSON IPC. It
 -- sets two properties:
 --   user-data/faststream/connected  true while it follows this window; missing
---                                   counts as false. A helper that dies without
---                                   clearing it leaves the buttons sending to
---                                   nobody, which does no harm.
+--                                   counts as false.
+--   user-data/faststream/heartbeat  (host 10, 2026-10-12) the time, written when it
+--                                   connects and every 30 s after. A helper killed
+--                                   hard (Task Manager, a Firefox crash) clears
+--                                   nothing: once this value has stood still for
+--                                   90 s (three beats missed) it counts as gone and
+--                                   the buttons go. A helper that never wrote one
+--                                   (host 9) is followed by `connected` alone.
 --   user-data/faststream/autoplay   its "Autoplay next episode in mpv" setting
 -- and hears every client message:
 --   script-message faststream-next / faststream-previous (also n / N, input.conf)
@@ -35,13 +40,28 @@
 
 local mp = require('mp')
 local msg = require('mp.msg')
+local options = require('mp.options')
 local utils = require('mp.utils')
 
+local opts = {
+	-- seconds without a new heartbeat before the helper counts as gone (the tests
+	-- shorten it); the helper beats every 30 s
+	heartbeat_stale = 90,
+}
+options.read_options(opts, 'faststream_episodes')
+
 local state = {
-	connected = false, -- user-data/faststream/connected
+	connected = false, -- user-data/faststream/connected, and the helper alive
 	autoplay = false, -- user-data/faststream/autoplay
 	path = nil, -- the current file's path, nil when nothing is loaded
 }
+
+-- the last heartbeat heard (mp.get_time()), nil until a helper sent one
+local beat_at = nil
+
+local function helper_alive()
+	return beat_at == nil or mp.get_time() - beat_at <= opts.heartbeat_stale
+end
 
 -- The helper sets booleans over JSON IPC. A `set` from a command string would
 -- store the text instead, so "yes" and "true" count too.
@@ -131,7 +151,7 @@ end
 -- Reads both properties again; nothing to do when neither changed and uosc has
 -- every button.
 local function read_helper()
-	local connected = truthy(mp.get_property_native('user-data/faststream/connected'))
+	local connected = truthy(mp.get_property_native('user-data/faststream/connected')) and helper_alive()
 	local autoplay = truthy(mp.get_property_native('user-data/faststream/autoplay'))
 	if connected ~= state.connected or autoplay ~= state.autoplay or not delivered then
 		state.connected, state.autoplay = connected, autoplay
@@ -144,7 +164,8 @@ end
 -- `connected` counts as false. So while the last value the observer heard is true, a
 -- look once a second catches a helper that deletes the key instead of setting false -
 -- and one that sets true again after that, which the observer, still holding true,
--- does not report either. The same look sends a button uosc did not get yet.
+-- does not report either. The same look sends a button uosc did not get yet, and
+-- notices a heartbeat that stopped (a killed helper changes nothing mpv could hear).
 local recheck = mp.add_periodic_timer(1, read_helper)
 recheck:kill()
 
@@ -158,6 +179,15 @@ mp.observe_property('user-data/faststream/connected', 'native', function(_, valu
 end)
 
 mp.observe_property('user-data/faststream/autoplay', 'native', read_helper)
+
+-- a new value with every beat; the first one of a helper started after a killed
+-- one is a change too (the time keeps rising)
+mp.observe_property('user-data/faststream/heartbeat', 'native', function(_, value)
+	if value ~= nil then
+		beat_at = mp.get_time()
+	end
+	read_helper()
+end)
 
 -- Between two files `path` is gone for a moment. Keeping the last one then spares
 -- the bar a hide and show while the next episode loads; idle-active clears it once

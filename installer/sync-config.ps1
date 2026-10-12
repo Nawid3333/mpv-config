@@ -109,7 +109,9 @@ function Get-LfsPointer([string]$Path) {
 function Copy-Over([string]$Source, [string]$Target) {
     $dir = Split-Path -Parent $Target
     if (-not (Test-Path -LiteralPath $dir)) { $null = New-Item -ItemType Directory -Force -Path $dir }
-    $tmp = "$Target.new"
+    # a name no file of the config or of the user has (glm's review, 2026-10-12: "<name>.new"
+    # overwrote a file of that name, and then counted it as up to date); .gitignore has *.new
+    $tmp = "$Target.$([guid]::NewGuid().ToString('N').Substring(0, 8)).new"
     Copy-Item -LiteralPath $Source -Destination $tmp -Force
     try {
         if (Test-Path -LiteralPath $Target) { Remove-Item -LiteralPath $Target -Force }

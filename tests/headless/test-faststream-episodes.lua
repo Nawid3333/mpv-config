@@ -121,6 +121,22 @@ H.run(function()
 	mp.set_property_native('user-data/faststream/connected', 'yes')
 	H.expect('connected set as text ("yes"): shown', visibility, 'shown')
 
+	-- host 10: a helper killed hard clears nothing, but its heartbeat stops (stale
+	-- after 2 s here: the runner passes faststream_episodes-heartbeat_stale=2)
+	mp.set_property_native('user-data/faststream/heartbeat', 1000)
+	H.eq('a heartbeat: shown', visibility(), 'shown')
+	H.sleep(1)
+	H.eq('... still shown within its limit', visibility(), 'shown')
+	H.expect('the heartbeat stood still past its limit: hidden', visibility, 'hidden', nil, 4)
+	mp.set_property_native('user-data/faststream/heartbeat', 2000)
+	H.expect('a helper started anew beats (connected still true): shown', visibility, 'shown', nil, 2)
+	-- a live helper for the rest of the test
+	local beats = 0
+	mp.add_periodic_timer(0.5, function()
+		beats = beats + 1
+		mp.set_property_native('user-data/faststream/heartbeat', 3000 + beats)
+	end)
+
 	-- other files while connected
 	H.check('a local file loads', H.load(H.media_path('plain/clip.mkv')))
 	H.expect('connected, a local file after the stream: hidden', visibility, 'hidden')

@@ -7,7 +7,11 @@
 --   restored - a FRESH process restores the choices (AGENTS.md validation 6a);
 --   legacy   - a PC that ran this config before (the runner removes
 --              settings.json and leaves a speed.json after "restored") keeps what
---              mpv.conf gave everyone until then: de,en, 350 nits, 1 GB, 3 s.
+--              mpv.conf gave everyone until then: de,en, 350 nits, 3 s; its 1 GB
+--              is the RAM budget, with FastStream's other buffer defaults;
+--   migrated - a settings.json from before 2026-10-12 (Buffering = 2 GB, the
+--              owner's): 2 GB becomes the RAM budget, the old key goes.
+-- The buffering itself: test-stream-buffer.lua.
 -- MPV_TEST_PHASE names the phase.
 local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$') .. 'lib/harness.lua')
 local utils = require('mp.utils')
@@ -38,9 +42,11 @@ local function published(key)
 	return (mp.get_property_native('user-data/settings') or {})[key]
 end
 
--- MiB as mp.get_property prints a byte size
-local function mib(n)
-	return tostring(n * 1048576)
+-- what stream-buffer.lua buffers the next video with
+local function buffering(key)
+	return function()
+		return (mp.get_property_native('user-data/settings/buffering') or {})[key]
+	end
 end
 
 local function set(key, value)
@@ -76,15 +82,28 @@ H.run(function()
 		H.eq('a new install: subtitle languages empty (subtitles follow Windows)', mp.get_property('slang'), '')
 		H.eq("... audio languages empty (the file's default track)", mp.get_property('alang'), '')
 		H.eq('... seeded from the defaults, not the old values', published('seeded'), 'defaults')
-		local rec = published('buffer_recommended')
+		local rec = published('ram_recommended')
 		H.check(
 			"... the PC's memory is read (LuaJIT FFI)",
 			type(published('ram_gb')) == 'number',
 			tostring(published('ram_gb'))
 		)
-		H.eq('... buffering Auto uses the size recommended for it', published('buffer_used'), rec)
-		local REC_MIB = { small = 150, medium = 512, large = 1024 }
-		H.eq('... and sets it', mp.get_property('options/demuxer-max-bytes'), mib(REC_MIB[rec] or 0))
+		H.eq('... RAM for buffered video: Auto', published('ram_budget'), 'auto')
+		H.eq('... which uses the budget recommended for this PC', buffering('ram_budget')(), rec)
+		H.check(
+			"... and FastStream's other buffer defaults",
+			buffering('download_all')() == true
+				and buffering('max_video_size')() == 5e9
+				and buffering('buffer_to_disk')() == true
+				and buffering('buffer_ahead')() == 300
+				and buffering('buffer_behind')() == 20,
+			utils.format_json(mp.get_property_native('user-data/settings/buffering'))
+		)
+		H.eq(
+			"... a local file reads mpv's 150 MB ahead, within 3/4 of that budget",
+			tonumber(mp.get_property('options/demuxer-max-bytes')),
+			math.floor(math.max(math.min(150 * 1048576, rec * 0.75), 4 * 1048576))
+		)
 		H.eq('... buffers 3 s before starting (as tuned)', initial_at_load[1], 'yes')
 		H.eq('... and after a stall', mp.get_property('options/cache-pause-wait'), '3.000000')
 		-- mpv applies cache-pause-initial after every seek too (playloop.c): a jump
@@ -117,11 +136,18 @@ H.run(function()
 		H.expect('Subtitle language German, then English -> slang', prop('slang'), 'de,en')
 		set('alang', 'ja,en')
 		H.expect('Audio language Japanese, then English -> alang', prop('alang'), 'ja,en')
-		set('buffer', 'small')
-		H.expect("Buffering 150 MB (mpv's default) -> demuxer-max-bytes", prop('options/demuxer-max-bytes'), mib(150))
-		H.expect('... and 50 MB kept behind for seeking back', prop('options/demuxer-max-back-bytes'), mib(50))
-		set('buffer', 'xlarge')
-		H.expect('Buffering 2 GB -> demuxer-max-bytes', prop('options/demuxer-max-bytes'), mib(2048))
+		set('ram_budget', '150000000')
+		H.expect('RAM for buffered video 150 MB -> for the next video', buffering('ram_budget'), 150e6)
+		set('download_all', 'no')
+		H.expect('Predownload the whole video off', buffering('download_all'), false)
+		set('buffer_to_disk', 'no')
+		H.expect('Keep video on disk off', buffering('buffer_to_disk'), false)
+		set('max_video_size', '-1')
+		H.expect('Maximum size: no limit', buffering('max_video_size'), -1)
+		set('buffer_ahead', '0')
+		H.expect('Seconds ahead 0', buffering('buffer_ahead'), 0)
+		set('buffer_behind', '600')
+		H.expect('Seconds behind 600', buffering('buffer_behind'), 600)
 		set('buffer_wait', '0')
 		H.expect("Start at once -> mpv's own 1 s after a stall", prop('options/cache-pause-wait'), '1.000000')
 		H.load(H.media_path('plain/clip.mkv'))
@@ -129,19 +155,17 @@ H.run(function()
 		set('buffer_wait', '5')
 		H.expect('Buffer 5 s -> cache-pause-wait 5', prop('options/cache-pause-wait'), '5.000000')
 		H.eq('... the playing file has started: its seeks still play at once', initial(), 'no')
-		set('buffer', 'whole')
+		set('download_all', 'yes')
+		set('buffer_to_disk', 'yes')
 		H.load(H.media_path('plain/clip.mkv'))
 		H.eq('... and the next start buffers first', last_initial(), 'yes')
-		H.eq(
-			'The whole video on disk: never for a local file (it would copy itself)',
-			mp.get_property('cache-on-disk'),
-			'no'
-		)
-		set('buffer', 'large')
+		H.eq('Predownload and disk on: never on disk for a local file', mp.get_property('cache-on-disk'), 'no')
+		set('ram_budget', '1000000000')
 		H.load(H.media_path('hdr/pq.mkv'))
 		H.expect('back on the HDR clip: 350', peak, '350')
 		set('hdr_peak', 'banana')
-		set('buffer', 'huge')
+		set('ram_budget', 'huge')
+		set('buffer_ahead', '-7')
 		set('slang', 'de;rm -rf')
 		H.sleep(0.5)
 		H.eq('invalid values are ignored', mp.get_property('slang') .. ' ' .. peak(), 'de,en 350')
@@ -152,7 +176,13 @@ H.run(function()
 				and s2.slang == 'de,en'
 				and s2.alang == 'ja,en'
 				and s2.hdr_peak == 350
-				and s2.buffer == 'large'
+				and s2.ram_budget == 1e9
+				and s2.download_all == true
+				and s2.buffer_to_disk == true
+				and s2.max_video_size == -1
+				and s2.buffer_ahead == 0
+				and s2.buffer_behind == 600
+				and s2.buffer == nil
 				and s2.buffer_wait == 5,
 			utils.format_json(s2)
 		)
@@ -170,20 +200,32 @@ H.run(function()
 		H.eq('a new process restores the subtitle languages', mp.get_property('slang'), 'de,en')
 		H.eq('... and the audio languages', mp.get_property('alang'), 'ja,en')
 		H.eq('... not seeded again', published('seeded'), nil)
-		H.eq('... the buffer (1 GB)', mp.get_property('options/demuxer-max-bytes'), mib(1024))
+		H.eq('... the RAM budget (1 GB)', buffering('ram_budget')(), 1e9)
+		H.eq('... seconds behind (600)', buffering('buffer_behind')(), 600)
 		H.eq('... and the wait (5 s)', mp.get_property('options/cache-pause-wait'), '5.000000')
 		H.load(H.media_path('hdr/pq.mkv'))
 		H.expect('... and the HDR brightness (350 for the HDR clip)', peak, '350')
-	else
+	elseif PHASE == 'legacy' then
 		H.eq('a PC that ran this config before keeps slang=de,en', mp.get_property('slang'), 'de,en')
 		H.eq('... alang=de,en', mp.get_property('alang'), 'de,en')
 		H.eq('... seeded from the old values', published('seeded'), 'legacy')
-		H.eq('... 1 GB ahead, as tuned', mp.get_property('options/demuxer-max-bytes'), mib(1024))
-		H.eq('... 128 MB behind', mp.get_property('options/demuxer-max-back-bytes'), mib(128))
+		H.eq('... its tuned 1 GB is the RAM budget now', buffering('ram_budget')(), 1e9)
+		H.eq("... with FastStream's defaults: predownload on", buffering('download_all')(), true)
+		H.eq('... beyond the RAM on disk', buffering('buffer_to_disk')(), true)
 		H.eq('... buffering 3 s first', mp.get_property('options/cache-pause-wait'), '3.000000')
 		H.load(H.media_path('hdr/pq.mkv'))
 		H.expect('... and 350 nits for HDR, as [hdr-target-peak] gave it', peak, '350')
 		local s = saved()
 		H.check('... written to settings.json, so it is decided once', s and s.slang == 'de,en', utils.format_json(s))
+	elseif PHASE == 'migrated' then
+		H.eq('Buffering 2 GB from before: the RAM budget now', buffering('ram_budget')(), 2e9)
+		H.eq('... predownload on (the owner moved every PC)', buffering('download_all')(), true)
+		H.eq('... the other settings kept', mp.get_property('slang'), 'de,en')
+		local s = saved()
+		H.check(
+			'... written at once, without the old key',
+			s and s.ram_budget == 2e9 and s.buffer == nil and s.hdr_peak == 350,
+			utils.format_json(s)
+		)
 	end
 end)

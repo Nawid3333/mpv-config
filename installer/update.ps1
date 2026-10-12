@@ -33,11 +33,15 @@
 
 .PARAMETER NoFastStream
     Skip step 4 (setup.ps1 installs the helper itself right after).
+
+.PARAMETER ConfigOnly
+    Step 1 only (the tests: which way the config would be updated, nothing downloaded).
 #>
 [CmdletBinding()]
 param(
     [string]$Root = (Split-Path $PSScriptRoot -Parent),
-    [switch]$NoFastStream
+    [switch]$NoFastStream,
+    [switch]$ConfigOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,7 +67,17 @@ if ($git) {
     # ("fatal: not a git repository" in a folder that is no clone, a ZIP download)
     # ended the script before mpv was installed. PowerShell 7.2+ does not.
     $ErrorActionPreference = 'Continue'
-    try { $inside = & $git.Source -C $Root rev-parse --is-inside-work-tree 2>$null }
+    try {
+        $inside = & $git.Source -C $Root rev-parse --is-inside-work-tree 2>$null
+        # A folder INSIDE another repository (a home folder kept in git) answers "true"
+        # too, and git pull pulled that one (glm's review, 2026-10-12): only the folder's
+        # own work tree counts - its prefix is empty only at the top. No path comparison:
+        # git names the top by its long path, $Root can be an 8.3 one (CI's TEMP).
+        if ($inside -eq 'true') {
+            $prefix = & $git.Source -C $Root rev-parse --show-prefix 2>$null
+            if ("$prefix".Trim()) { $inside = 'another' }
+        }
+    }
     catch { $inside = '' }
     finally { $ErrorActionPreference = 'Stop' }
 }
@@ -78,6 +92,9 @@ if ($inside -ne 'true' -and (Test-Path -LiteralPath (Join-Path $Root '.install-m
 elseif (-not $git) {
     Write-Host 'git is not installed: skipped. The pin in mpv-build.json stays as it is.' -ForegroundColor Yellow
 }
+elseif ($inside -eq 'another') {
+    Write-Host "$Root sits inside another git repository, not a clone of its own: skipped." -ForegroundColor Yellow
+}
 elseif ($inside -ne 'true') {
     Write-Host "$Root is not a git clone: skipped." -ForegroundColor Yellow
 }
@@ -90,6 +107,7 @@ else {
         Write-Host 'Installing the build this checkout pins meanwhile.' -ForegroundColor Yellow
     }
 }
+if ($ConfigOnly) { exit [int]($failed -gt 0) }
 
 # -- 2. the pinned mpv build -------------------------------------------------------
 Write-Host '== mpv' -ForegroundColor Cyan
