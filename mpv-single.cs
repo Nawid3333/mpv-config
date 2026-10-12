@@ -16,6 +16,13 @@
 // and appends its file to the playlist; one opened later replaces what plays,
 // as before - also while an mpv is still starting.
 //
+// The window raised after a hand-off is the one of the mpv behind the pipe
+// (GetNamedPipeServerProcessId), 2026-10-12: it was the first process named
+// mpv with a window, which with a second mpv open (FastStream's, a Ctrl one)
+// could bring that one forward while the file played in the other. With
+// MPV_SINGLE_RAISE_LOG set (the tests) the launcher writes the process id it
+// would raise into that file and raises nothing.
+//
 // Rebuild after editing:
 //   C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:winexe /out:mpv-single.exe mpv-single.cs
 using System;
@@ -27,6 +34,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Microsoft.Win32.SafeHandles;
 
 static class MpvSingle
 {
@@ -41,6 +49,9 @@ static class MpvSingle
 
     [DllImport("user32.dll")]
     static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetNamedPipeServerProcessId(SafePipeHandle pipe, out uint serverProcessId);
 
     const int VK_CONTROL = 0x11;
     const int SW_RESTORE = 9;
@@ -95,7 +106,8 @@ static class MpvSingle
                 long before = last.ReadInt64(0);
                 last.Write(0, started);
                 bool together = before != 0 && Math.Abs(started - before) <= TimeSpan.FromMilliseconds(TogetherMs).Ticks;
-                if (TrySendToRunningInstance(args, append: together))
+                int server;
+                if (TrySendToRunningInstance(args, together, out server))
                 {
                     // Handing the playlist to the running mpv is only half the job.
                     // Without this the file starts playing behind whatever window the
@@ -103,7 +115,7 @@ static class MpvSingle
                     // IPC has no raise command, so do it from here: this process was
                     // just started by the user's own click, so it still holds the
                     // foreground rights Windows would deny mpv itself.
-                    RaiseRunningInstance();
+                    RaiseRunningInstance(server);
                 }
                 else
                 {
@@ -144,14 +156,19 @@ static class MpvSingle
     }
 
     // append: the file joins the playlist (the rest of a burst) instead of
-    // replacing what plays
-    static bool TrySendToRunningInstance(string[] files, bool append)
+    // replacing what plays; server: the id of the mpv process behind the pipe,
+    // 0 when Windows does not say
+    static bool TrySendToRunningInstance(string[] files, bool append, out int server)
     {
+        server = 0;
         try
         {
             using (var pipe = new NamedPipeClientStream(".", PipeName, PipeDirection.Out))
             {
                 pipe.Connect(250);
+                uint id;
+                if (GetNamedPipeServerProcessId(pipe.SafePipeHandle, out id))
+                    server = (int)id;
                 var sb = new StringBuilder();
                 for (int i = 0; i < files.Length; i++)
                 {
@@ -175,11 +192,22 @@ static class MpvSingle
         }
     }
 
-    static void RaiseRunningInstance()
+    // server: the mpv that got the file; 0 (Windows did not say which) falls
+    // back to the first mpv with a window
+    static void RaiseRunningInstance(int server)
     {
         try
         {
-            foreach (var p in Process.GetProcessesByName("mpv"))
+            string log = Environment.GetEnvironmentVariable("MPV_SINGLE_RAISE_LOG");
+            if (!string.IsNullOrEmpty(log))
+            {
+                File.WriteAllText(log, server.ToString());
+                return;
+            }
+            Process[] candidates = server > 0
+                ? new[] { Process.GetProcessById(server) }
+                : Process.GetProcessesByName("mpv");
+            foreach (var p in candidates)
             {
                 IntPtr h = p.MainWindowHandle;
                 if (h == IntPtr.Zero)

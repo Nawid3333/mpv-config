@@ -185,3 +185,22 @@ mp.observe_property('speed', 'native', function(_, speed)
 		audio_speed = speed
 	end
 end)
+
+-- The speed a file had when it goes is its kind's (2026-10-12). The observer learns
+-- a change only when this script gets to it: a file loaded right after a change (a
+-- speed set on a song, then a video at once) could unload the song first, and the
+-- observer then saw the video and the video speed - the song's speed was lost, and
+-- the next song went back to the old one (a CI runner hit it). Here the speed is read
+-- while the file is still there, whatever the observer has heard.
+mp.add_hook('on_unload', 50, function()
+	local speed = mp.get_property_native('speed')
+	if type(speed) ~= 'number' or speed <= 0 then
+		return
+	end
+	if last_kind == 'audio' then
+		audio_speed = speed
+	elseif last_kind == 'video' and (not video_speed or math.abs(speed - video_speed) > 0.0001) then
+		video_speed = speed
+		save_speed(speed)
+	end
+end)

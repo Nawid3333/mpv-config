@@ -1182,6 +1182,7 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
         catch { return $null }
         finally { if ($pipe) { $pipe.Dispose() } }
     }
+    $other = $null
     try {
         foreach ($n in 'a', 'b', 'c') { Start-Process -FilePath $launcher -ArgumentList ('"' + (Join-Path $dir "media/$n.mkv") + '"') }
         & $launchersDone
@@ -1191,15 +1192,36 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
         $playlist = & $ask 'playlist-count'
         Test-Check $t 'three files opened at once go into one mpv' ($count -eq 1) "$count mpv players"
         Test-Check $t '... all three in its playlist' ($playlist -eq 3) "playlist-count $playlist"
-        Start-Process -FilePath $launcher -ArgumentList ('"' + (Join-Path $dir 'media/d.mkv') + '"')
+        # A second mpv (FastStream's, one opened with Ctrl held) runs too: the window raised
+        # after the hand-off is the one of the mpv behind the pipe (2026-10-12; it was the
+        # first process named mpv with a window). MPV_SINGLE_RAISE_LOG makes the launcher
+        # write the process id it would raise, and raise nothing on this desktop.
+        New-Item -ItemType Directory -Force (Join-Path $dir 'other') | Out-Null
+        Copy-Item -LiteralPath (Join-Path $dir 'mpv.exe') (Join-Path $dir 'other/mpv.exe')
+        $other = Start-Process -FilePath (Join-Path $dir 'other/mpv.exe') -ArgumentList '--no-config', '--idle=yes', '--vo=null', '--ao=null' -PassThru -WindowStyle Hidden
+        $raiseLog = Join-Path $dir 'raised.txt'
+        $env:MPV_SINGLE_RAISE_LOG = $raiseLog
+        try { Start-Process -FilePath $launcher -ArgumentList ('"' + (Join-Path $dir 'media/d.mkv') + '"') }
+        finally { Remove-Item Env:MPV_SINGLE_RAISE_LOG -ErrorAction SilentlyContinue }
         & $launchersDone
-        $count = @(& $players).Count
-        $playlist = & $ask 'playlist-count'
-        $file = & $ask 'filename'
+        # The launcher has handed it over; a slow machine's mpv may take a moment to swap.
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        do {
+            $count = @(& $players).Count
+            $playlist = & $ask 'playlist-count'
+            $file = & $ask 'filename'
+            if ($playlist -eq 1 -and $file -eq 'd.mkv') { break }
+            Start-Sleep -Milliseconds 200
+        } while ($clock.ElapsedMilliseconds -lt 5000)
         Test-Check $t '... a file opened later replaces them, in the same mpv' (
             $count -eq 1 -and $playlist -eq 1 -and $file -eq 'd.mkv') "$count mpv players, playlist-count $playlist, playing $file"
+        $served = & $ask 'pid'
+        $raised = if (Test-Path -LiteralPath $raiseLog) { (Get-Content -LiteralPath $raiseLog -Raw).Trim() } else { 'nothing' }
+        Test-Check $t '... and the window raised is that mpv''s, not the other one''s' (
+            $null -ne $served -and $raised -eq [string]$served) "raised $raised, the pipe's mpv $served, the other mpv $($other.Id)"
     }
     finally {
+        if ($other) { $other | Stop-Process -Force -ErrorAction SilentlyContinue }
         $left = & $players
         $left | Wait-Process -Timeout 30 -ErrorAction SilentlyContinue
         & $players | Stop-Process -Force -ErrorAction SilentlyContinue
