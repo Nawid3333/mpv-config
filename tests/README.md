@@ -9,7 +9,6 @@ needs PowerShell 7 and the real `mpv.exe` (`updater.bat` installs the pinned bui
 | `pwsh tests/run-tests.ps1 -Tier static` | config wiring only, no mpv | ~1 s |
 | `pwsh tests/run-tests.ps1` | static + **headless** (mpv `--vo=null --ao=null`, notify-render `--vo=sixel`: no window, no GPU, no sound) | ~50 s |
 | `pwsh tests/run-tests.ps1 -Tier gpu` | + the real renderer, **fullscreen**, on this PC's GPU | ~5 min |
-| `pwsh tests/run-tests.ps1 -Tier shadercost` | static + **is the shader warm-up worth keeping?** (below): 35 cases with empty shader caches (mpv's and the AMD driver's), again, and after the warm-up, 3 runs each, fullscreen; a report with a verdict | ~45 min |
 | `... -Filter upscale` | only tests whose name matches | |
 | `... -ConfigDir <copy>` | test another `portable_config` (a worktree, an experiment) | |
 
@@ -27,7 +26,10 @@ runs static + headless on every push; the gpu tier is local only.
 - **No OS input.** Keys and clicks go through mpv's own commands (`keypress`,
   `keydown`/`keyup`, `mouse`, `script-message`), which enter mpv's input layer
   where a real key or click would. Never `keybd_event`/`SendInput`.
-- **The gpu tier refuses to run while any mpv is open** - you may be watching.
+- **The gpu tier refuses to run while any mpv is open** - you may be watching -
+  and while Windows reports a problem with a display adapter. The first lost GPU
+  device (`VK_ERROR_DEVICE_LOST` in a log) ends the tier: each further run would
+  reset the GPU again, and on 2026-10-12 a series of resets crashed Windows.
 - **Test media is generated** with the tested mpv's own encoder (libx264/x265)
   into `%TEMP%\mpv-regression\media-v1`, once. A `#fs-content=...&fs-id=...` in a
   file name stands in for the fragment the FastStream native host appends to
@@ -83,7 +85,7 @@ Headless (`headless/test-*.lua`):
 | keys | seek keys, volume keys/wheel (10/2), mute, s/d, the deliberately unbound Z/R/W/BS |
 | faststream-episodes | the previous / next episode buttons and the autoplay switch (`faststream-episodes.lua`), the test standing in for the FastStream helper: hidden on a local file, while FastStream does not follow the window (`user-data/faststream/connected` never set, false, or deleted - mpv tells no observer about a deleted key, so the script looks again each second), for `fs-content=` only in a query and with nothing loaded; shown for a FastStream stream it follows (also after a delete and a new `true`, and for the text `yes`); icons and tooltips; the switch follows `user-data/faststream/autoplay`; each button's command and `Ctrl+a` send `faststream-previous` / `-next` / `-autoplay`; `Ctrl+a` is input.conf's alone (no mpv default, no script binds it). A second process runs the script with no uosc (`--load-scripts=no`): the flag stays false, so uosc never shows buttons it has not got. Breaks checked: local files counted, `connected` ignored, the switch stuck off, a button sending the wrong message, no second look after a delete, idle not followed, `Ctrl+a` unbound or also bound by a script, the flag set before uosc has the buttons |
 | speed | preset keys and their per-key revert, the menu's command form, the toolbar button's step list |
-| remember-speed | two processes: the speed chosen in one is restored in the next |
+| remember-speed | three processes: the speed chosen in one is restored in the next; a speed picked while a file loads wins over that restore (the first video) and over the video/song switch |
 | auto-start | a file loaded into a paused player (also after EOF) starts playing; a pause during playback stays |
 | subtitles | `c`: selects the first track, toggles visibility, loads a matching file when there is no track |
 | subtitle-folder | mpv.conf's `sub-file-paths`: a subtitle in a `sub\` folder next to the video loads with it (`;` between folders on Windows) |
@@ -107,11 +109,6 @@ GPU (`gpu/`, plus `installer/warm-shader-cache.ps1 -Check`):
 | gpu-switching | 4 rounds of 14 switches (menu, Shift+A/Y, toolbar, sharpness): right chain, on screen < 0.5 s, 0 dropped/late frames after each chain's first use, no recompiles, no renderer errors, VRAM flat; per-switch latency is reported |
 | gpu-pacing | gpu-next + Vulkan context; FastStream and local files decode with d3d11va-copy; 0 dropped/late/mistimed frames at 1x and 3x for every chain, Anime at 480p, 720p and 1080p (3x, 2x and 1.33x on a 1440p screen: each takes another path through Anime4K) and Movie at 720p/1080p; render ms per frame reported |
 | gpu-auto-warm | the startup check for real: an EMPTY cache -> the FastStream anime file starts at once, the real warm-up (full matrix, ~8 s) compiles in the background, the player is paused halfway and the warm-up still finishes, 0 dropped/delayed frames while both ran; the next start is fresh, and Anime/Movie/Off then compile nothing |
-
-By hand, not in a tier: `gpu/measure-quality.lua` prints what each Anime and
-Movie chain costs at High and at Fast on this GPU and output size (the numbers
-quality Auto decides with), and whether Auto picks Fast or off where High does
-not fit - its header says how to run it.
 
 Every runtime test runs with the startup shader check off
 (`shader_cache-auto=no` - a test root has no warmed cache, so it would warm
@@ -141,97 +138,6 @@ installers' downloads.
 `mpv-single.cs` with .NET Framework's `csc.exe` into its own folder, mpv with `vo=null`/`ao=null`:
 three files opened at once go into one mpv and its playlist, a file opened later replaces them.
 It is skipped while any mpv runs (the launcher's pipe name is shared) and where `mpv.com` is missing.
-
-## Is the shader warm-up worth keeping? (`-Tier shadercost`)
-
-Asked 2026-10-05, and built to be run ONCE and then decided on. Without the
-background warm-up (`Scripts/shader-cache`, ~3,500 lines with its tests) mpv
-still keeps every shader it compiles; what a viewer would notice is the FIRST
-video of each kind after a GPU driver or libplacebo update, when mpv's cache
-AND the AMD driver's own cache are cold. This tier measures exactly that, on
-the real GPU, fullscreen, with the whole config, in three states, each run in
-a fresh mpv (libplacebo also keeps shaders in memory) and every case 3 times
-(`-Repeat`; the report uses the medians):
-
-- **cold**: mpv's cache folder empty AND the AMD driver's
-  (`%LOCALAPPDATA%\AMD\VkCache`, shared with every game): the owner's folder is
-  set aside (one rename - refused, with nothing changed, while a program has a
-  file in it open) for the whole run, the empty stand-in is emptied again
-  before every cold run, and the owner's folder is put back at the end - also
-  after a failure or Ctrl+C, and if a run was killed, at the start of the next
-  one (or rename `VkCache.mpv-shadercost-backup` back to `VkCache` by hand);
-- **again**: the same video once more on what the cold run left in both
-  caches - every later video without a warm-up (proves mpv's own cache);
-- **warm**: after the player's full warm-up (`installer/warm-shader-cache.ps1`)
-  into an empty folder with the driver's cache emptied too - what the warm-up
-  gives after an update.
-
-**Cases** (35, `$CostCases` in run-tests.ps1; clips made once with the tested
-mpv's own encoder into `%TEMP%\mpv-regression\media-cost-v1`, ~700 MB): every
-path the upscalers take on the 1440p screen - Anime at 360p/480p/576p/720p/1080p
-(each Anime4K stage the scale switches on) and 2160p (scaled down), Movie at
-480p/576p/720p (FSRCNNX + SSimSuperRes) and 810p/1080p (SSimSuperRes; each its
-own Auto sharpness) and 2160p (no sharpener), Off at 720p/1080p/2160p; 10-bit
-HEVC with Anime and Movie, 10-bit H.264 and an MPEG-2 DVD (bt.601, anamorphic)
-decoded on the CPU; HDR10 1080p with Off/Anime/Movie and 2160p with Off/Movie,
-HLG with Off/Movie, Dolby Vision profile 5 with Off/Movie, 8.1 and 8.4 (the
-clips the warm-up ships); a song with cover art; and five cases of what a
-viewer does mid-video, each action the first of its kind in the process: every
-upscale switch, every Movie sharpness level (Low/Medium/High/Off/Auto),
-leaving fullscreen (a window at the video's size), a half-size and a maximized
-window, back to fullscreen, a picture overlay (timeline thumbnails, picture
-subtitles), Video menu contrast and deband off - on SDR and HDR10.
-
-**Measured** per run (`tests/gpu/measure-shader-cost.lua`): the first frame
-(loadfile -> playback-restart, which mpv reports only once that frame is on
-screen); late frames and the longest pause between two frames in the first
-3 s and in the 2 s after each action; the shaders mpv compiled; how much the
-driver's cache grew. No log file (it would raise libplacebo's log level and
-slow the cold runs down).
-
-**Checked**, so a run that measured the wrong thing never counts: the upscale
-preset on screen, the chain (Anime4K for Anime; Movie with FSRCNNX exactly
-from 2x and the sharpener exactly when enlarged, by the real display scale; no
-chain for Off), no renderer or script error, and for every cold run that the
-driver's cache was emptied AND grew (the driver compiled - if it did not, it
-was not cold). A case without a valid run in each state makes the verdict
-INCOMPLETE.
-
-**The report** (`%TEMP%\mpv-regression\shader-cost.md`, Markdown to paste into
-an issue; every run's numbers in `shader-cost.json`) shows cold / again / warm
-per case and action, the cold start extra of each run (the spread), the
-warm-up's own duration, and applies the **decision rule, set 2026-10-05 before
-any number was seen**, to cold AND to again (start = first frame + the longest
-pause in the first seconds; extra = that state minus warm):
-
-- **DELETE**: every start extra under 500 ms and no action with a hitch;
-- **KEEP**: any hitch (more than 2 extra late frames, or an extra
-  pause of 250 ms or more, after an action) or a start extra of 1 s or more;
-- **UNCLEAR**: otherwise (a start extra of 0.5-1 s) - judge by eye, a week with
-  `shader_cache-auto=no`;
-- **INCOMPLETE**: a case without a valid run in each state - fix, re-run it
-  (`-Filter`).
-
-The run of 2026-10-05 (RX 9070 XT, mpv issue #39): cold came out KEEP by the
-rule (the worst start +1,061 ms, upscaler switches pausing up to +841 ms longer),
-again DELETE (the worst start +12 ms, no hitch); one of the 35 cases had no valid
-run, so the report said INCOMPLETE. The owner kept the warm-up and removed, the
-same day, what only looked for its gaps: the player's capture log, its learned
-cases and the shader gap hunt. Re-run it after a big driver or libplacebo change.
-
-Before running: close every mpv (the tier refuses otherwise) and every game or
-other program that uses the GPU (their files would keep the driver's cache
-from being set aside or emptied). `-Repeat 1 -Filter 'Anime*'` gives a quick
-look; the decision needs the full run.
-
-## Upscaler benchmark (`upscale-bench/`, Linux, optional)
-
-Not part of `run-tests.ps1`: it answers whether one upscale chain draws a
-better picture than another - against a clean reference, with real x264
-encodes at the 1080p/720p/480p-on-1440p ratios, in mpv's own renderer (the
-pinned Windows build under Wine, on the CPU). For a new model, a new libplacebo
-or a chain change. Setup, use and its traps: `upscale-bench/README.md`;
-the 2026-10-03 results: `doc/history/sessions-2026-10.md`.
 
 ## Adding a test
 

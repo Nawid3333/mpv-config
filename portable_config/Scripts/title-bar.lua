@@ -1,21 +1,21 @@
 -- title-bar.lua - the native Windows title bar and window border in OLED black.
 --
--- 2026-09-26, at the user's request ("make it OLED black"). mpv.conf's
--- border=yes gives mpv the native title bar (for Windows 11 snapping, see
--- there), and mpv colours it by the Windows dark/light setting: dark grey in
--- dark mode. mpv has no option for that colour on Windows (--macos-title-bar-
--- color is macOS only), but Windows 11 (build 22000+) takes a caption, border
--- and caption-text colour per window through DwmSetWindowAttribute. mpv's Lua
--- is LuaJIT, so its FFI calls that in-process: no helper process, and the bar
--- is black from the moment the window exists. On Windows 10 the call fails
--- (E_INVALIDARG) and the bar keeps mpv's own colours - logged, nothing else.
+-- mpv.conf's border=yes gives mpv the native title bar (for Windows 11
+-- snapping, see there), and mpv colours it by the Windows dark/light setting:
+-- dark grey in dark mode. mpv has no option for that colour on Windows
+-- (--macos-title-bar-color is macOS only), but Windows 11 (build 22000+) takes
+-- a caption, border and caption-text colour per window through
+-- DwmSetWindowAttribute. mpv's Lua is LuaJIT, so its FFI calls that
+-- in-process: no helper process, and the bar is black from the moment the
+-- window exists. On Windows 10 the call fails (E_INVALIDARG) and the bar keeps
+-- mpv's own colours - logged, nothing else.
 --
 -- Dark mode is set too, so the minimize/maximize/close glyphs are light on the
--- black bar even with Windows in light mode (mpv sets it from the Windows
--- setting at start; switching the Windows theme while mpv runs makes mpv
--- re-apply the theme's value, which this does not follow).
+-- black bar even with Windows in light mode. If the Windows theme switches
+-- while mpv runs, mpv re-applies the theme's value, which this does not
+-- follow.
 --
--- State for tests and curious users: user-data/title-bar = { applied, hresult }.
+-- State for tests and other scripts: user-data/title-bar = { applied, hresult }.
 
 local mp = require('mp')
 local msg = require('mp.msg')

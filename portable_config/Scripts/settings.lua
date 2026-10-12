@@ -1,59 +1,47 @@
 -- settings.lua - the Settings menu, the Welcome menu (F1), and the settings that
--- differ from PC to PC (2026-10-09, for the one-click install: this config was
--- tuned on one PC - an RX 9070 XT, a 1440p IPS monitor, 63 GB RAM, German as the
--- first language - and those values shipped in mpv.conf as everyone's defaults).
+-- differ from PC to PC.
 --
--- Every choice is shown with what it does now, what was detected or measured,
--- and the recommended one marked; every option stays selectable (the user's
--- rule: "measure but still show the user what will be selected and then give
--- him the option to choose other too"). The menus stay open and show a choice
--- at once.
+-- The menus stay open, mark the recommended choice, and keep every option
+-- selectable.
 --
 --   Settings (right-click menu > Settings, `script-message-to settings open`)
 --   Welcome  (F1, Help, and the first start - Scripts/welcome.lua; `open-welcome`):
---            the same settings on top ("decide in the onboarding", the user,
---            2026-10-09), then every feature with its key.
+--            the same settings on top, then every feature with its key.
 --
 --   Buffering - FastStream's buffer options, with its names, meanings and
---     defaults (2026-10-12; stream-buffer.lua does the buffering): predownload the
---     whole video (on), its maximum size (5 GB), RAM for buffered video (Auto by
+--     defaults (stream-buffer.lua does the buffering): predownload the whole
+--     video (on), its maximum size (5 GB), RAM for buffered video (Auto by
 --     this PC's memory), keep video on disk when that RAM is full (on), seconds
 --     ahead (300) and behind (20). Every number also takes 0 (none) and no limit,
 --     and any value typed in (Custom...). Start and stalls: start at once, or
 --     buffer N seconds first and after a stall (cache-pause-initial/-wait). A
---     seek never waits for it (2026-10-09, see apply_buffer()).
+--     seek never waits for it (see apply_buffer()).
 --   Upscaling quality, screen, Movie sharpness - gpu-toggles.lua owns them (and
 --     ~~state/upscale.json); its items come from user-data/gpu-toggles/quality.
 --   HDR brightness - target-peak while an HDR (PQ/HLG) video plays: the screen's
 --     peak in nits, which the tone mapping aims at. Auto = mpv's own default
 --     (203 nits on an SDR desktop; with Windows HDR on, what the display
 --     reports). SDR video always gets auto: a peak set for every file made SDR
---     ~78 % as bright on the SDR desktop (2026-10-02; this replaced mpv.conf's
---     [hdr-target-peak] profile).
+--     ~78 % as bright.
 --   Subtitle / audio language - mpv's slang / alang. Empty = mpv's own choice:
 --     subtitles in Windows' display language when the audio is another one
 --     (subs-match-os-language), the file's default audio track.
 --
---   The screen (2026-10-09, the user: "when I switch my monitor - 4K, another
---     refresh rate, other HDR - mpv should detect it via Windows, or let me
---     switch the targets manually"): the screen is what Windows reports for the
---     window's monitor (display-width x display-height @ display-fps). Every
---     screen seen is remembered with its own HDR brightness; a new one starts at
---     Auto (a peak tuned for one panel is wrong for the next) and a banner names
---     it, with F1 to check its settings. The upscaling follows the screen by itself
---     (gpu-toggles reads it per action; the shader warm-up warms again for a new size).
+--   The screen - what Windows reports for the window's monitor (display-width x
+--     display-height @ display-fps). Every screen seen is remembered with its own
+--     HDR brightness; a new one starts at Auto (a peak tuned for one panel is
+--     wrong for the next) and a banner names it, with F1 to check its settings.
+--     The upscaling follows the screen by itself (gpu-toggles reads it per action;
+--     the shader warm-up warms again for a new size).
 --
 -- Every setting explains itself in its submenu (a dimmed note on what it does,
 -- a pro or con next to each option); a gear button in the control bar opens the
 -- Settings, right-click the Welcome menu.
 --
 -- Stored per PC in ~~state/settings.json (gitignored). A PC that ran this
--- config before (any state file of it is there) keeps exactly what mpv.conf
--- gave it until then - German, then English, 350 nits, 1 GB, 3 s - so an update
--- changes nothing there; a new install starts from the recommended values. The
--- buffering moved to FastStream's options on 2026-10-12, and there the owner chose
--- to move every PC: the old size became the RAM budget, the rest FastStream's
--- defaults (predownload on, so a stream now goes on disk beyond that RAM).
+-- config before (any state file of it is there) keeps what mpv.conf gave it -
+-- German, then English, 350 nits, 1 GB, 3 s - so an update changes nothing
+-- there; a new install starts from the recommended values.
 local mp = require('mp')
 local msg = require('mp.msg')
 local options = require('mp.options')
@@ -78,7 +66,7 @@ local BUFFERING = {
 	buffer_ahead = 300,
 	buffer_behind = 20,
 }
--- What mpv.conf set for everyone until 2026-10-09 (1 GB: the RAM budget now).
+-- What mpv.conf set for everyone (1 GB: the RAM budget now).
 local LEGACY = { slang = 'de,en', alang = 'de,en', hdr_peak = 350, ram_budget = 1e9, buffer_wait = 3 }
 local DEFAULTS = { slang = '', alang = '', hdr_peak = 'auto', ram_budget = 'auto', buffer_wait = 3 }
 -- Files only a PC that already ran this config has (remember-speed.lua,
@@ -116,7 +104,7 @@ local MAX_SIZES = { 0, 1e9, 2e9, 5e9, 10e9, 20e9, 50e9, -1 }
 local RAM_SIZES = { 0, 150e6, 512e6, 1e9, 2e9, 4e9, 8e9, -1 }
 local AHEADS = { 0, 30, 60, 120, 300, 600, 1800, -1 }
 local BEHINDS = { 0, 20, 60, 300, 1800, -1 }
--- the old Buffering choices (until 2026-10-12) as RAM budgets
+-- the old Buffering choices, as RAM budgets
 local OLD_BUFFERS = { small = 150e6, medium = 512e6, large = 1e9, xlarge = 2e9, whole = 'auto', auto = 'auto' }
 local WAITS = { 0, 3, 5, 10 }
 
@@ -244,7 +232,7 @@ do
 	settings.slang = valid_lang(src.slang) or base.slang
 	settings.alang = valid_lang(src.alang) or base.alang
 	settings.hdr_peak = valid_peak(src.hdr_peak) or base.hdr_peak
-	-- the old Buffering choice (until 2026-10-12) is the RAM budget now
+	-- the old Buffering choice is the RAM budget now
 	local old = OLD_BUFFERS[src.buffer]
 	settings.ram_budget = valid_ram(src.ram_budget) or old or base.ram_budget
 	settings.download_all = valid_bool(src.download_all)
@@ -314,15 +302,14 @@ local function apply_languages()
 	mp.set_property('alang', settings.alang)
 end
 
--- A seek starts at once (2026-10-09, the user: "when I skip to a certain part of
--- a video, then the video doesn't play immediately"). cache-pause-initial holds
--- playback after EVERY seek, not only at a file's start: mpv clears
--- restart_complete on each seek (player/playloop.c, reset_playback_state()), and
--- handle_update_cache() then waits for cache-pause-wait seconds of buffer
--- whenever fewer are read - on a stream, each jump past what is downloaded
--- waited until 3 s more had arrived. So the initial wait is on until this
--- file's first start (playback-restart) and off from then on. A stall still
--- waits cache-pause-wait seconds: that path needs no cache-pause-initial.
+-- A seek starts at once. cache-pause-initial holds playback after EVERY seek,
+-- not only at a file's start: mpv clears restart_complete on each seek
+-- (player/playloop.c, reset_playback_state()), and handle_update_cache() then
+-- waits for cache-pause-wait seconds of buffer whenever fewer are read - on a
+-- stream, a seek past what is downloaded stalled until enough had arrived. So
+-- the initial wait is on until this file's first start (playback-restart) and
+-- off from then on. A stall still waits cache-pause-wait seconds: that path
+-- needs no cache-pause-initial.
 local started = false -- this file has started: its next restarts are seeks
 local function apply_initial_wait()
 	mp.set_property('cache-pause-initial', (settings.buffer_wait > 0 and not started) and 'yes' or 'no')
@@ -380,8 +367,8 @@ local function screen_from(w, h, fps)
 	}
 end
 
--- The HDR brightness for the screen the window is on (before one is known: the
--- value from before the screens were remembered).
+-- The HDR brightness for the screen the window is on; when no screen is known:
+-- the PC-wide setting.
 local function screen_hdr_peak()
 	local sc = current_screen and settings.screens[current_screen.key]
 	if sc and sc.hdr_peak then
@@ -1120,9 +1107,9 @@ mp.register_script_message('custom', function(key)
 		notify('Typing a value needs a newer mpv', 'mp.input (mpv 0.38+)', 4)
 		return
 	end
-	-- The menu goes while the line is open, and comes back when it closes (Enter or
-	-- Esc): an open uosc menu has keys of its own (type to search), and on CI they
-	-- took what was typed (2026-10-12).
+	-- The menu closes while the line is open, and comes back when it closes (Enter
+	-- or Esc): an open uosc menu has key bindings of its own (type to search),
+	-- which would take what is typed.
 	local reopen = open_type
 	if reopen then
 		mp.commandv('script-message-to', 'uosc', 'close-menu')
@@ -1165,18 +1152,17 @@ mp.register_script_message('menu-closed', function(kind)
 end)
 
 -- ---- the screen, as Windows reports it ------------------------------------------------------
--- A screen seen for the first time is remembered; the very first one takes the HDR
--- brightness from before (a PC from before keeps its 350 nits), any later one starts
--- at Auto and is announced.
+-- A screen seen for the first time is remembered; the very first one takes the
+-- PC-wide HDR brightness, any later one starts at Auto and is announced.
 local screen_retry = nil
 local function screen_seen(w, h, fps, tries)
 	local sc = screen_from(w, h, fps)
 	if not sc or (current_screen and current_screen.key == sc.key) then
 		return
 	end
-	-- The refresh rate can come a moment after the size (review, 2026-10-09):
-	-- "2560x1440@0" would be remembered as a screen of its own, and the real
-	-- "2560x1440@144" announced as new with its HDR brightness back at Auto.
+	-- The refresh rate can arrive a moment after the size: "2560x1440@0" would be
+	-- remembered as a screen of its own, and the real "2560x1440@144" announced as
+	-- new with its HDR brightness back at Auto.
 	local size = sc.key:match('^(%d+x%d+)@')
 	if sc.key:match('@0$') then
 		for key, known in pairs(settings.screens) do

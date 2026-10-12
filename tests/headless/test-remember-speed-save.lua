@@ -1,4 +1,4 @@
--- remember-speed.lua, process 1 of 2: choose a speed, then quit. The runner
+-- remember-speed.lua, process 1 of 3: choose a speed, then quit. The runner
 -- starts a FRESH mpv for test-remember-speed-restore.lua, which asserts the
 -- speed came back (AGENTS.md validation item 6a: an in-process check cannot
 -- tell "restored" from "still set in this process").

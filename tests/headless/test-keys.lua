@@ -60,7 +60,9 @@ H.run(function()
 
 	local mute = mp.get_property_native('mute')
 	H.key('m')
-	H.check('m toggles mute', mp.get_property_native('mute') ~= mute)
+	H.expect('m toggles mute', function()
+		return mp.get_property_native('mute')
+	end, not mute)
 	H.key('m')
 
 	-- Keys this config deliberately unbinds (mpv defaults they replaced).

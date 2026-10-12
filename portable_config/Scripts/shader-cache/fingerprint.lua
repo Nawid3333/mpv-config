@@ -4,44 +4,29 @@
 -- require(): warmup.lua runs as a plain --script, outside this folder's
 -- module path.
 --
--- What makes cached shaders stale, measured 2026-09-26 (AGENTS.md has the
--- numbers): mpv's cache (portable_config/cache, shader_<16 hex> files) holds
--- two kinds of object - SPIR-V compiled from libplacebo's GLSL, keyed by that
--- GLSL, and the GPU driver's finished binaries (Vulkan pipeline cache blobs,
--- stamped with the driver's pipelineCacheUUID). So:
---   libplacebo version - new GLSL, new SPIR-V (an mpv update that keeps
---                        libplacebo, like 20260925 -> 20260926, compiled
---                        nothing: 0 of 80 warm-up steps)
+-- What makes cached shaders stale: mpv's cache (portable_config/cache,
+-- shader_<16 hex> files) holds two kinds of object - SPIR-V compiled from
+-- libplacebo's GLSL, keyed by that GLSL, and the GPU driver's finished
+-- binaries (Vulkan pipeline cache blobs, stamped with the driver's
+-- pipelineCacheUUID). So:
+--   libplacebo version - new GLSL, new SPIR-V
 --   display driver     - every binary blob is rejected; the driver recompiles
 --   the cache folder   - deleted or thinned out
 --   shaders + gpu-toggles.lua - what the chains are made of
---   mpv itself         - its render settings could change a pass; only a quick
---                        check (3 clips, ~1 s), escalating if anything compiled.
---                        A daily build of the same mpv commit (same version
---                        string, new FFmpeg only) triggers nothing.
+--   mpv itself         - its render settings could change a pass; a quick
+--                        check, escalating if anything compiled. A rebuild
+--                        with only a new FFmpeg keeps the version string and
+--                        triggers nothing.
 -- Nothing else starts a warm-up: not a restart, a new video, a reboot or
 -- resetting AMD's own shader cache.
 -- AMD's own driver cache (%LOCALAPPDATA%\AMD\VkCache) is a second layer that
--- mpv does not control: with mpv's blobs removed it still answered every
--- pipeline in ~0.14 ms. Resetting it alone therefore costs mpv nothing.
+-- mpv does not control; resetting it alone costs mpv nothing.
 local utils = require('mp.utils')
 
 local M = {}
 
--- Bump when warmup.lua's clip matrix or way of drawing changes, so every cache
--- is re-warmed.
--- 2 (2026-09-26): each step also plays a few frames (warmup.lua play_frames).
--- 3 (2026-10-02): a full warm-up also replays the learned cases (cases.lua);
--- the bump re-warms once, with the cases imported from the capture log.
--- 4 (2026-10-02): a full warm-up also replays shipped-cases.lua, the gaps the
--- tests' gap hunt (run-tests.ps1 -Tier gaps) measured: HDR10, HLG, P3, film
--- grain, stills, 1:1 windows, 8K, the menu's video settings.
--- No bump on 2026-10-05, when the learned cases were removed: the warm-up then
--- draws less, and a cache warmed with them still holds everything it draws.
--- 5 (2026-10-09): every clip also with quality Fast (Anime4K's Fast set, Movie
--- without FSRCNNX), and clip sizes for the branches the standard ones miss on
--- this screen (warmup.lua add_screen_runs); the stamp records the screen.
--- 6 (2026-10-10): shipped-cases.lua draws the 14-tap downscale step (x0.15).
+-- Bump when warmup.lua's clip matrix or way of drawing changes, so every
+-- cache is re-warmed.
 M.WARMUP_VERSION = 6
 
 -- The stamp and the control files live in the cache folder itself, so
@@ -98,9 +83,10 @@ local function hash(s)
 	return string.format('%08x', h)
 end
 
--- The files the chains are built from, and mpv.conf. Name + size + mtime, not content: git
--- rewrites a file only when its content changes, and names (not full paths)
--- keep a copied config (tests/run-tests.ps1) matching the original.
+-- The files the chains are built from, and mpv.conf. Name + size + mtime,
+-- not content: git only rewrites a file when its content changes, and names
+-- (not full paths) keep a copied config (tests/run-tests.ps1) matching the
+-- original.
 local function config_signature()
 	local shaders = mp.command_native({ 'expand-path', '~~/shaders' })
 	local names = utils.readdir(shaders, 'files') or {}
@@ -112,8 +98,8 @@ local function config_signature()
 		end
 	end
 	files[#files + 1] = mp.command_native({ 'expand-path', '~~/Scripts/gpu-toggles.lua' })
-	-- Its render options (scale, deband, target-peak, ...) change the passes of every
-	-- chain (2026-10-02: an edit to it triggered no check at all).
+	-- Its render options (scale, deband, target-peak, ...) change the passes
+	-- of every chain.
 	files[#files + 1] = mp.command_native({ 'expand-path', '~~/mpv.conf' })
 	local parts = {}
 	for _, path in ipairs(files) do
@@ -125,7 +111,7 @@ local function config_signature()
 	return hash(table.concat(parts, ';'))
 end
 
--- Every display adapter's driver version (reg.exe, ~25 ms). Unknown when the
+-- Every display adapter's driver version, from the registry. Unknown when the
 -- query fails - then it simply never differs.
 local DISPLAY_CLASS = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}'
 local function query_driver(cb)

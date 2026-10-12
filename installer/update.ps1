@@ -47,9 +47,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 # A download that stalls halfway: Windows PowerShell 5.1 gives up after 300 s without data by
-# itself, PowerShell 7 waited for ever (-TimeoutSec does not cover the body; measured
-# 2026-10-10). Its -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for
-# 120 s; a slow download that keeps coming is not cut.
+# itself, PowerShell 7 waits for ever (-TimeoutSec does not cover the body). Its
+# -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for 120 s; a slow
+# download that keeps coming is not cut.
 $StallLimit = if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('OperationTimeoutSeconds')) { @{ OperationTimeoutSeconds = 120 } } else { @{} }
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $Root = (Resolve-Path -LiteralPath $Root).Path
@@ -70,7 +70,7 @@ if ($git) {
     try {
         $inside = & $git.Source -C $Root rev-parse --is-inside-work-tree 2>$null
         # A folder INSIDE another repository (a home folder kept in git) answers "true"
-        # too, and git pull pulled that one (glm's review, 2026-10-12): only the folder's
+        # too, and git pull would pull that one: only the folder's
         # own work tree counts - its prefix is empty only at the top. No path comparison:
         # git names the top by its long path, $Root can be an 8.3 one (CI's TEMP).
         if ($inside -eq 'true') {

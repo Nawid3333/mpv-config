@@ -1,13 +1,6 @@
 -- cases.lua - the clips of the shipped warm-up cases (shipped-cases.lua): how
 -- warmup.lua makes each one with mpv's own encoder, and how it names a case in
 -- its RESULT lines and progress. Loaded with dofile(), like fingerprint.lua.
---
--- History: from 2026-10-02 to 2026-10-05 it also held the LEARNED cases - every
--- shader real playback still compiled, recorded by main.lua's capture into
--- ~~state/shader-cases.json and replayed by each full warm-up. The owner's
--- measurement (mpv issue #39) kept the warm-up and removed the capture and the
--- learned cases; a leftover shader-cases.json or shader-misses.log is no longer
--- read. Clip names are unchanged, so clips made before stay valid.
 
 local M = {}
 
@@ -48,9 +41,8 @@ local LEVELS = { limited = 'tv', full = 'pc' }
 ---   matrix, primaries, gamma, levels    colour tags, mpv's names
 ---   sar        pixel aspect ('64/45': anamorphic)
 ---   grain      AV1 film grain (libsvtav1 only)
---- Returns the lavfi source, encoder options and a file name naming exactly
---- that recipe (sar/grain only added when set, so clips made before stay
---- valid).
+--- Returns the lavfi source, encoder options and a name for exactly that
+--- recipe (sar/grain only added when set, so clips made before stay valid).
 ---@param clip table
 ---@return table|nil {source, ovc, ovcopts, name}
 function M.clip_recipe(clip)
@@ -75,7 +67,7 @@ function M.clip_recipe(clip)
 		params[#params + 1] = 'range=' .. LEVELS[clip.levels]
 	end
 	-- primaries and transfer: mpv's encoder drops them from the frames, but
-	-- passes them on as encoder options (measured: ffprobe and mpv agree)
+	-- passes them on as encoder options
 	if PRIMARIES[clip.primaries] then
 		params[#params + 1] = 'color_primaries=' .. PRIMARIES[clip.primaries]
 		opts[#opts + 1] = 'color_primaries=' .. PRIMARIES[clip.primaries]
@@ -111,7 +103,7 @@ function M.clip_recipe(clip)
 	return { source = source, ovc = clip.codec, ovcopts = table.concat(opts, ','), name = name }
 end
 
---- The same for a shipped case (shipped-cases.lua): its clip and what it sets.
+--- Description of a shipped case (shipped-cases.lua): its clip and what it sets.
 function M.describe_shipped(c)
 	local k = c.clip or {}
 	local extras = {}

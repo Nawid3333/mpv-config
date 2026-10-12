@@ -44,11 +44,8 @@ suite checks every feature.
   rebuilt from luma (CfL), and adaptive sharpening runs at an automatic
   strength.
 - Both were picked by scoring against original clean footage (PSNR, SSIM,
-  VMAF, edge sharpness and halo). The harness is in
-  [`tests/upscale-bench/`](tests/upscale-bench/) and the numbers are in the
-  comment above `UPSCALE_ANIME` in
-  [`gpu-toggles.lua`](portable_config/Scripts/gpu-toggles.lua). Settings that
-  lost, and why, are recorded there too.
+  VMAF, edge sharpness and halo). The numbers, and the settings that lost and
+  why, are in [`doc/history/`](doc/history/).
 - Local files play without shaders until you pick a preset. Streams from
   FastStream (below) pick one automatically.
 
@@ -404,9 +401,10 @@ static + headless on every push. See [`tests/README.md`](tests/README.md).
 
 ## For contributors and AI agents
 
-[`AGENTS.md`](AGENTS.md) holds detailed engineering notes: every feature,
-why it is built that way, what was measured and what was rejected.
-[`doc/history/`](doc/history/) has the session logs behind them.
+[`AGENTS.md`](AGENTS.md) is the short handoff: how the parts fit together,
+the rules for changing them and the decisions not to undo.
+[`doc/history/`](doc/history/) has the detailed notes behind them: what was
+measured, what was tried and rejected, and why.
 
 This repository is a published copy of a private workspace. It is updated
 automatically after each change passes the tests, and every update is checked

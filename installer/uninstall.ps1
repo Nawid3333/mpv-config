@@ -50,9 +50,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # A native program's output, stderr included. Windows PowerShell 5.1 turns every stderr
-# line into a terminating error under 'Stop' once 2>&1 redirects it (checked
-# 2026-10-09: a single warning from mpv, 7-Zip or FastStream's install.ps1 ended the
-# install); the exit code decides here.
+# line into a terminating error under 'Stop' once 2>&1 redirects it (one warning from
+# mpv, 7-Zip or FastStream's install.ps1 would end the install); the exit code decides.
 function Invoke-Native([string]$Exe, [string[]]$Arguments) {
     $ErrorActionPreference = 'Continue'
     $out = @(& $Exe @Arguments 2>&1 | ForEach-Object { "$_" })

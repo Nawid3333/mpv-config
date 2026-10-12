@@ -18,26 +18,24 @@
 -- Keys while open: Left/Right subtitles -+0.05 s, Shift+Left/Right audio -+0.05 s,
 -- Enter (or t) keeps both, Esc puts both back to what they were when it opened.
 --
--- Where the data comes from (all measured 2026-09-27, see AGENTS.md):
+-- Where the data comes from:
 --   - Audio: a second mpv (mpv.exe itself, --no-config, no window, no sound)
 --     decodes 30 s of the selected audio track around the view and prints its
 --     loudness every 20 ms (lavfi astats -> ametadata). It uses the same
 --     demuxer and timeline as the player, so a beep at 3.00 s in the file is
 --     drawn at 3.00 s - also for mkv/mp4 whose audio starts later than the
---     video and MPEG-TS with a non-zero start (checked: identical to a
---     playing mpv with the video on). Speech band only (200 Hz - 4 kHz),
---     and on 5.1 the centre channel, where films put the dialogue. ~0.2 s per
---     30 s of a local film; a stream is fetched again for it (same headers).
+--     video and MPEG-TS with a non-zero start. Speech band only (200 Hz - 4 kHz),
+--     and on 5.1 the centre channel, where films put the dialogue. A stream
+--     is fetched again for it (same headers).
 --   - Subtitles: mpv's `sub-lines` (the lines in memory, times without
 --     sub-delay). For an external file (.srt/.ass/.vtt..., also a URL) that is
 --     every line, parsed by mpv itself. For a track INSIDE the video it is only
 --     what has been read so far (a seek drops the rest), so an embedded text
 --     track is extracted in full with ffmpeg (next to mpv.exe or on PATH).
---     Without ffmpeg (not shipped: the row says where to put one), and for
---     tracks inside a stream, the row collects the lines as playback reads
---     them (a few seconds ahead); picture subtitles
---     (PGS/DVD) have no text list, so their lines appear as they are shown
---     (sub-start/sub-end).
+--     Without ffmpeg (the row says where to put one), and for tracks inside a
+--     stream, the row collects the lines as playback reads them (a few seconds
+--     ahead); picture subtitles (PGS/DVD) have no text list, so their lines
+--     appear as they are shown (sub-start/sub-end).
 -- FastStream's extras that are not ported: its voice-activity model (an ONNX
 -- network in the browser) - the speech band is the stand-in - and its
 -- per-line editor (subEditMode).
@@ -346,7 +344,7 @@ local function load_subs()
 	end
 	local ffmpeg = find_ffmpeg()
 	if not ffmpeg then
-		-- the hint: ffmpeg is not shipped (his decision, 2026-10-10); one put there is found
+		-- the hint: ffmpeg is not shipped; one put there is found
 		go_live(key, 'no ffmpeg: lines appear as they are read · put ffmpeg.exe next to mpv.exe to read them all')
 		return
 	end
@@ -477,10 +475,9 @@ local function reset_audio(key)
 	}
 end
 
--- The loudness range drawn: from the 10th to the 99.5th percentile of what was
--- measured (digital silence left out), at least 24 dB - so a quiet anime mix
--- and a loud film both fill the row, and a clip of beeps in digital silence
--- (the tests) still shows its beeps.
+-- The loudness range drawn: 10th to 99.5th percentile of what is measured
+-- (digital silence left out), at least 24 dB - so a quiet mix and a loud film
+-- both fill the row, and beeps in digital silence still show.
 local function renormalize()
 	local values = {}
 	for _, v in pairs(audio.bins) do
@@ -549,8 +546,7 @@ local function analyser_args(src, t0, t1)
 		string.format('--end=%.3f', t1),
 		'--af=lavfi=[' .. graph .. ']',
 	}
-	-- a stream: the same headers the player used (the FastStream host and
-	-- ytdl_hook set them)
+	-- a stream: reuse the headers the player fetched the stream with
 	for _, field in ipairs(mp.get_property_native('http-header-fields') or {}) do
 		args[#args + 1] = '--http-header-fields-append=' .. field
 	end
@@ -746,7 +742,7 @@ local function rect(x0, y0, x1, y1, color, clip)
 end
 
 -- the panel itself: rounded like uosc's menus and notify.lua's banners
--- (uosc.conf border_radius 6), with the banners' hairline edge (2026-10-02)
+-- (uosc.conf border_radius 6), with the banners' hairline edge
 local RADIUS = 6
 local function panel_box(x0, y0, x1, y1, radius)
 	local path = assdraw.ass_new()
@@ -1213,7 +1209,7 @@ mp.set_key_bindings({
 		on_press,
 		on_release,
 	},
-	{ 'mbtn_left_dbl', function() end }, -- not fullscreen (input.conf) inside the panel
+	{ 'mbtn_left_dbl', function() end }, -- so input.conf's fullscreen double click does not fire inside the panel
 	{
 		'wheel_up',
 		function()
@@ -1250,15 +1246,14 @@ local KEYS = {
 	{ 'Shift+right', NUDGE, 'audio-delay' },
 }
 
--- quiet: no banner (the file ended: auto-start.lua has set both delays back to 0 by then,
--- and "Sync kept, +0.00 s" came after every file the panel was open on)
+-- quiet: no banner at end of file (auto-start.lua has set both delays back to 0 by then)
 local function close(revert, quiet)
 	if not active then
 		return
 	end
 	active = false
-	-- a drag of the time row paused playback, and only the button coming up played on:
-	-- closed before that (Esc, Enter, t, the file's end), mpv stayed paused
+	-- a time-row drag pauses playback; the release normally unpauses, but the
+	-- panel can close first (Esc, Enter, t, the file's end) - unpause here
 	if drag and drag.moved and drag.row == 'time' and not drag.was_paused then
 		mp.set_property_native('pause', false)
 	end

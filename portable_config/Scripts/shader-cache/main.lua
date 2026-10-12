@@ -3,10 +3,7 @@
 -- warm-up, a new mpv alone a quick check - the cache folder cleared, shaders or
 -- presets changed; fingerprint.lua has the list) it is rebuilt IN THE BACKGROUND
 -- while the video plays, with a small progress bar top right. Nothing blocks:
--- the video starts as it always did.
---
--- History (2026-09-26): first built as a full-screen step before the video
--- (~45 s, then ~18 s); the user asked for no blocking and a small bar instead.
+-- the video starts normally.
 --
 -- Every start: fingerprint.lua compares the stamp in the cache folder with the
 -- current libplacebo version, display driver version (reg.exe, ~25 ms, no
@@ -17,19 +14,13 @@
 -- is not slowed), host.ps1 runs warmup.lua in a second mpv embedded in a window
 -- that is never shown (host.ps1 says why each simpler way failed), at below-
 -- normal priority, its clips paused except for a few stepped and played frames
--- per chain, so the GPU stays nearly idle. The chain the video uses compiles itself on its
--- first frame, as it always did; the warm-up covers every other chain and
--- scale tier, so a later switch or the next video does not hitch. Quitting
--- mpv ends the warm-up with it (it runs again next start). A failed or
--- timed-out one is not retried for the same fingerprint (shader-warmup.failed)
--- - installer\warm-shader-cache.ps1 runs it on request.
---
--- History (2026-10-05): from 2026-09-26 the player also noted every shader real
--- playback still compiled (shader-misses.log), and from 2026-10-02 learned each
--- such gap as a case the warm-up replayed (cases.lua, shader-cases.json). The
--- owner's measurement (tests/run-tests.ps1 -Tier shadercost, mpv issue #39)
--- kept the warm-up and removed both: the fixed matrix plus shipped-cases.lua
--- is what the warm-up draws.
+-- per chain, so the GPU stays nearly idle. The chain the video uses compiles
+-- itself on its first frame; the warm-up covers every other chain and scale
+-- tier, so a later switch or the next video does not hitch. Quitting mpv ends
+-- the warm-up with it (it runs again next start). A failed or timed-out one is
+-- not retried for the same fingerprint (shader-warmup.failed);
+-- installer\warm-shader-cache.ps1 runs it on request. The warm-up draws its
+-- clips from the fixed matrix plus shipped-cases.lua.
 --
 -- State for tests and curious users: user-data/shader-cache.
 local utils = require('mp.utils')
@@ -72,7 +63,7 @@ end
 
 -- ---- the bar, top right -----------------------------------------------------------
 -- A Scripts/notify.lua banner with a progress line: notify draws every message
--- in this design (it started here), so they stack instead of overlapping.
+-- in this design, so they stack instead of overlapping.
 
 local function show_bar(title, detail, frac, hide_after)
 	mp.commandv(
@@ -147,9 +138,8 @@ local function read_progress()
 	local frac = done / total
 	info.progress = { done = done, total = total, detail = detail }
 	publish()
-	-- A quick check that compiles nothing shows nothing (2026-10-02: every mpv
-	-- update started with "Checking shaders" and "Shaders up to date"); the bar
-	-- appears once it turns into compiling.
+	-- A quick check that compiles nothing shows no bar; the bar appears once it
+	-- turns into compiling.
 	if title == 'Checking shaders' then
 		return
 	end
@@ -172,8 +162,7 @@ end
 
 -- warmup.lua's own failure exits (its header): setup, timeout, stamp. Its 6
 -- ("steps never drawn": a minimized window, a locked screen) is the moment's,
--- not the cache's: retried like an interruption since 2026-10-02 (it used to
--- count as failed for good, and nothing said so).
+-- not the cache's: retried like an interruption.
 local WARMUP_FAILURES = { [2] = true, [3] = true, [4] = true }
 
 local function finished(res)
@@ -267,7 +256,6 @@ local function start_warmup()
 		'--script=' .. script,
 		'--priority=belownormal',
 		-- a stepped frame shows at once instead of after its 24 fps slot
-		-- (measured: 92 ms per frame-step without it, 240 steps = 21 s)
 		'--untimed',
 		'--ao=null',
 		'--force-window=yes',
@@ -320,9 +308,9 @@ local function start_warmup()
 		finished(res)
 	end)
 	poll = mp.add_periodic_timer(0.25, read_progress)
-	-- Its own job only: a finished warm-up's timer fired into the next one (a
-	-- "Rebuild shaders" within opts.timeout of it), aborted it as a timeout and
-	-- left the cache empty (2026-10-02). finished() kills it too.
+	-- Guards its own job only: a stale timer from a finished warm-up could fire
+	-- into the next one (a "Rebuild shaders" within opts.timeout of it), abort
+	-- it as a timeout and leave the cache empty. finished() kills it too.
 	local this_job = job
 	job_timeout = mp.add_timeout(opts.timeout, function()
 		if job and job == this_job and not stop_reason then
@@ -336,8 +324,7 @@ end
 
 -- The warm-up waits for the first video to be playing (a stream's buffering,
 -- decoder start and its own first compile go first). mpv opened with nothing
--- to play has no start to keep clear: it warms after a moment of idle (the
--- user opened an empty mpv, saw no bar and asked for exactly this).
+-- to play has no start to keep clear: it warms after a moment of idle.
 local playing = false
 local function when_playing()
 	mp.add_timeout(opts.start_delay, start_warmup)
@@ -350,11 +337,11 @@ local function when_idle()
 		end
 	end)
 end
--- The screen the cache was warmed on (2026-10-09): which branches of the chains a
--- clip reaches depends on it, and warmup.lua adds clip sizes for the branches the
--- standard ones miss there. Known only once the window is up, so it is compared at
--- the first playback start, not with the rest. A stamp without a screen (written
--- before, or by a warm-up without one) never differs.
+-- The screen the cache was warmed on: which branches of the chains a clip
+-- reaches depends on it, and warmup.lua adds clip sizes for the branches the
+-- standard ones miss there. Known only once the window is up, so it is compared
+-- at the first playback start, not with the rest. A stamp without a screen
+-- (written before, or by a warm-up without one) never differs.
 local function screen_changed()
 	local stamp = fingerprint.read(fingerprint.STAMP)
 	local w, h = mp.get_property_number('display-width'), mp.get_property_number('display-height')
@@ -366,8 +353,7 @@ end
 
 local function check_screen()
 	-- a warm-up that failed for this fingerprint is not retried for a new screen
-	-- either, as for every other reason (review, 2026-10-09: it started again at
-	-- every start); Rebuild shaders in the menu still runs it
+	-- either, as for every other reason; Rebuild shaders in the menu still runs it
 	if fingerprint.same(fingerprint.read(fingerprint.FAILED), fp) then
 		return
 	end
@@ -413,8 +399,7 @@ fingerprint.collect(function(result)
 				.. check.reasons
 				.. ') but the last warm-up failed - Upscale menu > Rebuild shaders tries again'
 		)
-		-- Said once on screen, at the first start after the failure (2026-10-02: it
-		-- was only in a log that a normal start does not write).
+		-- Said once on screen, at the first start after the failure.
 		if failed.told ~= 'yes' then
 			show_bar('Shaders not compiled', 'the last attempt failed - Upscale menu > Rebuild shaders', 1, 6)
 			fingerprint.write(fingerprint.FAILED, fp, nil, { told = 'yes' })

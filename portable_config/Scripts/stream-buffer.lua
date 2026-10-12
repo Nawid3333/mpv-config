@@ -1,14 +1,13 @@
--- stream-buffer.lua - how a stream is buffered, the way FastStream does it
--- (2026-10-12, at the user's request: "give it the same configurable settings like
--- FastStream has ... so I have the same choices of freedom and even can decide no
--- RAM or no disk or no nothing"). The settings are FastStream's, with its names,
--- meanings and defaults; settings.lua shows them (Settings > Buffering), keeps them
--- in settings.json and publishes them as user-data/settings/buffering:
+-- stream-buffer.lua - how a stream is buffered, the way FastStream does it.
+-- The settings are FastStream's, with its names, meanings and defaults; settings.lua
+-- shows them (Settings > Buffering), keeps them in settings.json and publishes them
+-- as user-data/settings/buffering:
 --
 --   download_all   Predownload the whole video (on). Stops at max_video_size.
 --   max_video_size Bytes predownloaded at most (5 GB; 0 = nothing predownloaded,
---                  only buffer_ahead; -1 = no limit). Never more than 60 % of the
---                  temp drive's free space, as FastStream.
+--                  only buffer_ahead; -1 = no limit). Going to disk, never more
+--                  than 60 % of the temp drive's free space, as FastStream; in RAM
+--                  only, never more than the RAM budget.
 --   ram_budget     Bytes of the video kept in RAM (Auto by the PC's memory; 0 = none;
 --                  -1 = no limit, all in RAM).
 --   buffer_to_disk Beyond the RAM budget the video goes on disk (on); off: nothing is
@@ -19,17 +18,16 @@
 --                  dropped at once; -1 = all). While the whole video is predownloaded
 --                  nothing is trimmed (FastStream keeps a video that fits).
 --
--- How mpv does it (measured 2026-10-11 on the pinned build with a 61-minute, 2.9 GB
--- HLS stream; see the PR): a stream starts in RAM (demuxer-max-bytes). Just BEFORE
--- the RAM budget is full, cache-on-disk is switched on: the RAM part stays, new
--- packets go to a temp file in %TEMP% and count only their metadata (~70 MB per
--- hour of video) against demuxer-max-bytes, which is raised at the switch and again
--- whenever the metadata nears it - unraised, reading stopped just past the RAM part.
--- Before, not at, the limit: a demuxer that sits idle at its limit reads its new
--- options only when playback takes a packet, i.e. not while paused. So the RAM
--- limit itself sits HEADROOM above the budget, and the switch comes a margin below
--- it (a burst can take the RAM up to HEADROOM past the budget). Predownload =
--- cache-secs at mpv's own "no limit"; a window = cache-secs at buffer_ahead.
+-- How mpv does it: a stream starts in RAM (demuxer-max-bytes). Just BEFORE the RAM
+-- budget is full, cache-on-disk is switched on: the RAM part stays, new packets go
+-- to a temp file in %TEMP% and count only their metadata against demuxer-max-bytes.
+-- That limit is raised at the switch and again whenever the metadata nears it -
+-- unraised, reading stops just past the RAM part. The switch must come before, not
+-- at, the limit: a demuxer sitting idle at its limit reads its new options only
+-- when playback takes a packet, i.e. not while paused. So the RAM limit sits
+-- HEADROOM above the budget, and the switch comes a margin below it (a burst can
+-- take the RAM up to HEADROOM past the budget). Predownload = cache-secs at mpv's
+-- own "no limit"; a window = cache-secs at buffer_ahead.
 -- The temp file is unlinked as soon as it is made (mpv's default
 -- demuxer-cache-unlink-files=immediate): not visible while in use, and gone when
 -- the video closes, even after a crash. It only grows (mpv reuses no space in it),
@@ -40,16 +38,8 @@
 -- no cost, mpv's temp file keeps what it read until the video closes anyway.
 -- A live stream (no duration, or a growing one, for 3 s) has no end to predownload
 -- to: a window.
---
--- Reviews (2026-10-12, deepseek-v4.1-flash and glm-5.3-flash through the PC's
--- Ollama): the headroom above the switch and a margin from the fastest growth, the
--- metadata limit raised again, the disk guard, the live check over several ticks
--- (it decided on the first), a floor for reading ahead with RAM only and its limit
--- lowered at once, no free-space cap when nothing goes to disk, and a local file's
--- ahead + behind within the budget came from them. With buffer_ahead at no limit
--- the maximum size stops nothing: FastStream's rule ("the whole video is
--- downloaded ahead, even with predownload off").
---
+-- With buffer_ahead at no limit the maximum size stops nothing: FastStream's rule
+-- ("the whole video is downloaded ahead, even with predownload off").
 -- Not in mpv (FastStream has them): a download speed limit and the number of
 -- downloads at the same time. A local file is read from its own disk: it gets
 -- mpv's default 150 MB ahead / 50 MB behind, both within the RAM budget, and never
@@ -59,7 +49,7 @@ local msg = require('mp.msg')
 local options = require('mp.options')
 
 local opts = {
-	-- tests: a local file is buffered as a stream (no test serves HTTP)
+	-- for tests: a local file is buffered as a stream (no test serves HTTP)
 	local_is_stream = false,
 	-- MB the RAM limit sits above the budget; the tests take 0, so that a local file
 	-- (read at once) reaches the limit and the demuxer's wake-up after the switch is seen
@@ -217,7 +207,7 @@ local function rate()
 end
 
 -- RAM only: what stays for reading ahead, whatever is kept behind (at most half the
--- budget): 10 s of the stream - 4 MB were under a second of a 60 Mbps stream.
+-- budget): 10 s of the stream - the 4 MB floor is under a second of a 60 Mbps stream.
 local function ahead_floor(st)
 	return math.max(MIN_AHEAD, math.min(st.R / 2, AHEAD_FLOOR_SECS * rate()))
 end
@@ -249,8 +239,8 @@ local function update_back(st)
 end
 
 -- Seconds ahead, as mpv's options. 0 is 0 and only no limit (-1, an empty field) is
--- none (the owner's rule, 2026-10-12): cache-secs 0 still left mpv's own 1 s read-ahead
--- (demuxer-readahead-secs), so that goes to 0 too.
+-- none: cache-secs 0 still leaves mpv's own 1 s read-ahead (demuxer-readahead-secs),
+-- so that goes to 0 too.
 local function set_ahead(seconds)
 	fset('cache-secs', tostring(seconds < 0 and HUGE_SECS or seconds))
 	if seconds == 0 then
@@ -314,7 +304,7 @@ local function tick()
 		grow = math.max(total - st.last_total, 0) / (now - st.last_time)
 	end
 	st.last_total, st.last_time = total, now
-	-- the fastest growth seen: a burst after a quiet tick is covered too (glm's review)
+	-- the fastest growth seen: a burst after a quiet tick is covered too
 	st.max_grow = math.max(st.max_grow or 0, grow)
 	st.ticks = (st.ticks or 0) + 1
 
@@ -327,10 +317,9 @@ local function tick()
 	st.downloaded = st.ram + st.disk_bytes
 
 	-- live: for LIVE_TICKS ticks in a row no duration, or one that grows. mpv reports
-	-- the cached end as the duration of a source that has none (measured: an endless
-	-- lavfi source said 1.96 s after 2 s), so "no duration" alone never came; a VOD's
-	-- duration stands still from its start. Decided once: a paused live stream stops
-	-- growing too, and switching back would only flip between the two.
+	-- the cached end as the duration of a source that has none, so "no duration" alone
+	-- never appears; a VOD's duration stands still from its start. A paused live
+	-- stream stops growing too, and switching back would only flip between the two.
 	local dur = mp.get_property_native('duration')
 	if total > 0 and (dur == nil or (st.last_dur and dur > st.last_dur + 0.01)) then
 		st.live_ticks = (st.live_ticks or 0) + 1
@@ -364,9 +353,8 @@ local function tick()
 		end
 	end
 	if ram_only(st) and not st.disk_full then
-		-- RAM only: ahead + behind within the budget (mpv limits the two apart)
-		-- lower at once, raise only by more than 5 % (a stale limit let RAM drift over the
-		-- budget - glm's review)
+		-- RAM only: ahead + behind within the budget (mpv limits the two apart);
+		-- lower at once, raise only by more than 5 %
 		local ahead = math.max(st.R - (total - fw), ahead_floor(st))
 		if not st.fw_limit or ahead < st.fw_limit or ahead - st.fw_limit > math.max(st.fw_limit * 0.05, MiB) then
 			st.fw_limit = ahead
@@ -428,7 +416,7 @@ mp.add_hook('on_load', 50, function()
 	end
 	if R == 0 and not st.disk then
 		-- no RAM, no disk: nothing kept, nothing read ahead - mpv's own 1 s read-ahead
-		-- too (FastStream: "nothing is downloaded ahead of playback")
+		-- too (FastStream: nothing is downloaded ahead of playback)
 		st.storage = 'none'
 		st.mode = 'window'
 		st.reason = 'off'

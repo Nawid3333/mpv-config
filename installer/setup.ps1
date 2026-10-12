@@ -99,9 +99,8 @@ function Invoke-MpvSetup {
         return $p.ExitCode
     }
     # A native program's output, stderr included. Windows PowerShell 5.1 turns every stderr
-    # line into a terminating error under 'Stop' once 2>&1 redirects it (checked
-    # 2026-10-09: a single warning from mpv, 7-Zip or FastStream's install.ps1 ended the
-    # install); the exit code decides here.
+    # line into a terminating error under 'Stop' once 2>&1 redirects it (one warning from
+    # mpv, 7-Zip or FastStream's install.ps1 would end the install); the exit code decides.
     function Invoke-Native([string]$Exe, [string[]]$Arguments) {
         $ErrorActionPreference = 'Continue'
         $out = @(& $Exe @Arguments 2>&1 | ForEach-Object { "$_" })
@@ -213,8 +212,8 @@ function Invoke-MpvSetup {
     # -- 5. Windows integration ---------------------------------------------------------------------
     # mpv --register writes per-user entries every mpv shares (App Paths\mpv.exe, the
     # io.mpv.* file types), and this user's would hide a registration for the whole PC
-    # (2026-10-09: the owner's mpv in Program Files, registered machine-wide by an admin
-    # install): another mpv that is registered and still there keeps them.
+    # (an mpv in Program Files registered by an admin install): another mpv that is
+    # registered and still there keeps them.
     $registered = $null
     if (-not $NoFileTypes) {
         foreach ($key in $AppPathsKeys) {

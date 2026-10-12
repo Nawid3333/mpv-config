@@ -4,14 +4,9 @@
 -- "upscale" toolbar button and the Video > Upscale menu reuse the same script
 -- messages, so there is one source of truth for key, menu, and toolbar.
 --
--- Upscale cycle (phase 6, 2026-09-12; simplified to one preset per content
--- type 2026-09-15; the "forced" framing dropped 2026-09-19; Movie rebuilt
--- 2026-09-20): off -> Auto -> Anime -> Movie -> off ... Auto picks Anime or
+-- Upscale cycle: off -> Auto -> Anime -> Movie -> off ... Auto picks Anime or
 -- Movie by content type (or nothing, for non-FastStream files - see
 -- is_faststream_content()); Anime and Movie let you pick a chain yourself.
---
--- Frame interpolation (RIFE) was removed from this config entirely on
--- 2026-09-20 at the user's request - see AGENTS.md.
 
 local mp = require('mp')
 local msg = require('mp.msg')
@@ -21,17 +16,15 @@ local utils = require('mp.utils')
 -- script-opts/gpu_toggles.conf. movie_sharpness is the adaptive-sharpen
 -- strength the Movie presets start with: `auto` (by display scale, see
 -- effective_sharpness()) or a fixed value (0 = no sharpening). The Movie
--- sharpness menu's choice is remembered (2026-10-02, it was for the running
--- session only) in ~~state/movie-sharpness.json and wins over the conf's from
--- then on; remember=no (the shader warm-ups, which step through the levels)
--- neither reads nor writes it.
+-- sharpness menu's choice is remembered in ~~state/movie-sharpness.json and
+-- wins over the conf's from then on; the shader warm-ups, which step through
+-- the levels, run with remember=no and so neither read nor write it.
 --
--- quality (2026-10-09, for other PCs than the one this was tuned on): which
--- chain of a preset runs - `auto` (measured on this PC, see the "Upscaling
--- quality" section below), `high` (the chains as measured and chosen on the
--- RX 9070 XT) or `fast` (Anime4K's own low-end set; Movie without FSRCNNX).
--- Like the sharpness, the menu's choice is remembered (~~state/upscale.json)
--- and wins over the conf's; so is the screen override and what was measured.
+-- quality: which chain of a preset runs - `auto` (measured on this PC, see
+-- the "Upscaling quality" section below), `high` (the full chains) or `fast`
+-- (Anime4K's own low-end set; Movie without FSRCNNX). Like the sharpness, the
+-- menu's choice is remembered (~~state/upscale.json) and wins over the conf's;
+-- so are the screen override and the measurements.
 local opts = {
 	movie_sharpness = 'auto',
 	quality = 'auto',
@@ -50,28 +43,19 @@ local SHADER_DIR = mp.command_native({ 'expand-path', '~~/shaders' })
 -- Sole signal: an explicit #fs-content=anime marker the FastStream browser
 -- extension's mpv integration appends to the stream URL (from the MPV
 -- Allowlist's per-site @anime tag, or the player's manual per-video toggle -
--- see faststream-mpv-host.mjs's withContentTypeFragment). It is a URL
--- fragment, so it survives into mpv's `path` property unchanged but was
--- never sent to the CDN. Matched literally (plain find, string compare) - a
--- stray unescaped "%" here once silently invoked a Lua pattern class
--- instead of a literal match (see AGENTS.md).
+-- see faststream-mpv-host.mjs's withContentTypeFragment). A URL fragment: it
+-- survives into mpv's `path` property unchanged and is never sent to the CDN.
+-- Match literally (plain find, string compare) - an unescaped "%" here would
+-- silently invoke a Lua pattern class instead of a literal match.
 --
--- This used to also fall back to an "anime" folder in the path, but that
--- heuristic is useless for the real workflow (HLS streams have no folder to
--- check) and was actively misleading - it made every stream resolve to
--- "movie" regardless of actual content. Removed at the user's request in
--- favor of FastStream always sending an explicit tag (movie by default,
--- @anime opt-in - see background.mjs's resolveMpvContentType) rather than
--- mpv trying to guess.
---
--- The marker is the LAST whole "fs-content=" item of the URL fragment (everything
--- after the first '#', items separated by '&'), as stream-resume.lua reads fs-id
--- and source-info.lua fs-page. The native host drops fs-* items a stream URL
--- already carries and appends its own last; "fs-content=" anywhere in the path
--- also matched a page's own query ("?x=fs-content=anime") or fragment item
--- ("#xfs-content=anime"), which then picked the preset (FastStream #155,
--- 2026-10-04). The value is read up to its first non-letter (a test clip's file
--- name ends in ".mkv").
+-- The marker is the LAST whole "fs-content=" item of the URL fragment
+-- (everything after the first '#', items separated by '&'), as
+-- stream-resume.lua reads fs-id and source-info.lua fs-page. The native host
+-- drops fs-* items a stream URL already carries and appends its own last, so
+-- the last item wins. Matching whole items also avoids partial hits like a
+-- page's own query ("?x=fs-content=anime") or a fragment item
+-- ("#xfs-content=anime"). The value is read up to its first non-letter (a
+-- following file name can end in ".mkv").
 ---@param path string|nil
 ---@return string|nil
 local function fs_content(path)
@@ -96,135 +80,81 @@ end
 -- marker - anime or movie, both are sent, see the comment above) as opposed
 -- to a local file or any other source, which carries no such marker.
 --
--- Auto upscale (mode 1, see UPSCALE_MODE_COUNT below) is gated on this at
--- the user's request, matching FastStream's own content-type plumbing above
--- (Auto should only fire for what it was actually designed for). NOT a fix
--- for the 2026-09-16 dropped-frame bug - that was root-caused to
--- hwdec=vulkan on real local files (see mpv.conf's hwdec section and
--- AGENTS.md), independent of this gate; `--scripts=no`, which disables this
--- whole file, still dropped frames identically.
+-- Auto upscale (mode 1, see UPSCALE_MODE_COUNT below) is gated on this: Auto
+-- was designed for FastStream streams, so it must not fire for anything else.
 --
--- CONSEQUENCE, and how it is named (2026-09-21, at the user's request): a
--- local file gets NO shaders unless the user picks Anime or Movie - that is
--- always their own choice. The button reads "Off" for such a file (never
--- "Auto"), the menu hides the Auto entry, and Shift+A skips Auto (Off ->
--- Anime -> Movie -> Off). Internally the mode stays "Auto" so a FastStream
--- stream still gets its preset automatically.
+-- Consequence: a local file gets NO shaders unless the user picks Anime or
+-- Movie - always their own choice. The button reads "Off" for such a file
+-- (never "Auto"), the menu hides the Auto entry, and the cycle (toolbar
+-- button, Video > Upscale > Cycle) skips Auto (Off -> Anime -> Movie -> Off);
+-- Shift+A / Shift+Y only switch their own preset on and off. Internally the mode stays "Auto" so a
+-- FastStream stream still gets its preset automatically.
 local function is_faststream_content()
 	return fs_content(mp.get_property('path', '')) ~= nil
 end
 
 -- ---- Upscale (2 user-facing presets: Anime / Movie) -----------------------
--- Anime: Anime4K C+A, unconditional. DECIDED by the user's own eye: preferred
--- over ArtCNN (2026-09) and over CuNNy-4x32-DS (2026-10-03: real-GPU
--- benchmark + side-by-side videos, doc/history/sessions-2026-10.md) - do not
--- swap in a "faithful" 2x CNN again. Its own AutoDownscalePre stages adapt it
--- to the real target ratio.
+-- Anime: Anime4K C+A, unconditional - chosen by eye over ArtCNN and over
+-- CuNNy-4x32-DS; do not swap in a "faithful" 2x CNN again. Its own
+-- AutoDownscalePre stages adapt it to the real target ratio.
 --
--- Movie was rebuilt 2026-09-20/21 after the user reported the old chain gave
--- "no improvement at all", then again after real viewing complaints. Two test
--- sets were used (methods + full numbers in doc/history/sessions-2026-09.md,
--- "2026-09-20 movie upscaler"), and the FIRST one misled:
---   * The user's own film (1712x720, ~1.4 Mbps, dark and soft) is a worst case
---     for any upscaler - almost no real detail left to recover. On it every
---     scaler landed within ~1-2 dB of plain scaling and ArtCNN looked best. It
---     is NOT a valid basis for choosing a preset.
---   * Blender's Tears of Steel (clean 1080p master + its real 720p encode,
---     CC-BY) has true ground truth. Luma PSNR / SSIM / VMAF vs the master:
---       scale   plain        SSimSuperRes    FSRCNNX+SSSR   ArtCNN C4F32
---       1.25x   42.05/.9939  41.25/.9939/99.94   (gated off <1.3x)
---       1.33x   41.13/.9933  40.67/.9935/99.94   38.98/.9924/99.79   38.73/.9919/99.86
---       1.50x   39.21/.9906  39.41/.9912/99.91   38.14/.9907/99.78   37.99/.9904/99.85
---       1.75x   35.83/.9855  36.44/.9869/99.79   35.99/.9873/99.70
---       2.00x   33.87/.9808  34.64/.9836/99.71   35.92/.9863/99.70   35.68/.9847/99.74
---       3.00x   28.93/.9558  29.38/.9621/97.62   30.36/.9687/99.62   29.96/.9655/98.71
---       real 720p encode -> 1080p master (1.5x): plain 35.74/.9717/99.09,
---       SSimSuperRes 37.16/.9716/99.41 (best), FSRCNNX+SSSR 36.75/.9725/99.23,
---       ArtCNN 36.84/.9725/99.30.
---     Below 2x a 2x CNN followed by a downscale LOSES 1-2 dB against plain
---     scaling (it overshoots, then the downscale throws the gain away) while
---     SSimSuperRes - which targets the real output size directly - is best or
---     tied on every metric; from 2x up the CNN's fixed 2x lines up with the
---     target and FSRCNNX wins (+2 dB at 2x). ArtCNN never wins on clean
---     material. This is the original ">720p = SSimSuperRes only" split,
---     re-derived, with the crossover measured at ~2x on the real display scale
---     instead of approximated by input height.
--- Other findings that stand:
---   1. Auto mode applies nothing to local files (see is_faststream_content()),
---      so from the default state the upscaler never touched a local file.
---      Movie has to be picked explicitly.
---   2. FSR (EASU/RCAS) is a classical scaler, measured WORSE than plain
---      ewa_lanczossharp (luma 42.3 vs 43.6 dB on the soft film), and cannot
---      stack with FSRCNNX: once FSRCNNX has upscaled the frame FSR's own
---      `WHEN OUTPUT > input` gate is false and it does nothing (verified:
---      identical output with and without it).
---   3. The downscale after a 2x CNN matters: mpv's default `hermite` is soft;
---      ewa_lanczossharp gained +0.9 dB on the real-720p FSRCNNX chain, so the
---      Movie presets set dscale=ewa_lanczossharp while active.
---   4. TRIED AND REMOVED - AI restoration (2xLiveActionV1_SPAN via a
---      VapourSynth vf on ONNX Runtime + DirectML). It was the only candidate
---      whose difference was visible in still crops (block artifacts cleaned),
---      and in a clean 1x run it dropped no frames. It was removed anyway, at
---      the user's report from real viewing: not visibly sharper, picture
---      "pulled" when the camera zooms out, coil whine. A frame-by-frame
---      network has no temporal consistency (fine texture is re-invented every
---      frame, so it can shimmer as detail changes), it needs the GPU in
---      bursts alongside the renderer (a second D3D12 context), and it cannot
---      follow the 2x-16x speed keys (~52 fps ceiling). Everything else in this
---      file is spatial-only GLSL inside the render pipeline, which is why it
---      stays artifact-free. Do not re-add a vf-based upscaler.
--- GPU cost of the shipped chains (real player, 1080p24): SSimSuperRes ~1 ms,
--- FSRCNNX+SSimSuperRes 2-5 ms. Frame pacing verified at 1x and 3x speed with
--- 0 dropped/delayed/mistimed frames.
+-- Movie: the chain is picked by the real scale to the display, FSRCNNX only
+-- from 2x (MOVIE_FSRCNNX_MIN_SCALE, crossover measured on the real display
+-- scale, not approximated by input height). Below 2x a 2x CNN followed by a
+-- downscale loses 1-2 dB against plain scaling (it overshoots, then the
+-- downscale throws the gain away), while SSimSuperRes - which targets the
+-- real output size directly - is best or tied on every metric; from 2x up the
+-- CNN's fixed 2x lines up with the target and FSRCNNX wins (+2 dB at 2x).
+-- ArtCNN never wins on clean material. Other findings that stand:
+--   * FSR (EASU/RCAS) is not used: it measures worse than plain
+--     ewa_lanczossharp, and it cannot stack with FSRCNNX (once FSRCNNX has
+--     upscaled the frame, FSR's own `WHEN OUTPUT > input` gate is false).
+--   * The downscale after a 2x CNN matters: mpv's default `hermite` is soft,
+--     so the Movie presets set dscale=ewa_lanczossharp while active.
+--   * No vf-based upscalers (e.g. AI restoration via VapourSynth/ONNX): a
+--     frame-by-frame network has no temporal consistency (fine texture is
+--     re-invented every frame, so it can shimmer as detail changes), it needs
+--     the GPU in bursts alongside the renderer (a second D3D12 context), and
+--     it cannot follow the 2x-16x speed keys. Everything in this file is
+--     spatial-only GLSL inside the render pipeline, which is why it stays
+--     artifact-free. Do not re-add a vf-based upscaler.
 --
--- SHARPENING (2026-09-25, measured - numbers above effective_sharpness()): the
--- user still saw "no visible difference" with the chains above.
--- That is what the table predicts: every chain in it was chosen for FIDELITY
--- (closest to the clean master), and the best faithful gain at 1.33-1.5x is a
--- few tenths of a dB - real, but not something anyone sees from the sofa.
--- What reads as "sharper" is edge contrast at the size the picture is shown,
--- which fidelity metrics penalize. So both Movie chains now end with
--- adaptive-sharpen (bacondither, igv's mpv port) on the OUTPUT hook, i.e. at
--- display resolution after all scaling: edge-adaptive, with built-in
--- anti-ringing limits (the overshoot is soft-clipped against the local
--- min/max), and it leaves flat low-contrast areas alone, which is where
--- compression noise lives. Strength is its curve_height PARAM (upstream
--- default 1.0, "0.3-2.0 reasonable"), set via glsl-shader-opts, so switching
--- levels needs no shader recompile. It is left out when the video is not
--- enlarged (e.g. a 4K file on the 1440p display) - sharpening a downscale
--- only adds aliasing. Earlier rejected sharpeners and why this one differs:
+-- SHARPENING: the chains above are chosen for fidelity (closest to the clean
+-- master), and the faithful gain at 1.33-1.5x is a few tenths of a dB - real,
+-- but not something anyone sees from the sofa. What reads as "sharper" is
+-- edge contrast at the size the picture is shown, which fidelity metrics
+-- penalize. So both Movie chains end with adaptive-sharpen (bacondither,
+-- igv's mpv port) on the OUTPUT hook, i.e. at display resolution after all
+-- scaling: edge-adaptive, with built-in anti-ringing limits (the overshoot is
+-- soft-clipped against the local min/max), and it leaves flat low-contrast
+-- areas alone, which is where compression noise lives. Strength is its
+-- curve_height PARAM (upstream default 1.0, "0.3-2.0 reasonable"), set via
+-- glsl-shader-opts, so switching levels needs no shader recompile. It is left
+-- out when the video is not enlarged (e.g. a 4K file on the 1440p display) -
+-- sharpening a downscale only adds aliasing. Other sharpeners do not qualify:
 -- FSR RCAS and CAS.glsl/NVSharpen.glsl are gated to run only when there is NO
 -- scaling (or, for the scaling variants, only as the scaler itself, so they
--- cannot follow FSRCNNX - see finding 2); OUTPUT-hooked adaptive-sharpen runs
--- after whatever scaler ran. mpv's own --sharpen is vo=gpu only. Verified in
--- the real player (probe_branch.lua): the menu levels change the picture live
--- (same paused frame, edge sharpness rises Off < Low < Medium < High), 0
--- dropped/delayed/mistimed frames at 1x and 3x, worst render 3.4 ms at 720p.
--- Rejected alongside it: nlmeans_sharpen_denoise before the chain (tried on a
--- separate branch, never merged) - on real x264 encodes it smeared detail
--- (waxy crops), VMAF-NEG -10 at 3x and -1.5 dB chroma PSNR everywhere.
+-- cannot follow FSRCNNX); OUTPUT-hooked adaptive-sharpen runs after whatever
+-- scaler ran; mpv's own --sharpen is vo=gpu only. Rejected:
+-- nlmeans_sharpen_denoise before the chain - on real x264 encodes it smeared
+-- detail (waxy crops).
 --
--- CHROMA (2026-09-25, measured): every number above is LUMA only, and every
--- chain above leaves colour to mpv's generic cscale. Nearly every movie file
--- is 4:2:0 - colour is stored at half the width and height - so for a 720p
--- source on the 2560x1440 display the colour planes (640x360) are enlarged 4x,
--- twice the luma ratio; for a 540p source, 5.3x. That is where soft, bleeding
--- colour edges (red/blue objects, coloured text, skin against sky) come from,
--- and no luma shader touches it. Both Movie chains now start with
--- CfL_Prediction (Artoriuz, "chroma from luma", MIT; pinned upstream commit in
--- install-shaders.ps1): it predicts each colour sample from the full-res luma
--- by local linear regression (the technique AV1/VVC use), blended with a
--- normal resampler where luma and chroma do not correlate, then smoothed
--- bilaterally. Artoriuz's own chroma benchmarks put it ahead of KrigBilateral
--- and every plain scaler. It hooks CHROMA and binds LUMA, so it sizes the
--- colour planes to whatever luma is at that point (FSRCNNX's 2x output when
--- that runs - the same pairing as the classic FSRCNNX + KrigBilateral). Cheap:
--- it works at chroma resolution. No effect on 4:4:4 or RGB sources (its WHEN
--- gate is CHROMA.w < LUMA.w). Measured gain on real x264 encodes (U/V PSNR
--- after re-subsampling to 4:2:0 - the full-resolution colour on screen cannot
--- be scored, the master is 4:2:0 too): +0.07/+0.17 dB at 1.33x, +0.18/+0.30 at
--- 2x, +0.27/+0.37 at 3x, ~0 on the clean 720p encode - small but consistent;
--- ~0.3 ms per frame.
+-- CHROMA: every chain above leaves colour to mpv's generic cscale, but nearly
+-- every movie file is 4:2:0 - colour is stored at half the width and height -
+-- so for a 720p source on the 2560x1440 display the colour planes (640x360)
+-- are enlarged 4x, twice the luma ratio; for a 540p source, 5.3x. That is
+-- where soft, bleeding colour edges (red/blue objects, coloured text, skin
+-- against sky) come from, and no luma shader touches it. Both Movie chains
+-- start with CfL_Prediction (Artoriuz, "chroma from luma", MIT; pinned
+-- upstream commit in install-shaders.ps1): it predicts each colour sample
+-- from the full-res luma by local linear regression (the technique AV1/VVC
+-- use), blended with a normal resampler where luma and chroma do not
+-- correlate, then smoothed bilaterally. It beats KrigBilateral and every
+-- plain scaler in Artoriuz's own chroma benchmarks. It hooks CHROMA and binds
+-- LUMA, so it sizes the colour planes to whatever luma is at that point
+-- (FSRCNNX's 2x output when that runs - the same pairing as the classic
+-- FSRCNNX + KrigBilateral). Cheap: it works at chroma resolution. No effect
+-- on 4:4:4 or RGB sources (its WHEN gate is CHROMA.w < LUMA.w).
 local UPSCALE_ANIME = {
 	id = 'anime-high',
 	name = 'Anime4K C+A (HQ) [anime]',
@@ -237,10 +167,9 @@ local UPSCALE_ANIME = {
 		'Anime4K_Upscale_CNN_x2_M.glsl',
 	},
 }
--- Quality Fast (2026-10-09): the same Mode C+A out of Anime4K's own template for
--- low-end GPUs ("GTX 980, GTX 1060, RX 570"; its high-end one, above, names "GTX
--- 1080, RTX 2070, RTX 3060, RX 590, Vega 56, 5700XT, 6600XT"): M instead of VL
--- for the first upscale, S instead of M after it. Same look, about half the work.
+-- Quality Fast: the same Mode C+A out of Anime4K's own template for low-end
+-- GPUs (the HQ variant above is its high-end template): M instead of VL for
+-- the first upscale, S instead of M after it. Same look, about half the work.
 local UPSCALE_ANIME_FAST = {
 	id = 'anime-fast',
 	name = 'Anime4K C+A (Fast) [anime]',
@@ -370,18 +299,18 @@ end
 -- is_faststream_content()).
 local upscale_mode = 1 -- 0=off, 1=Auto, 2=Anime, 3=Movie, see preset_for_mode()
 
--- ---- Upscaling quality and the screen (2026-10-09) ---------------------------
--- Settings for other PCs, stored per PC in ~~state/upscale.json (remember=no -
--- the warm-ups - neither reads nor writes it):
+-- ---- Upscaling quality and the screen -------------------------------------
+-- Settings stored per PC in ~~state/upscale.json (the shader warm-ups, which
+-- run with remember=no, neither read nor write it):
 --   quality  'auto' | 'high' | 'fast' (see opts)
 --   screen   'auto' (the monitor mpv is on, display-width/height) or 'WxH': the
 --            screen size the choices below are made for - the Movie chain by
 --            scale, Auto sharpness, and which measurements count. Anime4K's own
 --            stages follow the real output size whatever this says (their WHEN
 --            lines read it on the GPU).
---   costs    what each chain cost per frame on this GPU, measured in the real
---            player (vo-passes, the render passes' own GPU timers), by chain,
---            screen and source size: 'anime-high|2560x1440|1080p' = 4.6 (ms).
+--   costs    what each chain cost per frame on this GPU in ms, measured in the
+--            real player (vo-passes, the render passes' own GPU timers), keyed
+--            by chain, screen and source size: 'anime-high|2560x1440|1080p'.
 local QUALITIES = { auto = true, high = true, fast = true }
 local SCREENS = { '1920x1080', '2560x1440', '3440x1440', '3840x2160' }
 
@@ -419,18 +348,17 @@ local function load_upscale_state()
 end
 
 local saved = load_upscale_state()
--- The quality chosen in the menu, or nil. Only that one is saved: saving the conf's
--- along with a measurement (or a screen) pinned it, and a quality= changed in the conf
--- afterwards did nothing (final review, 2026-10-10).
+-- The quality chosen in the menu, or nil. Only that one is saved, so a later
+-- quality= change in the conf still takes effect.
 local chosen_quality = saved.quality
 local quality = chosen_quality or (QUALITIES[opts.quality] and opts.quality) or 'auto'
 local screen = saved.screen or 'auto'
 local costs = saved.costs
--- Anime lines (2026-10-11, his report: one anime's lines came out too thin): 'crisp' runs
--- Anime4K's Restore step, which redraws lines crisper and thinner - right for lines a
--- source blurred, too much for line art that is clean or soft by design. 'drawn' leaves it
--- out (Anime4K's Mode C: the denoising upscale and the upscale only). One setting for all
--- anime (his choice), kept in upscale.json.
+-- Anime lines: 'crisp' runs Anime4K's Restore step, which redraws lines
+-- crisper and thinner - right for lines a source blurred, too much for line
+-- art that is clean or soft by design. 'drawn' leaves it out (Anime4K's Mode
+-- C: the denoising upscale and the upscale only). One setting for all anime,
+-- kept in upscale.json.
 local anime_lines = saved.anime_lines or 'crisp'
 
 -- Through a temp file of this process's own, as save_sharpness().
@@ -499,10 +427,9 @@ end
 -- every entry point (key, menu message, file-loaded - see entry() at the
 -- bottom) calls forget_display_scale() first, and the first display_scale()
 -- call of that action reads it. display-width/height are answered by the
--- video thread, so each read waits for it, and one switch used to make ~20
--- display_scale() calls: Movie and sharpness changes took 230-410 ms to show
--- up (measured 2026-09-26 with tests/gpu/test-switching.lua). Off and Anime
--- never need the scale, so they do no read at all.
+-- video thread, so each read waits for it - the cache keeps one switch down
+-- to one read. Off reads nothing; Anime only the sizes quality Auto's cost key
+-- needs (with quality High or Fast, nothing).
 local current_display = nil -- read_display() of this action, nil = not read yet
 
 local function forget_display_scale()
@@ -521,16 +448,8 @@ local function display_scale()
 end
 
 -- The strength actually applied. Auto = display scale - 1, clamped to
--- 0.5..1.5. Measured 2026-09-25 (test-media/tools/bench_branches.py, Tears of
--- Steel with real x264 encodes; edge sharpness as a fraction of the clean
--- master's, 1.00 = exactly as crisp):
---   scale  source                   current chain  0.5   1.0   1.5
---   1.33x  low-bitrate 1080p-class      0.98       1.12  1.23  1.33
---   1.5x   clean 720p                   0.98       1.13  1.24  1.34
---   2x     ~1.4 Mbps 720p-class         0.90       1.01  1.09  1.16
---   3x     480p-class                   0.83       0.90  0.96  1.00
--- so no single level fits every file; scale - 1 (0.5 / 0.5 / 1.0 / 1.5) lands
--- all four between the master's own sharpness and ~13% above it.
+-- 0.5..1.5: measured across 1.33x-3x, this tracks the clean master's own edge
+-- sharpness at every scale, while no single fixed level fits every scale.
 local AUTO_SHARPEN_MIN, AUTO_SHARPEN_MAX = 0.5, 1.5
 local function effective_sharpness()
 	if movie_sharpness ~= SHARPEN_AUTO then
@@ -551,19 +470,17 @@ local function setting_label()
 	return sharpness_label(movie_sharpness)
 end
 
--- ---- Upscaling quality Auto: measured on this PC (2026-10-09) ------------------
--- The chains were measured and chosen on an RX 9070 XT (Anime4K HQ 4.6 ms per
--- 1080p frame on 1440p); a GPU a tenth as fast would need ~45 ms and stutter
--- even at 24 fps. So Auto does not guess from the GPU's name: the first time a
--- high chain (Anime4K HQ, or Movie's FSRCNNX at 2x and more) runs for a screen
--- and source size, the render passes' own GPU timers (vo-passes) are read once
--- it has played MEASURE_AFTER seconds. Over BUDGET_SHARE of a frame's time (at
--- 1x, the video's own fps) and Auto switches to the fast chain, says so in a
--- banner with the number, and takes the fast one for that size from then on.
--- Every chain stays selectable: the Settings menu and the upscale menu list
--- High and Fast with what each cost here and mark Auto's pick (the user's rule,
--- 2026-10-09: "measure but still show the user what will be selected and then
--- give him the option to choose other too").
+-- ---- Upscaling quality Auto -------------------------------------------------
+-- A chain that is fine on a fast GPU can be many times too slow on a weak
+-- one, so Auto does not guess from the GPU's name: the first time a high
+-- chain (Anime4K HQ, or Movie's FSRCNNX at 2x and more) runs for a screen and
+-- source size, the render passes' own GPU timers (vo-passes) are read once it
+-- has played MEASURE_AFTER seconds. Over BUDGET_SHARE of a frame's time (half
+-- a frame; at 1x, the video's own fps) and Auto switches to the fast chain,
+-- says so in a banner with the number, and takes the fast one for that size
+-- from then on. Every chain stays selectable: the Settings menu and the
+-- upscale menu list High and Fast with what each cost here and mark Auto's
+-- pick.
 local BUDGET_SHARE = 0.5
 local MEASURE_AFTER = 3
 
@@ -610,11 +527,9 @@ local function frame_budget_ms()
 	return 1000 / video_fps() * BUDGET_SHARE
 end
 
--- Auto's choice: the high chain unless it was measured too slow here, then the
--- fast one unless that was too, then none - upscaling off for that screen and
--- source size (2026-10-09, the user's choice after the measurement: on the
--- Ryzen iGPU even Anime4K Fast took 75 ms per frame for 1080p on 1440p and
--- dropped 70 frames in 6 s). nil = off.
+-- Auto's choice: the high chain unless it was measured too slow here, then
+-- the fast one unless that was too, then none - upscaling off for that screen
+-- and source size. nil = off.
 local function auto_pick(high, fast)
 	local budget = frame_budget_ms()
 	for _, preset in ipairs({ high, fast }) do
@@ -639,9 +554,9 @@ local function current_anime_preset()
 	return pick(UPSCALE_ANIME, UPSCALE_ANIME_FAST)
 end
 
--- Picks the Movie chain by the real scale to the display (see the table above):
--- at 2x and more FSRCNNX + SSimSuperRes, unless the quality takes the fast one;
--- below 2x SSimSuperRes is the only chain (Auto: off when even that does not fit).
+-- Picks the Movie chain by the real scale to the display: at 2x and more
+-- FSRCNNX + SSimSuperRes, unless the quality takes the fast one; below 2x
+-- SSimSuperRes is the only chain (Auto: off when even that does not fit).
 local function current_movie_preset()
 	local s = display_scale()
 	if s and s >= MOVIE_FSRCNNX_MIN_SCALE then
@@ -729,7 +644,7 @@ local function current_upscale_preset()
 		return nil
 	end
 	-- not `a and b or c`: with Anime off as too slow here (nil), that ran Movie on
-	-- an anime stream (review, 2026-10-09)
+	-- an anime stream
 	if is_anime_content() then
 		return current_anime_preset()
 	end
@@ -738,9 +653,6 @@ end
 
 -- Upscale button modes: 0=off, 1=Auto (current_upscale_preset(), re-evaluated
 -- per file), 2=Anime, 3=Movie (skips the anime/movie content-type detection).
--- The labels were simplified 2026-09-19 from "Auto + 2 forced presets" to
--- plain "Anime"/"Movie" at the user's request: they are choices, not a
--- "forced" override of anything.
 local UPSCALE_MODE_COUNT = 4
 
 -- Resolves a button mode to the preset it should apply right now (nil for
@@ -776,8 +688,8 @@ local function resolve(shaders)
 end
 
 -- dscale as configured at startup (mpv.conf or mpv's default): presets may
--- override it while active (see UPSCALE_MOVIE_SSSR.dscale) and everything else gets
--- this back, so the Anime chain and "off" are exactly as they were before.
+-- override it while active (see UPSCALE_MOVIE_SSSR.dscale); everything else
+-- gets this back, so the Anime chain and "off" keep the configured scaler.
 local BASE_DSCALE = mp.get_property('dscale')
 
 -- A banner top right (Scripts/notify.lua draws every message; the same id
@@ -849,7 +761,7 @@ end
 
 -- ---- uosc toolbar button ----------------------------------------------------
 -- Managed button (uosc.conf controls= has "button:upscale") whose look/state
--- we push via script-message-to uosc set-button, same pattern as
+-- is pushed via script-message-to uosc set-button, same pattern as
 -- scripts/speed-button.lua's "speed" button.
 -- Last JSON pushed per button. uosc's `set-button` handler calls
 -- request_render() unconditionally (see uosc/lib/buttons.lua), so re-sending
@@ -869,17 +781,12 @@ local function set_uosc_button(name, data)
 	mp.commandv('script-message-to', 'uosc', 'set-button', name, json)
 end
 
--- Starts at 1 (Auto), not 0: on FastStream content that is the right preset
--- with no clicks; on a local file it resolves to no shaders (see
--- is_faststream_content()).
 local upscale_active_preset = nil -- nil | UPSCALE_ANIME(_FAST) | UPSCALE_MOVIE_SSSR | UPSCALE_MOVIE_FSRCNNX
 local upscale_active_key = 'off' -- chain_key() of what is loaded
 
 -- The preset family on screen ('anime' | 'movie' | 'off') in
--- user-data/gpu-toggles/preset: the tests read which chain ran from it
--- (headless/test-upscale.lua, gpu/measure-shader-cost.lua), not from the
--- shader file names, which another model's chain would not match. (Added
--- 2026-10-03 for the shader cache's capture, removed 2026-10-05.)
+-- user-data/gpu-toggles/preset: the tests read which chain ran from it, not
+-- from the shader file names.
 local function publish_family(preset)
 	local family = 'off'
 	if is_anime_preset(preset) then
@@ -911,18 +818,17 @@ local function update_upscale_button()
 		tooltip = 'Upscale: off'
 	elseif upscale_mode == 1 then
 		-- Auto only does something for FastStream content (see
-		-- is_faststream_content()). Everywhere else it resolves to no shaders,
-		-- and the button says so honestly: "Off", not "Auto" (2026-09-21, at
-		-- the user's request - local files are always the user's own choice).
-		-- The internal mode stays 1 so a FastStream stream loaded next still
-		-- gets its preset automatically, with the badge showing it.
+		-- is_faststream_content()); everywhere else it resolves to no shaders,
+		-- and the button says so honestly: "Off", not "Auto". The internal
+		-- mode stays 1 so a FastStream stream loaded next still gets its
+		-- preset automatically, with the badge showing it.
 		local preset = mp.get_property_number('height') and current_upscale_preset() or nil
 		if preset then
 			badge = UPSCALE_BADGES[preset.name] or '?'
 			tooltip = 'Upscale: ' .. preset.name .. sharpen_suffix(preset) .. ' (Auto, for this file)'
 		elseif mp.get_property_number('height') and is_faststream_content() then
-			-- A FastStream stream Auto measured too slow for this GPU: the line
-			-- below promised it would start by itself (final review, 2026-10-10).
+			-- A FastStream stream Auto measured too slow for this GPU; the text
+			-- keeps the promise of an automatic start.
 			badge = 'Off'
 			tooltip = 'Upscale: off here - too slow on this GPU (Auto; Settings > Upscaling quality)'
 		else
@@ -1252,7 +1158,7 @@ local function open_upscale_menu(update)
 	end
 end
 
--- ---- Upscale cycle (Shift+A, toolbar) ---------------------------------------
+-- ---- Upscale cycle (toolbar button, menu) -----------------------------------
 local schedule_measure -- below: times the chain that was just applied
 
 -- `announce` is true for a user-initiated change (key, menu, toolbar) and
@@ -1533,17 +1439,17 @@ local function set_cost(id, value)
 	update_menus()
 end
 
--- ---- Key bindings (input.conf / uosc menu reach these via "script-binding
--- gpu_toggles/<name>"; that command only finds bindings added through
--- add_key_binding, NOT register_script_message below - the two are separate
--- mpv mechanisms. key=nil means "name only", since the actual key (Shift+A)
--- is already bound in input.conf via script-binding.) -------------------------
+-- ---- Key bindings -----------------------------------------------------------
+-- input.conf / uosc menus reach these via "script-binding gpu_toggles/<name>";
+-- that command only finds bindings added through add_key_binding, NOT
+-- register_script_message below - the two are separate mpv mechanisms. key=nil
+-- means "name only": the actual key (Shift+A etc.) is bound in input.conf.
 -- Every handler goes through entry(), so each action reads the display scale
 -- fresh, at most once (see forget_display_scale()): a new file or a window
--- moved to another display is picked up by the next action, as before.
--- It also counts finished actions in user-data/gpu-toggles/applied: the
--- shader warm-up (Scripts/shader-cache/warmup.lua) waits on that instead of a
--- fixed delay to know that the switch it asked for has been applied.
+-- moved to another display is picked up by the next action. entry() also
+-- counts finished actions in user-data/gpu-toggles/applied: the shader warm-up
+-- (Scripts/shader-cache/warmup.lua) waits on that counter instead of a fixed
+-- delay to know that the switch it asked for has been applied.
 local actions_done = 0
 local function entry(fn)
 	return function(...)
@@ -1592,12 +1498,11 @@ mp.register_event(
 	end)
 )
 
--- Initial button state (in case uosc loads after this script, mirrors the
--- defensive delay used by scripts/speed-button.lua's "speed" button).
--- Not through entry(): that counts an action in user-data/gpu-toggles/applied,
--- and the shader warm-up waits for its own actions' count - this refresh landing
--- after it read the count made every later step look done one action early
--- (2026-10-02).
+-- Initial button state, in case uosc loads after this script (same defensive
+-- delay as scripts/speed-button.lua's "speed" button). Not through entry():
+-- entry() counts an action in user-data/gpu-toggles/applied, which the shader
+-- warm-up waits on - an extra count would make its steps look done one action
+-- early.
 mp.add_timeout(0.5, function()
 	forget_display_scale()
 	update_upscale_button()

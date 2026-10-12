@@ -1,8 +1,4 @@
--- stream-resume.lua - resume FastStream videos where they were left off
---
--- Requested 2026-09-24: "I open a video from the browser, watch part of it,
--- close mpv (maybe by accident), open it again from the browser - it should
--- continue from there, with the option to start from the beginning."
+-- stream-resume.lua - resume FastStream videos where they were left off.
 --
 -- Why not mpv's own watch-later (save-position-on-quit): it keys a file by its
 -- path, and a FastStream path is the CDN stream URL, which on streaming sites
@@ -10,32 +6,28 @@
 -- time, so watch-later would never find its entry. Instead the FastStream
 -- native host appends `fs-id=<16 hex>` to the URL fragment (never sent to the
 -- CDN): a sha256 prefix of the browser tab's page URL, i.e. the episode page,
--- which IS stable. Only files carrying that marker are touched - local files
--- keep starting at 0:00 (user's choice: FastStream only).
+-- which is stable. Only files carrying that marker are touched - local files
+-- keep starting at 0:00 (FastStream only).
 --
--- Behavior (user-confirmed):
+-- Behavior:
 --   - position saved every SAVE_INTERVAL seconds and when the file unloads, so
 --     a crash or accidental close loses at most a few seconds
 --   - on reopen: auto-resume (no question), with a note saying where and
 --     that Home (mpv's own default "seek to beginning") starts over. The note
---     is a notify.lua banner top right for NOTE_SECONDS, like every other
---     message (2026-09-26: it was big centered text for 6 s, which the user
---     found too big and too long).
+--     is a notify.lua banner top right for NOTE_SECONDS.
 --   - an entry is dropped when the video is finished (inside the last 8 %,
---     at least 30 s and at most 3 min: an episode's end credits and preview;
---     2026-10-02, it was max(30 s, 5 %), and saved entries of 33-44 min
---     episodes sat 1.7-2.3 min before the end, i.e. in the credits) or when
---     it has not been watched for EXPIRY_SECONDS (7 days) - no permanent
---     memory. Watching again resets the 7 days.
---   - a start position the sender gave with the file (FastStream's player
---     button hands over where the browser's player was, as the per-file
---     option start) wins over the saved one; the position is still saved
+--     at least 30 s and at most 3 min: an episode's end credits and preview)
+--     or when it has not been watched for EXPIRY_SECONDS (7 days) - no
+--     permanent memory. Watching again resets the 7 days.
+--   - a start position given with the file (FastStream's player button hands
+--     over where the browser's player was, as the per-file option start) wins
+--     over the saved one; the position is still saved
 --   - the saved duration must match the reopened stream's (within
 --     DURATION_TOLERANCE), so a site that serves several episodes under one
 --     page URL cannot resume episode 3 at episode 2's position
 --   - progress is mpv-only; the FastStream browser player keeps its own
 --
--- State: ~~state/stream-resume.json (= portable_config/ on this install, see
+-- State: ~~state/stream-resume.json (= portable_config/ here, see
 -- remember-speed.lua), gitignored, safe to delete at any time.
 
 local mp = require('mp')
@@ -57,11 +49,11 @@ local state_file = mp.command_native({ 'expand-path', '~~state/' }) .. '/stream-
 --   { id = string, resumed = entry|nil, ready = bool, last_saved = number|nil }
 local current = nil
 
---- The resume key: the hex digits of the LAST whole "fs-id=" item of the URL
+--- The resume key: the hex digits of the last whole "fs-id=" item of the URL
 --- fragment (everything after the first '#', items separated by '&'). The
 --- native host drops fs-* items a stream URL already carries and appends its
---- own last, so neither a query parameter ("?x=1&fs-id=...", read as the key
---- until 2026-10-02) nor anything else the stream URL brings can pass for it.
+--- own last, so neither a query parameter ("?x=1&fs-id=...") nor anything
+--- else the stream URL brings can pass for it.
 ---@param path string|nil
 ---@return string|nil
 local function resume_id(path)
@@ -118,9 +110,8 @@ local function load_entries(path)
 end
 
 --- Write via a temp file, so a crash mid-write cannot leave a truncated file.
---- The temp file is this process's own: two mpv windows saving at once used
---- one name and could write into each other's. Failures are logged, never
---- fatal.
+--- The temp file name is this process's own: two mpv windows saving at once
+--- could otherwise write into each other's. Failures are logged, never fatal.
 ---@param entries table
 local function save_entries(entries)
 	local tmp = state_file .. '.' .. utils.getpid() .. '.tmp'
@@ -178,10 +169,10 @@ local function save_position()
 	end
 	local entries, _, unreadable = load_entries()
 	if unreadable then
-		-- Not JSON: the file is written through a temp file and renamed, so another
-		-- window's save is never seen half-written - it is damaged. It is kept beside
-		-- (for a look) and saving goes on: skipped every time, it ended resuming for
-		-- every stream for good.
+		-- Not JSON: saves go through a temp file plus rename, so a write is never
+		-- seen half-written - unreadable means damaged. It is kept beside (for a
+		-- look) and saving goes on: skipped every time, resuming would stop for
+		-- good.
 		local aside = state_file .. '.corrupt-' .. os.date('%Y%m%d-%H%M%S')
 		if not os.rename(state_file, aside) then
 			msg.warn('stream-resume.json could not be read or moved aside; not saving over it')
@@ -218,8 +209,8 @@ mp.add_hook('on_load', 50, function()
 		return
 	end
 	current = { id = id }
-	-- The sender asked for a position of its own (a per-file start option, "none"
-	-- when unset): that one plays, and the saved one is only updated from here.
+	-- A start position given with the file (per-file start option, "none" when
+	-- unset) wins over the saved one; the saved one is still updated from here.
 	local start = mp.get_property('file-local-options/start')
 	if start and start ~= 'none' and start ~= '' then
 		msg.info('start ' .. start .. ' given with the file; not resuming')

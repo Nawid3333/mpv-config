@@ -1,4 +1,4 @@
--- remember-speed.lua, process 2 of 2 (see test-remember-speed-save.lua).
+-- remember-speed.lua, process 2 of 3 (see test-remember-speed-save.lua).
 local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$') .. 'lib/harness.lua')
 
 H.run(function()
@@ -63,4 +63,46 @@ H.run(function()
 	H.eq('(the song speed)', mp.get_property_number('speed'), 1.25, 0.001)
 	H.load(H.media_path('second/clip2.mkv'))
 	H.eq('... and is the video speed after a song', mp.get_property_number('speed'), 2, 0.001)
+
+	-- The same while a song loads after a video: the picked speed wins over the
+	-- song speed the switch would set.
+	during_load = 3
+	H.load(H.media_path('autoload/song.flac'))
+	H.eq('a speed picked while a song loads after a video stays', mp.get_property_number('speed'), 3, 0.001)
+	H.load(H.media_path('second/clip2.mkv'))
+	H.eq('(the video speed comes back)', mp.get_property_number('speed'), 2, 0.001)
+	H.load(H.media_path('autoload/song.flac'))
+	H.eq('... and the picked speed is the song speed', mp.get_property_number('speed'), 3, 0.001)
+
+	-- A speed the file brings along (watch-later's saved one; here a per-file
+	-- option, applied the same way before on_load) is that file's, not a pick:
+	-- never saved as the video speed.
+	H.load(H.media_path('second/clip2.mkv'))
+	H.eq('(the video speed again)', mp.get_property_number('speed'), 2, 0.001)
+	local restarted = H.expect_event('playback-restart')
+	mp.commandv('loadfile', H.media_path('plain/clip.mkv'), 'replace', '-1', 'speed=1.75')
+	H.check('(the file with its own speed loads)', restarted(15))
+	H.eq('(it plays at its own speed)', mp.get_property_number('speed'), 1.75, 0.001)
+	H.sleep(0.5)
+	local file = io.open(mp.command_native({ 'expand-path', '~~state/' }) .. '/speed.json', 'r')
+	local text = file and file:read('*a') or ''
+	if file then
+		file:close()
+	end
+	H.eq(
+		'a speed the file brings along is not saved as the video speed',
+		(require('mp.utils').parse_json(text) or {}).speed,
+		2,
+		0.001
+	)
+	-- ... nor when that file goes
+	H.load(H.media_path('second/clip2.mkv'))
+	H.eq('the next video plays at the video speed again', mp.get_property_number('speed'), 2, 0.001)
+	H.sleep(0.5)
+	file = io.open(mp.command_native({ 'expand-path', '~~state/' }) .. '/speed.json', 'r')
+	text = file and file:read('*a') or ''
+	if file then
+		file:close()
+	end
+	H.eq('... and speed.json still holds it', (require('mp.utils').parse_json(text) or {}).speed, 2, 0.001)
 end)

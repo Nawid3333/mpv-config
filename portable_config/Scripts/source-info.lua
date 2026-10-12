@@ -1,10 +1,6 @@
 -- source-info.lua - the uosc "source" toolbar button: where the video comes
 -- from, and every link it can know, ready to copy or open.
 --
--- 2026-09-29, at the user's request: "a button in the UI like faststream so I
--- can see the source and stream links and also the site link when it comes
--- from Firefox FastStream so I can also copy it and open it in browser".
---
 -- uosc.conf's controls= carries "button:source" (a managed button; we push
 -- its look via script-message-to uosc set-button, the same pattern as
 -- speed-button.lua and gpu-toggles.lua's upscale button).
@@ -17,17 +13,15 @@
 --   site page   = the FastStream native host appends `#fs-page=<percent-
 --                 encoded page URL>` to each stream URL it hands mpv (same
 --                 fragment family as fs-content= / fs-id=; the part after #
---                 is a URL fragment, never sent to the CDN). Written by the
---                 FastStream fork's faststream-mpv-host.mjs; until the fork
---                 ships a release with it, this entry stays absent and the
---                 rest of the button still works.
+--                 is a URL fragment, never sent to the CDN). Absent when the
+--                 helper sends none; the rest of the button still works.
 --   local file  = the full path ("Show in directory", "Copy path").
 --
 -- Copying: each entry has a "Copy" sub-item, and uosc's menu selects items
 -- with arrows and copies the selected one with Ctrl+C - the actions below
 -- report whatever the selected entry's value carries. Copying goes through
--- mpv's clipboard/text property (this build ships the Windows clipboard
--- backend; the manual marks the property RW). There is no script-message
+-- mpv's clipboard/text property (it needs mpv's clipboard support, which
+-- Windows builds have). There is no script-message
 -- fallback: uosc's own copy path uses the same property (plus its ziggy
 -- helper binary, which only uosc's process can call), so when the property
 -- is missing the user gets a failure banner instead of a silent no-op.
@@ -39,7 +33,7 @@
 -- macOS `open`, else xdg-open). Explorer is asked to select the local file,
 -- like uosc's own "Show in directory".
 --
--- Never through cmd (2026-10-02): `cmd /c start "" <url>` ran whatever
+-- Never through cmd: `cmd /c start "" <url>` runs whatever
 -- followed an unquoted '&' in the address as a command of its own (mpv quotes
 -- an argument only when it holds a space or a quote), and the site page
 -- address comes from the website. Only a plain http(s) address is opened.
@@ -100,17 +94,16 @@ local function fragment_value(url, marker)
 	return value ~= '' and value or nil
 end
 
---- "FastStream" / "HLS stream" / "stream" / "local file" plus the button badge;
---- nil, nil while nothing is loaded (an idle mpv, between files), which read
---- "local file" / "File" (2026-10-10 review).
+--- "FastStream" / "HLS stream" / "DASH stream" / "stream" / "local file" plus the button badge;
+--- nil, nil while nothing is loaded (an idle mpv, between files).
 ---@return string|nil long, string|nil short
 local function source_of()
 	local path = state.path
 	if not path then
 		return nil, nil
 	end
-	-- a FastStream tag is a whole item of the URL fragment, as the host appends it
-	-- (FastStream #155) - not the text anywhere in a site's address (review, 2026-10-09)
+	-- a FastStream tag is a whole item of the URL fragment, as the host appends it -
+	-- not the text anywhere in a site's address
 	if fragment_value(path, 'fs-content=') or fragment_value(path, 'fs-id=') or fragment_value(path, PAGE_MARKER) then
 		return 'FastStream', 'Fast'
 	end
@@ -127,8 +120,7 @@ end
 --- A URL without the FastStream host's fs-* fragment items (and without the
 --- '#' when nothing else is left): what was really requested, as another player
 --- or the browser needs it. Not decoded: %2B and %26 inside a signed token or a
---- proxied address are part of it (decoding them broke the copied link,
---- 2026-10-02).
+--- proxied address are part of it.
 ---@param url string
 ---@return string
 local function without_fs_tags(url)
@@ -193,9 +185,8 @@ local last_button_json = nil
 local function update_button()
 	local data = {
 		icon = 'language',
-		-- the SHORT name: a call as a table field keeps only its first
-		-- result, which put "local file"/"FastStream" on the badge, wider
-		-- than the button (until 2026-10-02)
+		-- the SHORT name (second result): a call as a table field keeps only
+		-- its first result, which is wider than the button
 		badge = select(2, source_of()),
 		tooltip = 'Source: click for links (copy / open)',
 		command = { 'script-message-to', mp.get_script_name(), 'open-menu' },
@@ -316,8 +307,8 @@ end
 ---@param args string[]
 local function launch(args)
 	if opts.launch then
-		-- { args = ... }: mpv's subprocess_detached is commandv('run', unpack(t.args)), and
-		-- the bare array threw - nothing opened (2026-10-02 to 2026-10-10)
+		-- { args = ... }: mpv's subprocess_detached is commandv('run', unpack(t.args));
+		-- a bare array throws
 		utils.subprocess_detached({ args = args })
 	else
 		mp.set_property_native('user-data/source-info/launched', args)
@@ -444,10 +435,6 @@ mp.register_script_message('links-for', function(path)
 	state = saved
 end)
 
--- Open the menu also through the binding the button JSON commands reach:
--- script-binding does not carry menu_command's own payload, uosc runs
--- menu_command itself. (Both point here.)
-
 -- ---- state per file ---------------------------------------------------------------
 
 mp.register_event('file-loaded', function()
@@ -457,15 +444,12 @@ end)
 
 -- The ytdl hook rewrites stream-open-filename while the file loads; capture
 -- both sides so the menu can offer the real media URL and the original one.
--- After it, then: ytdl_hook's on_load runs at priority 10, and lower runs
--- first (until 2026-10-02 this ran at 5, saw nothing rewritten yet, and the
--- Original URL entry never appeared).
+-- Priority 11: after ytdl_hook's on_load (10; lower runs first), or nothing is
+-- rewritten yet.
 -- Only a web address counts as what was opened. For a YouTube link (pasted into
--- mpv directly - FastStream sends no YouTube) yt-dlp's separate audio and video
--- formats arrive as an edl:// list, a playlist as memory:// - neither is an
--- address another player or the browser can open, and the menu offered the EDL,
--- thousands of characters of expiring googlevideo links, as the "Stream URL"
--- (until 2026-10-04). Then the pasted link is the Stream URL, and "Open in mpv"
+-- mpv directly - FastStream sends no YouTube) yt-dlp's formats arrive as an
+-- edl:// list, a playlist as memory:// - not addresses another player or the
+-- browser can open. Then the pasted link is the Stream URL, and "Open in mpv"
 -- runs yt-dlp on it again.
 mp.add_hook('on_load', 11, function()
 	local path = mp.get_property('path') or ''

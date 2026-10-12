@@ -1,14 +1,11 @@
 -- notify.lua - the small banners top right: every message this setup shows.
 --
--- One look for all of them (2026-09-26, at the user's request: the resume note
--- "stays too long and is too big" - make it like the shader compiling banner,
--- and make everything else match it). Before, the shader warm-up drew its own
--- bar top right, the resume note was big centered text for 6 s, and the other
--- scripts used mp.osd_message: mpv's plain white text top left, where uosc's
--- title bar covers it. Now every script sends its message here, and this
--- script is the only one that draws them: one stack, top right, below uosc's
--- top bar and window buttons, in the shader bar's design (solid black box,
--- white title, grey detail line, a thin progress line when there is progress).
+-- Every script sends its message here, and this script is the only one that
+-- draws them: one stack, top right, below uosc's top bar and window buttons,
+-- in the shader bar's design (solid black box, white title, grey detail line,
+-- a thin progress line when there is progress). Plain mp.osd_message would
+-- not do: mpv draws it as white text top left, where uosc's title bar covers
+-- it.
 --
 -- mpv's OWN OSD text (menu actions like Contrast +, screenshots, show-text from
 -- vendored scripts) cannot be drawn here - no script sees it. mpv.conf gives it
@@ -27,27 +24,27 @@
 --           so a changing percentage does not make it jump
 -- side      "left" draws it top LEFT instead of top right; '' = right. Banners
 --           of the two sides stack separately (the speed banner is on the
---           left, 2026-09-28, so it sits away from the video info).
+--           left, so it sits away from the video info).
 -- icon      a Material icon name from uosc's icon font (fonts/uosc_icons.otf,
 --           family MaterialIconsRound-Regular, the name is a ligature); '' = the
 --           icon ICONS below gives the id, '-' = none.
 --
--- The card (2026-10-02, design pass: "modern and cohesive"): rounded like
--- uosc's own menus and buttons, a hairline edge so a black banner still has a
--- shape over a black letterbox, and on the left the SAME icon as the toolbar
--- button the message belongs to (the speed banner wears the speed button's
--- icon, the shader messages the upscale button's ...), in the one accent
--- colour this setup uses (ACCENT: the sync tool's drag colour, the progress
--- line). Fonts are mpv.conf's osd-font (Segoe UI), like uosc.
+-- The card: rounded like uosc's own menus and buttons, a hairline edge so a
+-- black banner still has a shape over a black letterbox, and on the left the
+-- SAME icon as the toolbar button the message belongs to (the speed banner
+-- wears the speed button's icon, the shader messages the upscale button's
+-- ...), in the one accent colour this setup uses (ACCENT: the sync tool's
+-- drag colour, the progress line). Fonts are mpv.conf's osd-font (Segoe UI),
+-- like uosc.
 --
--- Size (2026-09-29, at the user's request: "banners are a bit small, make
--- them bigger"): every constant is the design unit multiplied by both the
--- interface scale and SIZE, a script-opt (default 1.35). SIZE applies to the
--- fonts, the card metrics and mpv's own OSD text alike, so everything stays
--- one design. Set size=1 in script-opts/notify_size.conf to go back.
+-- Size: every constant is the design unit multiplied by both the interface
+-- scale and SIZE, a script-opt (default 1.35). SIZE applies to the fonts, the
+-- card metrics and mpv's own OSD text alike, so everything stays one design.
+-- Set size=1 in script-opts/notify_size.conf to go back.
 --
 -- State for tests: user-data/notify = { cards = { {id, title, detail,
--- progress, left, box}, ... } }, top to bottom, right side first; user-data/notify
+-- progress, left, box}, ... } }, in the order they were shown (a new id is
+-- appended, a re-shown one keeps its place); user-data/notify
 -- .size = the effective SIZE (tests assert the opt is applied). box = {x, y,
 -- w, h}, the rectangle in OSD pixels, is there only once the banner has been
 -- DRAWN (published after canvas:update(), so an error while drawing leaves it
@@ -57,12 +54,9 @@ local mp = require('mp')
 local opt = require('mp.options')
 local assdraw = require('mp.assdraw')
 
--- Design sizes in 720-line units, the same numbers as before, multiplied at
--- draw time by the interface scale so they come out as real pixels. Before
--- 2026-09-29 the banners drew on a fixed 720-line canvas, which made them
--- SHRINK WITH THE WINDOW while uosc's own elements (real pixels x uosc's
--- scale) kept their size - at a small window the banners became too small to
--- read. Now they scale exactly with uosc's UI (state.scale = hidpi x
+-- Design sizes in 720-line units, multiplied at draw time by the interface
+-- scale so they come out as real pixels and scale exactly with uosc's UI,
+-- whose own elements draw real pixels x uosc's scale (state.scale = hidpi x
 -- fullscreen factor, published as user-data/uosc/ui-scale by a marked local
 -- change in uosc/main.lua).
 local TOP = 46 -- below uosc's top bar and window buttons
@@ -72,11 +66,11 @@ local GAP = 6
 local PAD_X = 10
 local TITLE_SIZE, DETAIL_SIZE = 14, 11
 -- Text sizes are multiplied by this at draw time: mpv.conf's osd-font (Segoe
--- UI) has a 1.19x taller line box than the Arial these sizes were designed
--- with, and libass sizes text by that box (uosc.conf font_scale, same value).
+-- UI) has a 1.19x taller line box than Arial, and libass sizes text by that
+-- box (uosc.conf font_scale, same value).
 local FONT_SCALE = 1.19
--- text tops inside a banner; 2 units higher than the Arial-era 6/23: Segoe
--- UI's taller line box (FONT_SCALE) puts the glyphs that much lower in it
+-- text tops inside a banner; Segoe UI's taller line box (FONT_SCALE) puts
+-- the glyphs lower in it
 local TITLE_Y, DETAIL_Y = 4, 21
 local HEIGHT_TITLE, HEIGHT_DETAIL, HEIGHT_PROGRESS = 28, 40, 44
 local PROGRESS_WIDTH = 270
@@ -92,9 +86,9 @@ local ICON_SIZE, ICON_SIZE_TALL, ICON_GAP = 16, 20, 8
 -- mpv's own OSD text box (mpv.conf's osd-box block): libass pads the box by
 -- osd-shadow-offset on every side.
 local OSD_BOX_PAD = 7
--- &HBBGGRR& colours, alpha 00 = opaque. OLED black, solid (2026-09-26, at the
--- user's request; until then 69 % opaque): mpv.conf's osd-back-color is the
--- same #FF000000, so a banner and mpv's boxed OSD text match.
+-- &HBBGGRR& colours, alpha 00 = opaque. OLED black, solid: mpv.conf's
+-- osd-back-color is the same #FF000000, so a banner and mpv's boxed OSD text
+-- match.
 local BOX, BOX_ALPHA = '000000', '00'
 -- The hairline edge: white at ~10 %, like a Windows 11 flyout's stroke - on a
 -- bright picture it is invisible, over a black letterbox it outlines the card.
@@ -118,7 +112,7 @@ local ICONS = {
 	['resume'] = 'history',
 	['settings'] = 'settings', -- Settings menu choices (settings.lua)
 	-- FastStream's notices (its helper sends them: autoplay, the next episode) and
-	-- the episode keys without it (faststream-episodes.lua): the autoplay switch's
+	-- the episode keys without it (faststream-episodes.lua): the autoplay switch's icon
 	['faststream'] = 'playlist_play',
 	['welcome'] = 'waving_hand', -- the first start (welcome.lua)
 }
@@ -194,11 +188,6 @@ end)
 -- switches that off (osd-scale-by-window=no: every one of those options is
 -- then in REAL pixels) and writes the banners' own px() values into all of
 -- them whenever the scale or the window changes.
--- Until 2026-10-02 only the font was rewritten, and still divided by the
--- window-height ratio although the window scaling had just been switched off:
--- at 1080p the text came out at 2/3 of the banner title's size, at 1440p
--- fullscreen at about half, and the unscaled 22/53 margins put its box 8 px
--- past the banners' right edge (seen on a screenshot).
 local osd_scaled = nil
 local function set_osd_scale()
 	local w, h = mp.get_osd_size()
@@ -207,16 +196,13 @@ local function set_osd_scale()
 	end
 	local pad = px(OSD_BOX_PAD)
 	-- libass draws the box ~1.5 px further right than the text's margin says
-	-- (measured on a 2560x1440 screenshot when this was 22 = 14 + 7 + 1)
 	local values = { px(TITLE_SIZE * FONT_SCALE), pad, px(RIGHT) + pad + 1, px(TOP) + pad }
 	local key = table.concat(values, ',')
 	if key ~= osd_scaled then
 		osd_scaled = key
-		-- osd-scale-by-window is a yes/no OPTION: setting it through
-		-- set_property_number with false crashed draw() with "bad argument
-		-- #2 (number expected, got boolean)" in the real renderer - the
-		-- exception killed every banner after it. Options go through
-		-- set_property, which accepts no as a string.
+		-- osd-scale-by-window is a yes/no OPTION: set_property_number with a
+		-- boolean throws in the real renderer and kills every banner after
+		-- it. Options go through set_property, which accepts no as a string.
 		mp.set_property('osd-scale-by-window', 'no')
 		mp.set_property_number('osd-font-size', values[1])
 		mp.set_property_number('osd-shadow-offset', values[2])
@@ -322,10 +308,8 @@ local function text_width(str, size)
 end
 
 -- A detail too wide for the card wraps, word by word, onto up to
--- MAX_DETAIL_LINES lines (review, 2026-10-09: it was clipped at the card's edge,
--- and the longer banners - "Upscaling off here ... Settings > Upscaling quality
--- runs it anyway" - lost exactly the part that says what to do). Whatever does
--- not fit even then goes on the last line, clipped as before.
+-- MAX_DETAIL_LINES lines, so a long banner does not lose the part that says
+-- what to do. Whatever does not fit even then goes on the last line, clipped.
 local DETAIL_LINE = 15
 local MAX_DETAIL_LINES = 3
 
@@ -435,7 +419,6 @@ draw = function()
 		events[#events + 1] = rect_event(x0, y, bw, bh, BOX, BOX_ALPHA, px(RADIUS), true)
 		if card.icon then
 			local size = px(card.detail ~= '' and ICON_SIZE_TALL or ICON_SIZE)
-			-- centred on the text lines, not on a progress card's bar
 			-- centred on the text: the whole card, except a progress card's bar strip
 			local text_h = card.progress and (card.detail ~= '' and px(HEIGHT_DETAIL) or px(HEIGHT_TITLE)) or bh
 			events[#events + 1] = icon_event(x0 + pad_x + size / 2, y + text_h / 2, size, card.icon)

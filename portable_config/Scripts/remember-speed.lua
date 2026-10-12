@@ -1,45 +1,25 @@
 -- remember-speed.lua - persist the last playback speed across mpv runs and files
 --
--- mpv's own `speed` option already carries across files WITHIN one mpv
--- process (it is a global option, not file-local - see the mpv manual's
--- "Per-File Options": only file-local options reset between files). What
--- does NOT carry is the value across a fresh `mpv.exe` launch: there it
--- resets to 1x every time. The watch-later mechanism is per-file (hashed
--- from the file's path), so it restores the speed OF that file - not "the
--- last speed I picked, for whatever I play next", which is what is wanted
--- here (and watch-later only writes on explicit quit-with-save / file end
--- anyway, not on every speed change).
+-- `speed` is a global option: it carries across files within one process but
+-- starts at 1x in a fresh one. Watch-later is no substitute - it is per file
+-- (the speed OF that file, not the last speed picked) and writes only on
+-- quit-with-save. So every change is saved to ~~state/speed.json and restored
+-- at the first video of a process.
 --
--- So: save `speed` to a small JSON file on every change, load it once at
--- startup, and re-apply it. The file lives in ~~state/ (resolved live via
--- expand-path, since that prefix maps to portable_config/ on this portable
--- install - verified, not assumed; a hardcoded path would break if the repo
--- moved).
+-- VIDEO ONLY: songs neither save nor restore it, so a speed picked for an
+-- album never replaces the one for videos. A file counts as video only with a
+-- video track that is neither album art nor a single image (the
+-- classification uosc uses); track-list is empty while a file loads, so the
+-- kind is known from file-loaded on.
 --
--- VIDEO ONLY (2026-09-19): both the SAVE and the RESTORE are scoped to files
--- with a real video track - audio files (music) neither save nor restore the
--- speed, so a speed picked on an anime is never clobbered by one chosen for an
--- album, and opening mpv on music does not run it at 3x. "Real video"
--- excludes album art: an embedded cover makes an audio file technically have a
--- "video" track (track-list/N/albumart, manual), so the file counts as video
--- only if it has a video track that is neither albumart nor a single-image
--- track (track-list/N/image) - the same classification uosc itself uses
--- (main.lua's track-list observer). Before track-list arrives (a file still
--- loading), the observer cannot tell the kind and saves nothing: track-list is
--- the first per-file fact available. The file's file-loaded takes such a speed
--- over instead (2026-10-12, review): FastStream's next episode loads for
--- seconds, and a speed key pressed meanwhile was neither saved nor the video
--- speed of the next song-to-video switch. Only the very first video of a
--- process overrides it with the saved speed (the restore). mpv's own
--- audio-only speed behavior (scaletempo2) is not affected - only this memory
--- is scoped.
+-- WITHIN ONE PROCESS a switch between a video and a song sets that kind's
+-- speed (a song after a 3x episode would otherwise play at 3x); two files of
+-- the same kind keep whatever speed is set.
 --
--- WITHIN ONE PROCESS too (2026-10-02): `speed` is a global option, so a song
--- after a 3x episode played at 3x (FastStream's next episode, a playlist, a
--- drop into the open window - all one process). A switch between a video and
--- an audio file now sets the speed of that kind: a song plays at the speed last
--- chosen on a song (1x until then), and the next video gets the video speed
--- back. Only on a switch: two videos in a row keep whatever speed is set.
+-- A speed picked WHILE A FILE LOADS (FastStream streams take seconds) is the
+-- user's choice for that file: it wins over the restore and the kind switch.
+-- A speed the file brings along (watch-later's saved one, a per-file option) is
+-- not a pick: mpv applies it before the on_load hooks, where the snapshot is taken.
 
 local mp = require('mp')
 local msg = require('mp.msg')
@@ -48,9 +28,8 @@ local utils = require('mp.utils')
 local state_file = mp.command_native({ 'expand-path', '~~state/' }) .. '/speed.json'
 
 --- True if the current file has a real video track (not album art, not a
---- single-image track). nil while track-list is not (yet) populated: also when
---- it is empty, as at script load and between two files - that was counted as
---- an audio file, so the speed mpv started with became the song speed.
+--- single-image track). nil while track-list is empty: at script load and
+--- between two files.
 ---@return boolean|nil
 local function is_video_file()
 	local tracks = mp.get_property_native('track-list')
@@ -65,8 +44,8 @@ local function is_video_file()
 	return false
 end
 
---- Read the saved speed, or nil if the file is missing/corrupt/unreadable.
---- A corrupt file is NOT deleted here - the next successful save overwrites it.
+--- The saved speed, or nil if the file is missing or corrupt (a corrupt file
+--- is overwritten by the next save).
 ---@return number|nil
 local function load_speed()
 	local file = io.open(state_file, 'r')
@@ -82,10 +61,8 @@ local function load_speed()
 	return nil
 end
 
---- Write the current speed to the state file, through a temp file of this
---- process's own: written in place, a crash between emptying the file and
---- writing it left it empty, and the saved speed was gone. All failures are
---- logged, not fatal: a broken save must never stop playback.
+--- Writes the speed through a temp file of this process, so a crash never
+--- leaves an empty file. Failures are logged, never fatal.
 ---@param speed number
 local function save_speed(speed)
 	local json = utils.format_json({ speed = speed })
@@ -109,25 +86,22 @@ local function save_speed(speed)
 	end
 end
 
--- RESTORE: at the first file-loaded that turns out to be a video file, apply
--- the saved speed. Restoring here (instead of unconditionally at script load,
--- as this script first did) is what makes the audio/video scoping possible:
--- the file type is only knowable from track-list, which arrives per file, and
--- mpv can be launched straight into an audio file (double-clicked album) -
--- restoring the video speed onto that would be exactly what this scoping is
--- meant to prevent. observe_property('speed') is guaranteed to fire on the set
--- below (its initial read happens at script load, before any file-loaded), so
--- the restored value is re-saved immediately, self-healing.
-local restored = false
--- The speed of each kind of file in this process, and the kind of the file
--- before (nil until one has loaded): see "WITHIN ONE PROCESS" above.
-local video_speed = nil
+local restored = false -- the saved speed is applied once per process
+local video_speed = nil -- each kind's speed in this process
 local audio_speed = 1
-local last_kind = nil
+local last_kind = nil -- the kind of the file before, nil until one loaded
+-- the speed at the loading file's on_load: a different one at its file-loaded
+-- was picked while it loaded
+local speed_at_load_start = mp.get_property_native('speed', 1)
+local speed_at_start = nil -- the speed the current file started playing with
+
+local function differs(a, b)
+	return math.abs(a - b) > 0.0001
+end
 
 ---@param speed number
 local function set_speed(speed)
-	if math.abs(mp.get_property_native('speed', 1) - speed) > 0.0001 then
+	if differs(mp.get_property_native('speed', 1), speed) then
 		mp.set_property_native('speed', speed)
 	end
 end
@@ -135,10 +109,22 @@ end
 mp.register_event('file-loaded', function()
 	local video = is_video_file()
 	if video == nil then
+		speed_at_start = mp.get_property_native('speed', 1)
 		return
 	end
 	local kind = video and 'video' or 'audio'
-	if not restored and video then
+	local speed = mp.get_property_native('speed', 1)
+	if differs(speed, speed_at_load_start) then
+		if video then
+			video_speed = speed
+			save_speed(speed)
+		else
+			audio_speed = speed
+		end
+		restored = restored or video
+	elseif not restored and video then
+		-- Here and not at script load: only track-list tells whether mpv was
+		-- started on a video or on an album. The observer re-saves the value.
 		local saved = load_speed()
 		if saved and saved > 0 then
 			set_speed(saved)
@@ -146,10 +132,8 @@ mp.register_event('file-loaded', function()
 			set_speed(1) -- nothing saved yet: a song's speed is not the video speed
 		end
 		restored = true
-		-- Known from here on, also when nothing changes it: the speed observer
-		-- only learns it from a change, and with none (nothing saved, or saved =
-		-- what was already set) a speed picked on a song stayed for the next
-		-- video (until 2026-10-04).
+		-- known from now on, also when nothing changes it (the observer learns
+		-- it only from a change)
 		video_speed = mp.get_property_native('speed', 1)
 	elseif last_kind and kind ~= last_kind then
 		if kind == 'audio' then
@@ -157,22 +141,15 @@ mp.register_event('file-loaded', function()
 		elseif video_speed then
 			set_speed(video_speed)
 		end
-	else
-		-- Same kind as the file before (or a first song): the speed now is this
-		-- kind's, a speed picked while the file loaded included (see VIDEO ONLY).
-		local speed = mp.get_property_native('speed', 1)
-		if kind == 'audio' then
-			audio_speed = speed
-		elseif not video_speed or math.abs(speed - video_speed) > 0.0001 then
-			video_speed = speed
-			save_speed(speed)
-		end
+	elseif kind == 'audio' then
+		audio_speed = speed -- a first song
 	end
 	last_kind = kind
+	speed_at_start = mp.get_property_native('speed', 1)
 end)
 
--- SAVE: on every change - but only while a video file is loaded. Audio files
--- never write the state file (their speed choice stays session-local).
+-- SAVE on every change while a video is loaded; a song's speed stays in this
+-- process.
 mp.observe_property('speed', 'native', function(_, speed)
 	if type(speed) ~= 'number' or speed <= 0 then
 		return
@@ -186,21 +163,24 @@ mp.observe_property('speed', 'native', function(_, speed)
 	end
 end)
 
--- The speed a file had when it goes is its kind's (2026-10-12). The observer learns
--- a change only when this script gets to it: a file loaded right after a change (a
--- speed set on a song, then a video at once) could unload the song first, and the
--- observer then saw the video and the video speed - the song's speed was lost, and
--- the next song went back to the old one (a CI runner hit it). Here the speed is read
--- while the file is still there, whatever the observer has heard.
+-- The speed a file has when it goes is its kind's: the observer may hear of a
+-- change only after the next file has replaced this one (a speed set on a song
+-- right before a video loads would then count as the video's). Only a speed
+-- changed while the file played: one it brought along is not saved.
 mp.add_hook('on_unload', 50, function()
 	local speed = mp.get_property_native('speed')
-	if type(speed) ~= 'number' or speed <= 0 then
+	if type(speed) ~= 'number' or speed <= 0 or (speed_at_start and not differs(speed, speed_at_start)) then
 		return
 	end
 	if last_kind == 'audio' then
 		audio_speed = speed
-	elseif last_kind == 'video' and (not video_speed or math.abs(speed - video_speed) > 0.0001) then
+	elseif last_kind == 'video' and (not video_speed or differs(speed, video_speed)) then
 		video_speed = speed
 		save_speed(speed)
 	end
+end)
+
+-- Before every other on_load hook, after mpv has applied the file's own options.
+mp.add_hook('on_load', 5, function()
+	speed_at_load_start = mp.get_property_native('speed', 1)
 end)

@@ -2,9 +2,7 @@
 
 This document is the **single source of truth** for reproducing this exact
 mpv installation: speed keys, uosc UI, and the Anime4K / FSRCNNX /
-SSimSuperRes GLSL upscale presets. (Frame interpolation - RIFE via VapourSynth
-+ vs-mlrt - was removed 2026-09-20; its files are in git history, see
-AGENTS.md.) Everything else in the repo (configs, scripts) is
+SSimSuperRes GLSL upscale presets. Everything else in the repo (configs, scripts) is
 meant to be committed as-is; the few things that **cannot** be committed are
 re-created by the scripts in `installer/`.
 
@@ -123,12 +121,8 @@ already exists and always verifies results at the end.
 1. **Configs parse**: `mpv.com --idle` → no error spam about mpv.conf/input.conf.
 2. **Shaders**: play anything → `Shift+A` (Anime) / `Shift+Y` (Movie) toggle the
    upscale presets and the OSD confirms each step; `I` (stats) → page 2 shows shader passes running.
-   The current cycle shape, preset names, and default state are documented
-   in **AGENTS.md's "Key runtime features" / "Current status"** - not
-   repeated here on purpose (both this doc and AGENTS.md had to be updated
-   in lockstep for the same fact more than once on 2026-09-14; the cycle
-   shape lives in exactly one place now, see the note at the end of
-   section 5).
+   The current cycle shape, preset names and default state are in
+   **AGENTS.md** ("Upscaling") - deliberately not repeated here.
 3. **uosc**: right-click = settings menu; bottom bar appears on mouse near bottom.
 
 ## 5. Updating
@@ -138,4 +132,4 @@ already exists and always verifies results at the end.
 | uosc | in the repository, by hand: a new uosc must get the local changes AGENTS.md lists carried over (the static tests check them). Not uosc's own updater (it replaces `Scripts/uosc` and drops them; the menu entry is gone) |
 | Anime4K etc. | re-run `install-shaders.ps1` (re-downloads) |
 | mpv.exe, yt-dlp | Run `updater.bat`. It pulls the repo (a new mpv build that passes the regression suite is offered as one pull request, `mpv-update`; merging it moves `mpv-build.json`), installs exactly that build, and updates yt-dlp - nothing to commit. A build that fails the suite is not pinned (CI opens one "mpv update failed" issue); the pin, and your mpv, stay where they were. The next mpv start re-checks the shader cache by itself in the background (a quick check for a new mpv, a full warm-up for a new libplacebo) |
-| This doc | keep **sections 1-3** (repo layout tables, install steps) in sync when files/scripts are added or removed - they change rarely and are specific to this doc. Section 4 deliberately POINTS to AGENTS.md for cycle shapes/defaults/policy instead of restating them - if you're updating a preset name or default state, that edit belongs in AGENTS.md only; leave this doc's wording as "see AGENTS.md" rather than reintroducing a specific claim that can go stale again (see AGENTS.md's "Notes for future agents" for the full reasoning) |
+| This doc | keep **sections 1-3** (repo layout tables, install steps) in sync when files/scripts are added or removed. Section 4 points to AGENTS.md for cycle shapes, defaults and policy instead of restating them: a fact kept in two places goes stale in one |

@@ -1,21 +1,13 @@
 -- shipped-cases.lua - what real playback needs beyond warmup.lua's fixed matrix,
--- FOUND BY MEASURING (2026-10-02), so a full warm-up draws it before any video
--- does. Loaded with dofile() by warmup.lua and drawn after the matrix: one step
--- each, a 1 s clip made once with mpv's own encoder (cases.lua), decoded the
--- same way, drawn through the same chain.
+-- so a full warm-up draws it before any video does. Loaded with dofile() by
+-- warmup.lua and drawn after the matrix: one step each, a 1 s clip made once
+-- with mpv's own encoder (cases.lua), decoded the same way, drawn through the
+-- same chain. The list was found by measuring; it is kept by hand.
 --
--- Where the list came from: the tests' gap hunt (2026-10-02 to 2026-10-05)
--- warmed an EMPTY cache exactly as the player does, then played a corpus of
--- every kind of video and picture (codecs, bit depths, 4:2:0/4:4:4,
--- bt.601/bt.709/bt.2020/P3, HDR10, HLG, Dolby Vision, film grain, 144p to 8K,
--- stills, cover art) under every chain, window size and menu setting; every
--- condition that still compiled a shader became a case here, until a run came
--- out clean. The hunt was removed with the player's capture after the owner's
--- measurement (mpv issue #39); the list is kept by hand now. A kind of video
--- that still stutters on its first start after a full warm-up (a log with
--- --msg-level=vo/gpu-next/libplacebo=debug then shows "shaderc compile status"
--- lines, as warmup.lua counts them) is a new case: add it here and bump
--- fingerprint.lua's WARMUP_VERSION.
+-- A kind of video that still stutters on its first start after a full warm-up
+-- (a log with --msg-level=vo/gpu-next/libplacebo=debug then shows "shaderc
+-- compile status" lines, as warmup.lua counts them) is a new case: add it
+-- here.
 --
 -- A case: `clip` (cases.clip_recipe(): size, FFmpeg pixel format, encoder,
 -- colour tags, SAR, film grain), hwdec, chain ('off' | 'anime' | 'movie'),
@@ -82,7 +74,6 @@ local cases = {}
 local function add(t)
 	cases[#cases + 1] = t
 end
--- the same clip and decoder through each chain
 local function chains(c, hwdec, list, extra)
 	for _, chain in ipairs(list) do
 		local t = { clip = c, hwdec = hwdec, chain = chain }
@@ -119,14 +110,9 @@ chains(clip(SDR8_HEVC, 7680, 4320), D3D, { 'off', 'movie' })
 add({ clip = clip(SDR8, 1080, 1920), hwdec = D3D, chain = 'movie' })
 
 -- Shrunk into a smaller window: the downscaler's kernel widens with the
--- shrink, and each new tap count is a new shader (an 8K film in a window at
--- x0.31 compiled where fullscreen x0.33 did not). One ratio per tap step
+-- shrink, and each new tap count is a new shader. One ratio per tap step
 -- (hermite, mpv's dscale: 2*ceil(1/ratio) taps -> 6, 8, 10, 12, 14, 16), for
--- the three surfaces real files come in (a fourth, vulkan-decoded 8-bit, went
--- with vulkan decoding on 2026-10-04). Off only: the chains run before it.
--- The 14-tap step (1/7 < ratio <= 1/6) was missing until 2026-10-10: after
--- x0.18 and x0.14 had been drawn, a 1080p video shrunk to x0.15 compiled 6
--- shaders, and x0.155 / x0.16 nothing more (measured with the pinned build).
+-- the three surfaces real files come in. Off only: the chains run before it.
 for _, s in ipairs({
 	{ clip(SDR8, 1920, 1080), D3D },
 	{ clip(SDR10, 1920, 1080), D3D },
@@ -151,8 +137,7 @@ chains(clip(P3, 1920, 1080), D3D, ALL)
 add({ clip = clip(P3, 1920, 1080), hwdec = D3D, chain = 'off', unscaled = true })
 
 -- HDR10 (tone-mapped to this SDR screen, with peak detection): 4K shrunk,
--- 1080p enlarged, the equalizer (the vulkan-decoded cases went on 2026-10-04,
--- with vulkan decoding: mpv.conf's hwdec section)
+-- 1080p enlarged, the equalizer
 chains(clip(HDR10, 3840, 2160), D3D, ALL)
 add({ clip = clip(HDR10, 3840, 2160), hwdec = D3D, chain = 'off', eq = { gamma = 2 } })
 chains(clip(HDR10, 1920, 1080), D3D, ALL)

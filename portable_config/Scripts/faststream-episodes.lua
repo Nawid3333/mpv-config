@@ -1,22 +1,20 @@
 -- faststream-episodes.lua - previous / next episode and the autoplay switch as
 -- buttons in uosc's control bar, while FastStream plays a series in this window.
 --
--- 2026-10-11, at the user's request: there were no buttons for the next and the
--- previous episode. uosc's own prev / next are playlist buttons, and a FastStream
--- stream is a playlist of one, so they do nothing there; and autoplay could not
--- be switched in mpv at all.
+-- uosc's own prev / next are playlist buttons, and a FastStream stream is a
+-- playlist of one, so they do nothing here; mpv itself offers no autoplay switch.
 --
--- The FastStream helper (host 7) follows the mpv it started over JSON IPC. It
--- sets two properties:
+-- The FastStream helper follows the mpv it started over JSON IPC. It sets these
+-- properties:
 --   user-data/faststream/connected  true while it follows this window; missing
 --                                   counts as false.
---   user-data/faststream/heartbeat  (host 10, 2026-10-12) the time, written when it
---                                   connects and every 30 s after. A helper killed
---                                   hard (Task Manager, a Firefox crash) clears
---                                   nothing: once this value has stood still for
---                                   90 s (three beats missed) it counts as gone and
---                                   the buttons go. A helper that never wrote one
---                                   (host 9) is followed by `connected` alone.
+--   user-data/faststream/heartbeat  the time, written when it connects and every
+--                                   30 s after. A helper killed hard (Task
+--                                   Manager, a Firefox crash) clears nothing: once
+--                                   this value has stood still for 90 s (three
+--                                   beats missed) it counts as gone and the
+--                                   buttons go. A helper that never writes one is
+--                                   followed by `connected` alone.
 --   user-data/faststream/autoplay   its "Autoplay next episode in mpv" setting
 -- and hears every client message:
 --   script-message faststream-next / faststream-previous (also n / N, input.conf)
@@ -31,15 +29,14 @@
 -- this window AND the file is a stream it sent; anywhere else they take no space.
 -- Each push carries `hide`, and uosc.conf gives the buttons and the gap after them
 -- the disposition <user-data/faststream-episodes/shown>, which this script sets
--- true only once uosc has all three: that one also keeps them away before the
--- first push reaches uosc, when an uninitialised managed button is drawn as a
--- question mark.
+-- true only once uosc has all three: that also keeps them away until the first
+-- push reaches uosc, which draws an uninitialised managed button as a question
+-- mark.
 --
 -- The keys (n, N, Ctrl+a) and the Playlist menu's entries send the same messages
--- in any window, and only the helper acts on them: with none following this one (a
--- file opened in mpv itself, FastStream not in MPV mode, a helper that stopped
--- beating) a key did nothing and said nothing. Since 2026-10-12 this script says
--- why in a banner; with a helper following, the helper speaks.
+-- in any window. With a helper following, the helper acts on them and speaks;
+-- without one (a file opened in mpv itself, FastStream not in MPV mode, a helper
+-- that stopped beating) this script answers with a banner.
 --
 -- For the tests: user-data/faststream-episodes/buttons holds what was last pushed
 -- for each button.
@@ -79,7 +76,7 @@ end
 --- with a value in its URL fragment (everything after the first '#', items
 --- separated by '&'), as gpu-toggles.lua and stream-resume.lua read them. Not the
 --- text anywhere in the address: a site's own query or fragment item
---- ("?x=fs-content=anime", "#xfs-id=...") is no tag (FastStream #155).
+--- ("?x=fs-content=anime", "#xfs-id=...") is no tag.
 ---@param path string|nil
 ---@return boolean
 local function is_faststream(path)
@@ -165,13 +162,13 @@ local function read_helper()
 	end
 end
 
--- mpv tells no observer when a user-data key is deleted (checked 2026-10-11 on the
--- pinned build: neither the key's observers nor its map's hear it), and a deleted
--- `connected` counts as false. So while the last value the observer heard is true, a
--- look once a second catches a helper that deletes the key instead of setting false -
--- and one that sets true again after that, which the observer, still holding true,
--- does not report either. The same look sends a button uosc did not get yet, and
--- notices a heartbeat that stopped (a killed helper changes nothing mpv could hear).
+-- mpv tells no observer when a user-data key is deleted: neither the key's
+-- observers nor its map's hear it, and a deleted `connected` counts as false. So
+-- while the last value the observer heard is true, a look once a second catches a
+-- helper that deletes the key instead of setting false - and one that sets true
+-- again after that, which the observer, still holding true, does not report
+-- either. The same look sends a button uosc did not get yet, and notices a
+-- heartbeat that stopped (a killed helper changes nothing mpv could hear).
 local recheck = mp.add_periodic_timer(1, read_helper)
 recheck:kill()
 

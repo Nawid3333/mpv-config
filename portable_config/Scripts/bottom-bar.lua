@@ -1,43 +1,36 @@
 -- bottom-bar.lua - what moves with uosc's bottom bar: the soft dark scrim the
 -- controls sit on, and the subtitles, which rise above the bar while it shows.
 --
--- 2026-10-02, design pass ("make the mpv design more modern and cohesive"):
---
 -- The scrim. uosc draws each control as its own black square (uosc.conf
--- opacity controls=1, chosen so the buttons "sit IN the bar, not floating over
--- video") - over a picture that reads as a row of separate tiles. This draws
--- what modern players draw instead: one dark gradient behind the whole row,
--- from clear above the buttons to OLED black where uosc's (solid black)
--- timeline starts. The buttons themselves have no squares any more
--- (opacity controls=0); uosc gives every icon a dark outline (text_border) and
--- a hover highlight, so they stay readable on any picture. It fades in and out
--- exactly with uosc's bar: uosc publishes the bar's visibility and edges as
--- user-data/uosc/bottom-ui (a marked local change in uosc/main.lua, the one
--- music-info.lua uses).
+-- opacity controls=1) - over a picture the button row reads as separate tiles.
+-- This instead draws one dark gradient behind the whole row, from clear above
+-- the buttons to black where uosc's solid-black timeline starts. The
+-- per-control squares are then off (opacity controls=0); uosc gives every icon
+-- a dark outline (text_border) and a hover highlight, so each stays readable
+-- on any picture. The scrim fades in and out exactly with uosc's bar: uosc
+-- publishes the bar's visibility and edges as user-data/uosc/bottom-ui (a
+-- marked local change in uosc/main.lua; music-info.lua reads the same
+-- property).
 --
--- The lift. mpv draws subtitles where they always are, and uosc's controls are
--- drawn over them: every mouse move covered the line being spoken (seen on the
--- 2026-10-02 screenshots - the subtitle sat behind the buttons). While the bar
--- shows - and while the sync tool's panel is open, which sits in the same
--- place - the subtitles move up to just above it, in ONE step: up as soon as
--- the bar starts to fade in, down once it has faded out completely. (Until
--- 2026-10-09 they slid with the fade, one new value per fade step - about 14
--- per 100 ms fade. Every changed sub-* or osd-* option makes mpv reconfigure
--- libass for the subtitles (sub/sd_ass.c: SD_CTRL_UPDATE_OPTS ->
--- configure_ass() -> ass_set_selective_style_override(), which always calls
--- ass_reconfigure()), and that empties libass's glyph, bitmap and composite
--- caches: each frame of a fade rendered every subtitle from nothing, on the
--- video thread - for heavily typeset ASS a late frame each time the mouse moved
--- the bar in or out. Two writes per show and hide are the least a lift can do.)
+-- The lift. uosc's controls are drawn over the subtitles and cover the line
+-- being spoken. While the bar shows - and while the sync tool's panel is open,
+-- which sits in the same place - the subtitles move up to just above it, in
+-- ONE step: up as soon as the bar starts to fade in, down once it has faded
+-- out completely. Never a new value per fade step: every changed sub-* or
+-- osd-* option makes mpv reconfigure libass for the subtitles (sub/sd_ass.c:
+-- SD_CTRL_UPDATE_OPTS -> configure_ass() ->
+-- ass_set_selective_style_override(), which always calls ass_reconfigure()),
+-- and that empties libass's glyph, bitmap and composite caches - each changed
+-- value renders every subtitle anew, on the video thread. Two writes per show
+-- and hide are the least a lift can do.
 --   - text subtitles (SRT, WebVTT - everything mpv styles itself): through
---     sub-margin-y-offset, the option mpv provides for exactly this ("dynamic
---     margin adjustments at runtime, e.g. by scripts like the OSC to avoid
---     subtitle/UI overlap"); mpv's own OSC uses it the same way
+--     sub-margin-y-offset, the option mpv provides for dynamic margin
+--     adjustments at runtime (mpv's own OSC uses it the same way)
 --   - ASS and picture subtitles (their own margins, which that option does not
 --     touch): through sub-pos, on top of whatever the user set. libass moves
 --     only bottom-aligned dialogue with it - signs and anything placed with
---     \pos stay where the typesetter put them. mpv.conf removes sub-pos from the
---     watch-later options, so a lifted position is never saved for a file.
+--     \pos stay where the typesetter put them. mpv.conf removes sub-pos from
+--     the watch-later options, so a lifted position is never saved for a file.
 --
 -- State for tests: user-data/bottom-bar = {visibility, scrim (drawn: true),
 -- lift_px (how far the subtitles were raised, real pixels), mode ('margin' |
@@ -142,7 +135,7 @@ end
 -- Takes over a sub-pos change this script did not make, as the user's own
 -- position. Read before every write, not only in the observer: observer
 -- notifications arrive later, and a change made just before the bar moved
--- would otherwise be overwritten unseen (the test caught that race).
+-- would otherwise be overwritten unseen.
 local function adopt_user_pos()
 	local current = mp.get_property_number('sub-pos')
 	if not current then
@@ -183,8 +176,8 @@ local function apply(mode, lift, offset)
 	applied = { lift = lift, mode = mode, offset = offset }
 end
 
--- The whole lift while any of the bar shows (see the header: one step, not one
--- per fade step - each new value empties libass's caches).
+-- The full lift as soon as any of the bar shows - one step, not one value per
+-- fade step: every new value empties libass's caches (see the header).
 local function update_lift(h, dims, controls_top, visibility)
 	adopt_user_pos()
 	local track = mp.get_property_native('current-tracks/sub')

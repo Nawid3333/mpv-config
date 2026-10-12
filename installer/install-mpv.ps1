@@ -47,18 +47,17 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 # A download that stalls halfway: Windows PowerShell 5.1 gives up after 300 s without data by
-# itself, PowerShell 7 waited for ever (-TimeoutSec does not cover the body; measured
-# 2026-10-10). Its -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for
-# 120 s; a slow download that keeps coming is not cut.
+# itself, PowerShell 7 waits for ever (-TimeoutSec does not cover the body). Its
+# -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for 120 s; a slow
+# download that keeps coming is not cut.
 $StallLimit = if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('OperationTimeoutSeconds')) { @{ OperationTimeoutSeconds = 120 } } else { @{} }
 # Windows PowerShell 5.1 may not offer TLS 1.2 by default; GitHub needs it
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $script:failCode = 1
 
 # A native program's output, stderr included. Windows PowerShell 5.1 turns every stderr
-# line into a terminating error under 'Stop' once 2>&1 redirects it (checked
-# 2026-10-09: a single warning from mpv, 7-Zip or FastStream's install.ps1 ended the
-# install); the exit code decides here.
+# line into a terminating error under 'Stop' once 2>&1 redirects it (one warning from
+# mpv, 7-Zip or FastStream's install.ps1 would end the install); the exit code decides.
 function Invoke-Native([string]$Exe, [string[]]$Arguments) {
     $ErrorActionPreference = 'Continue'
     $out = @(& $Exe @Arguments 2>&1 | ForEach-Object { "$_" })
@@ -90,7 +89,7 @@ function Test-SafePath([string]$Rel) {
 
 # Replaces a file through a new name: a file left from the original install can
 # carry Program Files' read-only ACL for users while its folder still lets them
-# delete and create (installer\updater.ps1 did, 2026-10-03).
+# delete and create.
 function Copy-BuildFile([string]$Source, [string]$Target) {
     $dir = Split-Path -Parent $Target
     if (-not (Test-Path -LiteralPath $dir)) { $null = New-Item -ItemType Directory -Force -Path $dir }

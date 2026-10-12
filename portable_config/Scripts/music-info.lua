@@ -1,33 +1,29 @@
 -- music-info.lua - who and what is playing: "Artist – Title (feat. X)" in the
 -- window title, and a black panel with every detail above uosc's bottom bar.
 --
--- 2026-09-26, at the user's request: a song showed only "Paper Lanterns" (file
--- "Nova Lane - Paper Lanterns"). mpv's media-title is the file's TITLE tag, and nothing
--- showed its ARTIST tag. The user chose:
---   - the window title (native title bar, taskbar, and uosc's top bar in
---     fullscreen, which inherits it) = "Artist – Title (feat. X)" - for audio
---     files, and for videos that carry an artist tag (music videos)
---   - the cover art stays full window, as mpv shows it; for audio files a black
---     panel with everything the file says (title, artist, featured artists,
---     album, year, track, disc, genre, composer, label, audio format, what plays
---     next) sits above uosc's bottom bar and shows ONLY while that bar shows
---     (mouse moved) - it fades with it. uosc publishes the bar's visibility and
---     edges as user-data/uosc/bottom-ui (a marked local change in uosc/main.lua).
---     The panel reaches down to the timeline, so uosc's buttons sit on it: one
---     black block. Without cover art the window is black anyway and the panel
---     stays.
+-- The window title (native title bar, taskbar, and uosc's top bar in
+-- fullscreen, which inherits it) is "Artist – Title (feat. X)" for audio
+-- files, and for videos that carry an artist tag (music videos).
+-- The cover art stays full window, as mpv shows it. For audio files a black
+-- panel with every detail the file gives (title, artist, featured artists,
+-- album, year, track, disc, genre, composer, label, audio format, what plays
+-- next) sits above uosc's bottom bar and shows only while that bar shows
+-- (mouse moved) - it fades with it. uosc publishes the bar's visibility and
+-- edges as user-data/uosc/bottom-ui (a marked local change in uosc/main.lua).
+-- The panel reaches down to the timeline, so uosc's buttons sit on it: one
+-- black block. Without cover art the window is black anyway and the panel
+-- stays.
 --
--- Where the details come from: the tags (metadata/by-key/..., case-insensitive,
--- ID3 and Vorbis names). No title tag: "Artist - Title" from the file name (or
--- a radio stream's icy-title), a bare leading track number dropped. A title tag
--- but no artist tag: the artist from the file name when its title part matches.
--- Featured artists: "feat."/"ft."/"featuring" in the artist or the title,
--- bracketed or not, moved to their own line; ";" (several ARTIST tags) -> ", ".
+-- Details come from the tags (metadata/by-key/..., case-insensitive, ID3 and
+-- Vorbis names). No title tag: "Artist - Title" from the file name (or a
+-- radio stream's icy-title), a bare leading track number dropped. A title tag
+-- but no artist tag: the artist from the file name when its title part
+-- matches. Featured artists: "feat."/"ft."/"featuring" in the artist or the
+-- title, bracketed or not, moved to their own line; ";" (several ARTIST tags)
+-- -> ", ".
 --
 -- Sizes in 720-line design units (the banners' look), multiplied at draw time
--- by the interface scale - before 2026-09-29 a fixed 720-line canvas made the
--- panel shrink with the window, like the banners did. State for tests:
--- user-data/music-info.
+-- by the interface scale. State for tests: user-data/music-info.
 
 local mp = require('mp')
 local utils = require('mp.utils')
@@ -41,7 +37,7 @@ local GAP = 24 -- between the left column and the right one
 -- libass sizes text by that box (uosc.conf font_scale, notify.lua: same value).
 local FONT_SCALE = 1.19
 
--- ---- what the file says -----------------------------------------------------------
+-- ---- what the file says ---------------------------------------------------
 
 ---@param s string
 ---@return string
@@ -97,7 +93,7 @@ local function split_feat(s)
 end
 
 --- The given values that are not nil/false, in order. (ipairs over a table
---- literal stops at the first nil: a missing disc number once hid the genre.)
+--- literal stops at the first nil.)
 ---@return string[]
 local function present(...)
 	local list = {}
@@ -136,8 +132,8 @@ local function from_name(name)
 	if #parts >= 3 and parts[1]:match('^%d+$') then
 		table.remove(parts, 1)
 	end
-	-- a track number and a title: the number was shown as the artist. One or
-	-- two digits only, so a band named with a number ("311 - Amber") keeps it.
+	-- bare track number + title: no artist. One or two digits only, so a band
+	-- named with a number ("311 - Amber") keeps its name.
 	if #parts == 2 and trim(parts[1]):match('^%d%d?$') then
 		return nil, trim(parts[2])
 	end
@@ -262,7 +258,7 @@ local function read_song()
 			artist, title = file_artist, file_title
 		end
 	elseif not artist and file_artist and file_title:lower():find(title:lower(), 1, true) then
-		artist = file_artist -- "Nova Lane - Paper Lanterns.mp3" tagged with its title only
+		artist = file_artist -- file name's title part matches the tag: trust its artist part
 	end
 	artist = artist or artist_list(tag('album_artist'))
 	-- videos: only with an artist TAG (music videos); a film's file name stays
@@ -323,7 +319,7 @@ local function read_song()
 	}
 end
 
--- ---- the window title ---------------------------------------------------------------
+-- ---- the window title -----------------------------------------------------
 
 local song = nil ---@type table|nil
 
@@ -334,7 +330,7 @@ local function set_title()
 	end
 end
 
--- ---- the panel ------------------------------------------------------------------------
+-- ---- the panel ------------------------------------------------------------
 
 local panel = mp.create_osd_overlay('ass-events')
 panel.z = 1000 -- under uosc (2000): its buttons draw on the panel, its menus over it
@@ -368,12 +364,10 @@ local function text(x, y, align, size, color, alpha, str, clip)
 	)
 end
 
--- Measured on the panel's own canvas (res_x x res_y = the window in real
--- pixels, as draw() sets panel.res_x/res_y). libass sizes text by the window
--- height over res_y and compute_bounds answers in res_x/res_y units, so a
--- 720-line meter next to a w x h panel measured every line h/720 times its
--- real width: at 1440p the right column took twice its room and cut the
--- title short, below 720 lines the columns ran into each other.
+-- Measured on the same canvas the panel will use (res_x x res_y = the window
+-- in real pixels, as draw() sets panel.res_x/res_y): libass sizes text by the
+-- window height over res_y and compute_bounds answers in res_x/res_y units,
+-- so any other canvas measures every line h/720 times its real width.
 ---@param str string
 ---@param size number
 ---@param res_x number
@@ -425,8 +419,8 @@ local function draw()
 	end
 	-- uosc's interface scale (its state.scale, from its user-data hook; the
 	-- window height until it reports, like notify.lua's fallback). The design
-	-- sizes above are 720-line units, so the panel keeps the same physical size
-	-- as uosc's own elements at every window size.
+	-- sizes are 720-line units, so the panel keeps the same physical size as
+	-- uosc's own elements at every window size.
 	local k = mp.get_property_number('user-data/uosc/ui-scale', h / 720)
 	local function px(v)
 		return math.floor(v * k + 0.5)
@@ -436,8 +430,8 @@ local function draw()
 	-- window height it published to this one (the usual case: same window).
 	local reported_h = bottom and bottom.height or nil
 	local to_draw = bottom and reported_h and reported_h > 0 and h / reported_h or 1
-	-- +1: the box is drawn in whole canvas units, and rounding down left a 1 px
-	-- line of the cover between it and uosc's timeline (seen on a screenshot)
+	-- +1: the box is drawn in whole canvas units; rounding down leaves a 1 px
+	-- line of the cover between the panel and uosc's timeline
 	local timeline_top = bottom and math.ceil(bottom.timeline_top * to_draw) + 1 or h
 	local controls_top = bottom and math.ceil(bottom.controls_top * to_draw) or timeline_top
 	local alpha = string.format('%02X', math.floor((1 - visibility) * 255 + 0.5))

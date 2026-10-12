@@ -150,7 +150,8 @@ H.run(function()
 
 	-- Not a plain web address: refused, with a banner, and nothing launched.
 	-- Each one on its own: a copy first puts another title on the banner, so
-	-- 'Not opened' can only come from this refusal.
+	-- 'Not opened' can only come from this refusal. The banner tells, not the
+	-- clipboard: a CI runner's clipboard is shared and once read nothing here.
 	for i, bad in ipairs({
 		'https://site.example/a"&calc',
 		'file:///C:/Windows/System32/calc.exe',
@@ -158,7 +159,10 @@ H.run(function()
 	}) do
 		mp.set_property_native('user-data/source-info/launched', {})
 		activate('copy:before-refusal-' .. i)
-		expect_clipboard('(a copy before refusal ' .. i .. ')', 'before-refusal-' .. i)
+		H.wait_until(function()
+			local c = card('source-copy')
+			return c ~= nil and c.title ~= 'Not opened'
+		end, 3)
 		activate('browse:' .. bad)
 		H.wait_until(function()
 			return (card('source-copy') or {}).title == 'Not opened'

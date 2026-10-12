@@ -63,9 +63,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 # A download that stalls halfway: Windows PowerShell 5.1 gives up after 300 s without data by
-# itself, PowerShell 7 waited for ever (-TimeoutSec does not cover the body; measured
-# 2026-10-10). Its -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for
-# 120 s; a slow download that keeps coming is not cut.
+# itself, PowerShell 7 waits for ever (-TimeoutSec does not cover the body). Its
+# -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for 120 s; a slow
+# download that keeps coming is not cut.
 $StallLimit = if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('OperationTimeoutSeconds')) { @{ OperationTimeoutSeconds = 120 } } else { @{} }
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $script:failCode = 1
@@ -109,8 +109,8 @@ function Get-LfsPointer([string]$Path) {
 function Copy-Over([string]$Source, [string]$Target) {
     $dir = Split-Path -Parent $Target
     if (-not (Test-Path -LiteralPath $dir)) { $null = New-Item -ItemType Directory -Force -Path $dir }
-    # a name no file of the config or of the user has (glm's review, 2026-10-12: "<name>.new"
-    # overwrote a file of that name, and then counted it as up to date); .gitignore has *.new
+    # a name no file of the config or of the user has ("<name>.new" could be one, and
+    # would be overwritten and then counted as up to date); .gitignore has *.new
     $tmp = "$Target.$([guid]::NewGuid().ToString('N').Substring(0, 8)).new"
     Copy-Item -LiteralPath $Source -Destination $tmp -Force
     try {
@@ -201,7 +201,7 @@ try {
                 $installed = Join-Path $Root $rel
                 if (-not $LfsSource) { $LfsSource = "https://media.githubusercontent.com/media/$Repo/$Commit" }
                 if ((Get-Sha256 $installed) -eq $ptr.Oid) {
-                    # already here (2026-10-09: every update downloaded all ~19 MB again)
+                    # already here: no download (the LFS files are ~19 MB)
                     Copy-Item -LiteralPath $installed -Destination $tmp
                     $lfsKept++
                 }

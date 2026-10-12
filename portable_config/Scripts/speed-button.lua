@@ -24,9 +24,7 @@ local speed_presets = build_speed_presets()
 ---@param speed number
 ---@return string
 local function format_speed(speed)
-	-- Rounded first: s/d add 0.1 in floating point, and 1.1 is stored as
-	-- 1.1000000000000001 - the old exact test printed "1.10x", too wide for
-	-- the 4-character badge.
+	-- rounded first: after s/d, 1.1 is stored as 1.1000000000000001
 	return (string.format('%.2f', speed):gsub('%.?0+$', '')) .. 'x'
 end
 
@@ -59,15 +57,10 @@ local function open_speed_menu()
 	end
 end
 
---- A banner top LEFT with the current speed (Scripts/notify.lua draws every
---- message; the id "speed" is shared with speed-presets.lua). Left side since
---- 2026-09-28, like the speed keys' banner: the right corner keeps the video
---- info and the shader/resume messages. Also reached from input.conf (s/d,
---- [ ] { }, the menu's extra speeds) as `show-speed`, after a `no-osd` speed
---- change, so every speed change looks the same.
--- uosc draws a badge inside its button's fixed box, and more than 4 characters
--- spill onto the next button (the same limit as gpu-toggles' UPSCALE_BADGES):
--- from 10.5x on the "x" goes, and a speed s/d made odd is rounded (review, 2026-10-09).
+-- uosc draws a badge inside its button's fixed box: more than 4 characters
+-- spill onto the next button (gpu-toggles' UPSCALE_BADGES has the same limit).
+-- A longer one loses its "x" (10.5x and up in the menu, 1.33x after mpv's own
+-- [ / ] keys), and one still longer than 4 is rounded to a whole number.
 local function badge_of(speed)
 	local text = format_speed(speed)
 	if #text > 4 then
@@ -79,6 +72,9 @@ local function badge_of(speed)
 	return text
 end
 
+--- The speed banner top LEFT (id "speed", shared with speed-presets.lua). Also
+--- `show-speed` from input.conf after a no-osd change (s/d, the right-click
+--- menu's extra speeds), so every speed change looks the same.
 local function show_speed()
 	local speed = mp.get_property_native('speed', 1)
 	mp.commandv('script-message-to', 'notify', 'show', 'speed', 'Speed ' .. format_speed(speed), '', '', '', 'left')

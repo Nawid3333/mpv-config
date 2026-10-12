@@ -81,9 +81,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 # A download that stalls halfway: Windows PowerShell 5.1 gives up after 300 s without data by
-# itself, PowerShell 7 waited for ever (-TimeoutSec does not cover the body; measured
-# 2026-10-10). Its -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for
-# 120 s; a slow download that keeps coming is not cut.
+# itself, PowerShell 7 waits for ever (-TimeoutSec does not cover the body). Its
+# -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for 120 s; a slow
+# download that keeps coming is not cut.
 $StallLimit = if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('OperationTimeoutSeconds')) { @{ OperationTimeoutSeconds = 120 } } else { @{} }
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $script:failCode = 1
@@ -92,9 +92,8 @@ $MarkerName = 'installed-by-mpv-config.json'
 $NodeMinMajor = 22
 
 # A native program's output, stderr included. Windows PowerShell 5.1 turns every stderr
-# line into a terminating error under 'Stop' once 2>&1 redirects it (checked
-# 2026-10-09: a single warning from mpv, 7-Zip or FastStream's install.ps1 ended the
-# install); the exit code decides here.
+# line into a terminating error under 'Stop' once 2>&1 redirects it (one warning from
+# mpv, 7-Zip or FastStream's install.ps1 would end the install); the exit code decides.
 function Invoke-Native([string]$Exe, [string[]]$Arguments) {
     $ErrorActionPreference = 'Continue'
     $out = @(& $Exe @Arguments 2>&1 | ForEach-Object { "$_" })
@@ -281,8 +280,7 @@ try {
         if (-not $HelperOnly -and -not $NoFirefox) {
             $firefox = Find-Firefox
             if (-not $firefox) {
-                # Not an error (2026-10-09: a Zen user read "run the setup again" as a failed
-                # setup): mpv and the helper are in place; only the add-on step needs Firefox.
+                # Not an error: mpv and the helper are in place; only the add-on step needs Firefox.
                 Write-Host 'Firefox is not installed, so the FastStream add-on was not added. mpv and the FastStream helper are installed.' -ForegroundColor Yellow
                 Write-Host '  For Firefox: install it (https://www.mozilla.org/firefox/), then run the setup again to add the add-on.' -ForegroundColor Yellow
                 Write-Host '  Other browsers built on Firefox (Zen, LibreWolf, Floorp) are not tested: add FastStream there yourself from' -ForegroundColor Yellow

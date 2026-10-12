@@ -2,20 +2,19 @@
 # portable_config/shaders (idempotent; safe to re-run). See RECREATE.md
 # section 3 step 4.
 #
-# Only the files gpu-toggles.lua actually references are installed (trimmed
-# 2026-09-21 from the full Anime4K pack + ArtCNN + SSimDownscaler, none of
-# which any preset uses any more - keep this list in sync with the presets):
+# Only the files gpu-toggles.lua references are installed - keep this list in
+# sync with the presets:
 #  - Anime4K v4.0.1 (bloc97/Anime4K release zip): the 6 files of the Anime
 #    preset (UPSCALE_ANIME): Clamp_Highlights, Upscale_Denoise_CNN_x2_VL,
 #    AutoDownscalePre_x2, AutoDownscalePre_x4, Restore_CNN_M, Upscale_CNN_x2_M;
-#    and since 2026-10-09 the 3 more of its "Fast" set (UPSCALE_ANIME_FAST, the
-#    upscaling quality for slower GPUs - Anime4K's own low-end template):
+#    and the 3 more of its "Fast" set (UPSCALE_ANIME_FAST, the upscaling
+#    quality for slower GPUs - Anime4K's own low-end template):
 #    Upscale_Denoise_CNN_x2_M, Restore_CNN_S, Upscale_CNN_x2_S.
 #  - FSRCNNX (igv/FSRCNN-TensorFlow release 1.1): Movie preset at >=2x.
 #  - SSimSuperRes (canonical copy from dyphire/mpv-config; igv's own repos are
 #    gone; LGPL, Shiandow), pinned to commit 07619250dd3f (2023-01-24, the
-#    file's last change there, byte-identical to the repo's copy; it was
-#    fetched from master until 2026-10-02): Movie preset at every ratio.
+#    file's last change there, byte-identical to the repo's copy): Movie preset
+#    at every ratio.
 #  - adaptive-sharpen.glsl (bacondither, igv's mpv port) is NOT downloaded: the
 #    repo carries a locally modified copy (curve_height turned into a runtime
 #    PARAM - see the note at the top of the file), and upstream's plain copy
@@ -24,14 +23,11 @@
 #    `git checkout -- portable_config/shaders`.
 #  - CfL_Prediction (Artoriuz/glsl-chroma-from-luma-prediction, MIT), pinned to
 #    upstream commit 066dff964b83 (2026-08-15): Movie preset chroma upscaling.
-# Anything else (the rest of Anime4K, ArtCNN, SSimDownscaler, ...) can be
-# fetched by hand or restored from git history if a future experiment wants it.
 #
 # Every downloaded file is checked against the SHA-256 of the repo's copy (its
 # text with CRLF read as LF, as git checks it out): a file that is there but
-# damaged - a download cut short used to count as "already present" for good -
-# is fetched again, a download goes to a .part file first, and one that does
-# not match is refused (2026-10-02).
+# damaged is fetched again, a download goes to a .part file first, and one that
+# does not match is refused.
 
 $ErrorActionPreference = 'Stop'
 # Windows PowerShell 5.1 may not offer TLS 1.2 by default; GitHub needs it (as install-mpv.ps1)

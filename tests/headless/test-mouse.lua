@@ -11,11 +11,9 @@ H.run(function()
 	for _, jitter in ipairs({ 0, 1, 3, 6, 15, 40 }) do
 		local before = mp.get_property_native('pause')
 		H.click(200, 100, jitter)
-		H.check(
-			string.format('click with %d px movement toggles pause', jitter),
-			mp.get_property_native('pause') ~= before,
-			'pause stayed ' .. tostring(before)
-		)
+		H.expect(string.format('click with %d px movement toggles pause', jitter), function()
+			return mp.get_property_native('pause')
+		end, not before)
 	end
 
 	-- Double-click: the DBL binding fires on the second press, each release

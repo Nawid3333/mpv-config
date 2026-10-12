@@ -1,11 +1,9 @@
 -- video-info.lua - a small banner top right when a video starts: what it is
 -- and how big it is.
 --
--- 2026-09-28, at the user's request: "when the MPV video starts ... a small
--- banner shown on the right for a short amount of time. What resolution is the
--- video or the stream". It draws with the same notify.lua banners as every
--- other message in this setup (nothing of its own), and disappears by itself
--- after NOTE_SECONDS like they all do.
+-- Draws with the same notify.lua banners as every other message in this setup
+-- (nothing of its own), and disappears by itself after NOTE_SECONDS like they
+-- all do.
 --
 -- Title: the resolution as the picture is shown, e.g. "1280x720" - dwidth/
 -- dheight (aspect-corrected, what is actually on screen), rotation applied,
@@ -18,7 +16,7 @@
 --   the source: "FastStream" (the same #fs-content= marker gpu-toggles.lua and
 --   stream-resume.lua read from path), "stream" for any other URL, "local file"
 --
--- When: on video-params, the property that arrives with the first decoded
+-- Fires on video-params, the property that arrives with the first decoded
 -- frame - at file-loaded the decoder has not spoken yet, so a banner fired
 -- there would miss on streams and only get the container's guess. The same
 -- property re-fires when a stream changes its parameters mid-play, which
@@ -28,10 +26,10 @@
 
 local mp = require('mp')
 
--- The banner stays long enough to read a three-part line, then out of the way.
+-- Long enough to read a three-part line.
 local NOTE_SECONDS = 4
 
--- The codec names mpv's properties use -> the short names a viewer knows.
+-- mpv's codec property names -> the short names a viewer knows.
 local CODECS = {
 	h264 = 'H.264',
 	hevc = 'HEVC',
@@ -43,13 +41,12 @@ local CODECS = {
 	mjpeg = 'MJPEG',
 }
 
--- The bit depth in a pixel-format name, as the compiling banner says it:
--- "8-bit" for the usual 8-bit formats, "10-bit"/"12-bit"/"16-bit" for the
--- deeper ones, nil for a name that holds none of it. The depth token is the
--- trailing "10le"/"16be"-style number or bare "10"/"16" (mpv reports native
--- endianness: "yuv420p10", "p010", "y412"). "nv12"/"nv16" also end in two
--- digits that are NOT a depth, so the nv family is excluded, and a one-off
--- depth like rgb48's 48 is left unnamed rather than guessed.
+-- The bit depth in a pixel-format name, worded as the compiling banner says
+-- it ("8-bit", "10-bit" ...), nil for a name that carries none. The depth
+-- token is the trailing "10le"/"16be"-style number or bare "10"/"16" (mpv
+-- reports native endianness: "yuv420p10", "p010", "y412"). "nv12"/"nv16" also
+-- end in two digits that are NOT a depth, so the nv family is excluded; a
+-- one-off depth like rgb48's 48 is left unnamed rather than guessed.
 ---@param pixelformat string|nil
 ---@return string|nil
 local function bits_of(pixelformat)
@@ -83,9 +80,9 @@ end
 -- The source line. `path` is the full URL for a stream and the local path
 -- otherwise (the same string the FastStream markers arrive in either way).
 ---@return string
--- FastStream's tag: a whole fs-content= item of the URL fragment, as gpu-toggles,
--- stream-resume and source-info read theirs (FastStream #155) - not the text
--- anywhere in the address, which a site's own query can hold (review, 2026-10-09).
+-- The FastStream tag: a whole fs-content= item of the URL fragment, the same
+-- marker gpu-toggles, stream-resume and source-info read - not the text
+-- anywhere in the address, which a site's own query can hold.
 -- Plain string compares: a stray "%" in the path never starts a Lua pattern class.
 local function faststream_tagged(path)
 	local hash = path:find('#', 1, true)
@@ -141,7 +138,7 @@ local function describe()
 	return w .. 'x' .. h, table.concat(parts, ' · ')
 end
 
--- What the last banner said; the same file and the same picture are not worth
+-- What the last banner said: the same file and the same picture are not worth
 -- a second banner (the observer fires once per parameter change, including the
 -- nil -> table one every new file makes).
 ---@type {path: string, title: string, detail: string}|nil

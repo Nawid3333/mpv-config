@@ -2,17 +2,12 @@
 # Recreates the UI part of this setup. See RECREATE.md section 3 step 3.
 #
 # Both are committed in this repo, WITH local changes: uosc carries the edits
-# AGENTS.md lists (the button menus, the two remaining times, ui-scale,
-# bottom-ui), and thumbfast.lua is upstream's 0f711de3 (2026-06-28) formatted
+# AGENTS.md lists, and thumbfast.lua is upstream's 0f711de3 (2026-06-28) formatted
 # by stylua with two functions made local. So on a clone, put them back with
 #   git checkout -- portable_config/Scripts/uosc portable_config/Scripts/thumbfast.lua portable_config/fonts
 # This script is for a folder without the repo's copies: it fetches upstream's,
-# which lack those changes (it says so at the end).
-#
-# Fixed 2026-10-02: uosc's release zip holds scripts/uosc/ and fonts/, not a
-# top-level uosc/ folder - the script failed every time it had anything to do,
-# and never installed the fonts. thumbfast was fetched from master; it is
-# pinned now.
+# which lack those changes (it says so at the end). uosc's release zip holds
+# scripts/uosc/ and fonts/; thumbfast is pinned to a commit.
 
 $ErrorActionPreference = 'Stop'
 # Windows PowerShell 5.1 may not offer TLS 1.2 by default; GitHub needs it (as install-mpv.ps1)
@@ -21,7 +16,7 @@ $cfg = Join-Path $PSScriptRoot '..\portable_config'
 $scripts = Join-Path $cfg 'Scripts'
 $fonts = Join-Path $cfg 'fonts'
 
-# Both downloads are checked before anything is unpacked or installed (2026-10-05):
+# Both downloads are checked before anything is unpacked or installed:
 # the zip against GitHub's own digest of the release asset, thumbfast.lua against the
 # file at the pinned commit.
 function Assert-Sha256([string]$Path, [string]$Hash, [string]$What) {
