@@ -24,10 +24,13 @@
 -- "video" track (track-list/N/albumart, manual), so the file counts as video
 -- only if it has a video track that is neither albumart nor a single-image
 -- track (track-list/N/image) - the same classification uosc itself uses
--- (main.lua's track-list observer). Before track-list arrives (fresh process,
--- first file loading), nothing is saved: track-list is the first per-file fact
--- available, so a speed change during the load window is simply not persisted
--- - the next save (any later change, on any video) covers it. mpv's own
+-- (main.lua's track-list observer). Before track-list arrives (a file still
+-- loading), the observer cannot tell the kind and saves nothing: track-list is
+-- the first per-file fact available. The file's file-loaded takes such a speed
+-- over instead (2026-10-12, review): FastStream's next episode loads for
+-- seconds, and a speed key pressed meanwhile was neither saved nor the video
+-- speed of the next song-to-video switch. Only the very first video of a
+-- process overrides it with the saved speed (the restore). mpv's own
 -- audio-only speed behavior (scaletempo2) is not affected - only this memory
 -- is scoped.
 --
@@ -153,6 +156,16 @@ mp.register_event('file-loaded', function()
 			set_speed(audio_speed)
 		elseif video_speed then
 			set_speed(video_speed)
+		end
+	else
+		-- Same kind as the file before (or a first song): the speed now is this
+		-- kind's, a speed picked while the file loaded included (see VIDEO ONLY).
+		local speed = mp.get_property_native('speed', 1)
+		if kind == 'audio' then
+			audio_speed = speed
+		elseif not video_speed or math.abs(speed - video_speed) > 0.0001 then
+			video_speed = speed
+			save_speed(speed)
 		end
 	end
 	last_kind = kind

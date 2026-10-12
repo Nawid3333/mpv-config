@@ -30,4 +30,37 @@ H.run(function()
 		1.5,
 		0.001
 	)
+
+	-- A speed picked while the next video loads (FastStream's next episode takes
+	-- seconds): track-list is empty then, so the observer cannot tell a video, and
+	-- until 2026-10-12 that speed was neither saved nor the video speed after the
+	-- next song. The hook sets it and holds the load 0.3 s, as a key press would.
+	H.load(H.media_path('second/clip2.mkv'))
+	H.eq('(a video at the video speed)', mp.get_property_number('speed'), 1.5, 0.001)
+	local during_load = nil
+	mp.add_hook('on_load', 50, function(hook)
+		if during_load then
+			mp.set_property_number('speed', during_load)
+			during_load = nil
+			hook:defer()
+			mp.add_timeout(0.3, function()
+				hook:cont()
+			end)
+		end
+	end)
+	during_load = 2
+	H.load(H.media_path('plain/clip.mkv'))
+	H.eq('a speed picked while the next video loaded stays', mp.get_property_number('speed'), 2, 0.001)
+	H.expect('... and is saved', function()
+		local file = io.open(mp.command_native({ 'expand-path', '~~state/' }) .. '/speed.json', 'r')
+		local text = file and file:read('*a') or ''
+		if file then
+			file:close()
+		end
+		return (require('mp.utils').parse_json(text) or {}).speed
+	end, 2, 0.001)
+	H.load(H.media_path('autoload/song.flac'))
+	H.eq('(the song speed)', mp.get_property_number('speed'), 1.25, 0.001)
+	H.load(H.media_path('second/clip2.mkv'))
+	H.eq('... and is the video speed after a song', mp.get_property_number('speed'), 2, 0.001)
 end)

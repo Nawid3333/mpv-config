@@ -42,6 +42,16 @@ local function autoplay_button()
 	return tostring(data.active) .. ' / ' .. tostring(data.tooltip)
 end
 
+-- notify.lua's 'faststream' banner: title / detail / icon, or 'none'
+local function fs_card()
+	for _, c in ipairs((mp.get_property_native('user-data/notify') or {}).cards or {}) do
+		if c.id == 'faststream' then
+			return c.title .. ' / ' .. c.detail .. ' / ' .. tostring(c.icon)
+		end
+	end
+	return 'none'
+end
+
 H.run(function()
 	-- Ctrl+a is free: mpv's built-in bindings (listed even where input.conf
 	-- overrides them) and every script's have none; only input.conf's.
@@ -60,6 +70,18 @@ H.run(function()
 	-- a local file, FastStream not following: nothing
 	H.expect('a local file, nothing connected: the buttons are hidden', visibility, 'hidden')
 	H.expect('autoplay not set yet reads off', autoplay_button, 'false / Autoplay next episode: off')
+
+	-- the keys with no helper following: they say why instead of nothing (2026-10-12),
+	-- with the autoplay switch's icon, as FastStream's own notices
+	local why = ' / only for videos FastStream sends to mpv / playlist_play'
+	H.key('n')
+	H.expect('n, no FastStream following: says why', fs_card, 'Next episode' .. why)
+	H.key('N')
+	H.expect('N: the same', fs_card, 'Previous episode' .. why)
+	H.key('Ctrl+a')
+	H.expect('Ctrl+a: the same', fs_card, 'Autoplay' .. why)
+	mp.commandv('script-message-to', 'notify', 'hide', 'faststream')
+	H.expect('(banner taken down)', fs_card, 'none')
 
 	-- following this window, but the file is no FastStream stream
 	mp.set_property_native('user-data/faststream/connected', true)
@@ -104,6 +126,8 @@ H.run(function()
 	H.expect('Ctrl+a sends faststream-autoplay', function()
 		return table.concat(heard, ' ')
 	end, 'autoplay')
+	H.sleep(0.3)
+	H.eq('... and leaves the saying to FastStream, which follows', fs_card(), 'none')
 
 	-- FastStream stops following: gone; the property removed counts as false too
 	mp.set_property_native('user-data/faststream/connected', false)
@@ -128,6 +152,9 @@ H.run(function()
 	H.sleep(1)
 	H.eq('... still shown within its limit', visibility(), 'shown')
 	H.expect('the heartbeat stood still past its limit: hidden', visibility, 'hidden', nil, 4)
+	H.key('n')
+	H.expect('n to a helper that stopped beating: says why', fs_card, 'Next episode' .. why)
+	mp.commandv('script-message-to', 'notify', 'hide', 'faststream')
 	mp.set_property_native('user-data/faststream/heartbeat', 2000)
 	H.expect('a helper started anew beats (connected still true): shown', visibility, 'shown', nil, 2)
 	-- a live helper for the rest of the test

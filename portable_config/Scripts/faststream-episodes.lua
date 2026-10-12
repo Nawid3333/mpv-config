@@ -35,6 +35,12 @@
 -- first push reaches uosc, when an uninitialised managed button is drawn as a
 -- question mark.
 --
+-- The keys (n, N, Ctrl+a) and the Playlist menu's entries send the same messages
+-- in any window, and only the helper acts on them: with none following this one (a
+-- file opened in mpv itself, FastStream not in MPV mode, a helper that stopped
+-- beating) a key did nothing and said nothing. Since 2026-10-12 this script says
+-- why in a banner; with a helper following, the helper speaks.
+--
 -- For the tests: user-data/faststream-episodes/buttons holds what was last pushed
 -- for each button.
 
@@ -208,3 +214,30 @@ end)
 
 -- as the other managed buttons: uosc may start after this script
 mp.add_timeout(0.5, update)
+
+-- ---- the keys without a helper ------------------------------------------------------
+
+local KEY_TITLES = {
+	['faststream-next'] = 'Next episode',
+	['faststream-previous'] = 'Previous episode',
+	['faststream-autoplay'] = 'Autoplay',
+}
+
+for name, title in pairs(KEY_TITLES) do
+	mp.register_script_message(name, function()
+		-- read now, not state.connected: that one follows a stopped heartbeat only
+		-- at the next once-a-second look
+		if truthy(mp.get_property_native('user-data/faststream/connected')) and helper_alive() then
+			return
+		end
+		mp.commandv(
+			'script-message-to',
+			'notify',
+			'show',
+			'faststream',
+			title,
+			'only for videos FastStream sends to mpv',
+			'4'
+		)
+	end)
+end

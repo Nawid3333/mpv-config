@@ -117,6 +117,9 @@ local ICONS = {
 	['stream-error'] = 'language', -- the source button: a FastStream stream that did not open
 	['resume'] = 'history',
 	['settings'] = 'settings', -- Settings menu choices (settings.lua)
+	-- FastStream's notices (its helper sends them: autoplay, the next episode) and
+	-- the episode keys without it (faststream-episodes.lua): the autoplay switch's
+	['faststream'] = 'playlist_play',
 	['welcome'] = 'waving_hand', -- the first start (welcome.lua)
 }
 
