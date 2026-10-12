@@ -102,6 +102,7 @@ Installer scripts are plain ASCII and run native programs through `Invoke-Native
 | `stream-buffer.lua` | per-file buffering of streams the FastStream way (RAM budget, then disk) |
 | `stream-resume.lua` | resume FastStream streams by `fs-id` (`~~state/stream-resume.json`, 7 days) |
 | `faststream-episodes.lua` | previous/next episode and autoplay buttons while the helper follows the window |
+| `faststream-quality.lua` | the qualities the web page offered (`fs-quality=` fragment item, FastStream host 12+): a button and menu that switch files from the same position; http(s) entries only |
 | `source-info.lua` | the source button: stream URL, original URL, site page; copy/open |
 | `notify.lua` | the only drawer of messages: banners top right (speed: top left) |
 | `bottom-bar.lua` | the control bar's scrim; lifts subtitles above it |

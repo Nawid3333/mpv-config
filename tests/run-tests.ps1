@@ -1619,6 +1619,8 @@ $HeadlessTests = @(
     @{ Name = 'bottom-bar'; Phases = @(@{ Script = 'headless/test-bottom-bar.lua'; File = 'subs/movie.mkv' }) }
     @{ Name = 'video-info'; Phases = @(@{ Script = 'headless/test-video-info.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'source-info'; Phases = @(@{ Script = 'headless/test-source-info.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=source_info-launch=no') }) }
+    # test_local: its entries are local stems (no scheme), which only the tests take
+    @{ Name = 'faststream-quality'; Phases = @(@{ Script = 'headless/test-faststream-quality.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=faststream_quality-test_local=yes') }) }
     @{ Name = 'music-info'; Phases = @(@{ Script = 'headless/test-music-info.lua'; File = 'music-tagged/Nova Lane - Paper Lanterns.mp3' }) }
     @{ Name = 'keys'; Phases = @(@{ Script = 'headless/test-keys.lua'; File = 'long/long.mkv' }) }
     @{ Name = 'faststream-episodes'; Phases = @(
