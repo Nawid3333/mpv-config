@@ -56,6 +56,10 @@ options.read_options(opts, 'settings')
 
 local STATE_DIR = mp.command_native({ 'expand-path', '~~state/' })
 local FILE = utils.join_path(STATE_DIR, 'settings.json')
+-- written whole or not at all, and a damaged one kept aside (issue #96)
+local statefile = dofile(mp.command_native({ 'expand-path', '~~/script-modules/state-file.lua' }))
+-- a damaged settings.json that could not be moved aside: never saved over
+local file_stuck = false
 
 -- FastStream's buffer defaults (its DefaultOptions.mjs); ram_budget is Auto here
 -- (by this PC's memory, FastStream's 2 GB from 16 GB on).
@@ -112,14 +116,13 @@ local function exists(path)
 	return utils.file_info(mp.command_native({ 'expand-path', path })) ~= nil
 end
 
+-- A damaged file (no JSON table) counted as no file yet: the defaults were seeded and
+-- saved over it at once, every per-PC choice gone without a word. It is kept aside as
+-- settings.json.corrupt-<time> now, with a warning (issue #96).
 local function read_file()
-	local f = io.open(FILE, 'r')
-	if not f then
-		return nil
-	end
-	local data = utils.parse_json(f:read('*a'))
-	f:close()
-	return type(data) == 'table' and data or nil
+	local data, stuck = statefile.read_json(FILE, 'settings.json')
+	file_stuck = stuck == true
+	return data
 end
 
 local function valid_peak(v)
@@ -263,23 +266,18 @@ do
 	end
 end
 
--- Through a temp file of this process's own, as the other state files.
+-- Whole or not at all (state-file.lua), as the other state files.
 local function save()
-	if not opts.write then
+	if not opts.write or file_stuck then
 		return
 	end
 	local json = utils.format_json(settings)
-	local tmp = FILE .. '.' .. utils.getpid() .. '.tmp'
-	local f = json and io.open(tmp, 'w')
-	if not f then
-		msg.warn('cannot write ' .. tmp)
-		return
+	local ok, err = false, 'cannot serialize the settings'
+	if json then
+		ok, err = statefile.write(FILE, json)
 	end
-	f:write(json)
-	f:close()
-	os.remove(FILE)
-	if not os.rename(tmp, FILE) then
-		msg.warn('cannot replace ' .. FILE)
+	if not ok then
+		msg.warn(err)
 	end
 end
 

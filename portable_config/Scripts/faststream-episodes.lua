@@ -45,6 +45,8 @@ local mp = require('mp')
 local msg = require('mp.msg')
 local options = require('mp.options')
 local utils = require('mp.utils')
+-- the FastStream tags in the URL fragment (AGENTS.md, "FastStream contract")
+local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
 
 local opts = {
 	-- seconds without a new heartbeat before the helper counts as gone (the tests
@@ -80,13 +82,9 @@ end
 ---@param path string|nil
 ---@return boolean
 local function is_faststream(path)
-	local hash = path and path:find('#', 1, true)
-	if not hash then
-		return false
-	end
-	for item in (path:sub(hash + 1) .. '&'):gmatch('([^&]*)&') do
-		local key = item:match('^(fs%-%a+)=.')
-		if key == 'fs-content' or key == 'fs-id' then
+	for _, marker in ipairs({ 'fs-content=', 'fs-id=' }) do
+		local value = fragment.value(path, marker)
+		if value and value ~= '' then
 			return true
 		end
 	end

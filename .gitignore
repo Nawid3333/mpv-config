@@ -54,6 +54,8 @@ portable_config/stream-resume.json
 portable_config/stream-resume.json.tmp
 # a damaged one, kept beside when a save replaces it (2026-10-10)
 portable_config/stream-resume.json.corrupt-*
+# a damaged settings.json, kept beside (script-modules/state-file.lua, 2026-10-13)
+portable_config/settings.json.corrupt-*
 # the per-process temp files the state files are written through (2026-10-02)
 portable_config/*.tmp
 

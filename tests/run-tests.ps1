@@ -335,7 +335,9 @@ New-Item -ItemType Directory -Force $InstallDir | Out-Null
             $r.Code -eq 0 -and $cfg -and $cfg.mpvPath -eq $mpvStandIn -and $cfg.node -eq $privateNode -and $cfg.noRegister -and
             (Test-Path $privateNode) -and $r.Out -match "Node\.js $([regex]::Escape($nv))") $r.Out
         $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd) + $common)
-        Test-Check $t '... again: the helper is up to date, nothing downloaded' ($r.Code -eq 0 -and $r.Out -match 'up to date') $r.Out
+        Test-Check $t '... again: the helper is up to date, nothing downloaded' (
+            $r.Code -eq 0 -and $r.Out -match 'helper is up to date' -and $r.Out -match "Node\.js for the helper: $([regex]::Escape($nv)) is up to date" -and
+            $r.Out -notmatch 'Downloading') $r.Out
         $other = Join-Path $ob 'other/mpv.exe'
         $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $other, '-HelperDir', $hd, '-HelperOnly', '-Yes') + $common)
         $cfg = Get-Content -Raw (Join-Path $hd 'config.json') | ConvertFrom-Json
@@ -364,6 +366,27 @@ New-Item -ItemType Directory -Force $InstallDir | Out-Null
         $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd2) + $common)
         Test-Check $t '... a Node.js download that is not the one nodejs.org lists is refused' (
             $r.Code -eq 1 -and $r.Out -match 'does not match' -and -not (Test-Path (Join-Path $hd2 'node\node.exe'))) $r.Out
+        # a newer LTS release: the helper's Node.js follows it, the helper itself up to date
+        # (issue #96: any node.exe from 22 on was kept for good, no security release reached it)
+        $nv2 = 'v99.0.1'; $nn2 = "node-$nv2-win-x64"
+        $nz2 = Join-Path $ob 'nodezip2'
+        New-Item -ItemType Directory -Force (Join-Path $nz2 $nn2), (Join-Path $dist $nv2) | Out-Null
+        Copy-Item $nodeExe (Join-Path $nz2 "$nn2/node.exe")
+        [IO.Compression.ZipFile]::CreateFromDirectory($nz2, (Join-Path $dist "$nv2/$nn2.zip"))
+        $nodeSha2 = (Get-FileHash (Join-Path $dist "$nv2/$nn2.zip") -Algorithm SHA256).Hash.ToLower()
+        Set-Content (Join-Path $dist "$nv2/SHASUMS256.txt") "$nodeSha2  $nn2.zip"
+        Set-Content (Join-Path $dist 'index.json') (@(
+                @{ version = $nv2; lts = 'Stand-in'; files = @('win-x64-zip', 'win-x64-msi') },
+                @{ version = $nv; lts = 'Stand-in'; files = @('win-x64-zip', 'win-x64-msi') }) | ConvertTo-Json -Depth 3)
+        $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd) + $common)
+        Test-Check $t '... a newer Node.js LTS replaces the helper''s own, the helper up to date' (
+            $r.Code -eq 0 -and $r.Out -match "Downloading Node\.js $([regex]::Escape($nv2))" -and
+            (Read-Text (Join-Path $hd 'node\node-version.txt')) -eq $nv2 -and (Test-Path $privateNode)) $r.Out
+        # nodejs.org out of reach: the one there stays, and the update does not fail for it
+        $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd, '-NoRegister', '-NoFirefox',
+                '-UpdatesJson', $updatesJson, '-HelperSource', $hs, '-NodeDist', (Join-Path $ob 'no-such-nodedist')))
+        Test-Check $t '... nodejs.org out of reach keeps the helper''s Node.js, and the run succeeds' (
+            $r.Code -eq 0 -and $r.Out -match 'could not be asked' -and (Test-Path $privateNode)) $r.Out
 
         # -- uninstall.ps1 (the folder itself stays: -KeepFolder) -----------------------------------
         $marker = @{ version = '9.9.9'; mpv = (Join-Path $sr 'mpv.exe') } | ConvertTo-Json
@@ -504,6 +527,14 @@ function Invoke-StaticCheck {
     }
     Test-Check $t 'our scripts show messages as notify.lua banners, not mpv OSD text' ($osdCalls.Count -eq 0) ($osdCalls -join ', ')
 
+    # -- the FastStream fragment is read in one place (issue #96) -----------------------------
+    # script-modules/faststream-fragment.lua holds the contract (whole items after the first
+    # '#', the last of a name counting); six copies of its loop had to change alike.
+    $ownParsers = @(foreach ($f in $ownLua) {
+            Select-String -LiteralPath $f.FullName -SimpleMatch -Pattern ".. '&'):gmatch(" | ForEach-Object { "$($f.Name):$($_.LineNumber)" }
+        })
+    Test-Check $t 'no script reads the FastStream fragment by itself (script-modules/faststream-fragment.lua)' ($ownParsers.Count -eq 0) ($ownParsers -join ', ')
+
     # -- utils.subprocess(_detached) takes { args = {...} } ------------------
     # mpv's subprocess_detached is `mp.commandv("run", unpack(t.args))`: a bare array
     # threw, and source-info's "Open in browser" opened nothing from 2026-10-02 (#20) to
@@ -638,6 +669,7 @@ function Invoke-StaticCheck {
     Test-Check $t "input.conf: mpv's own quit keys (Ctrl+w, Ctrl+c, Q) are not rebound" ($quitKeys.Count -eq 0) ($quitKeys -join ' | ')
 
     # -- uosc: config + the local changes that an update would drop --------------
+    Test-Check $t 'uosc.conf: animation_duration=0 (the controls appear at once, no fades)' ($uoscConf -match '(?m)^animation_duration=0\s*$')
     Test-Check $t 'uosc.conf: proximity 10000/10100 (whole UI shows together)' (
         $uoscConf -match '(?m)^proximity_in=10000' -and $uoscConf -match '(?m)^proximity_out=10100')
     foreach ($b in 'button:speed', 'button:upscale', 'button:subtitle_sync', 'button:source', 'button:settings',
@@ -742,7 +774,7 @@ function Invoke-StaticCheck {
     # in a config folder.
     $private = @(
         'portable_config/speed.json', 'portable_config/stream-resume.json', 'portable_config/movie-sharpness.json',
-        'portable_config/stream-resume.json.corrupt-20261010-120000',
+        'portable_config/stream-resume.json.corrupt-20261010-120000', 'portable_config/settings.json.corrupt-20261013-120000',
         'portable_config/shader-misses.log', 'portable_config/shader-cases.json', 'portable_config/speed.json.1234.tmp',
         'portable_config/cache/shader_0123456789abcdef', 'portable_config/watch_later/0123456789ABCDEF',
         'portable_config/watch_history.jsonl', 'mpv-shot0001.jpg', 'yt-dlp.conf', 'cookies.txt', 'notes.txt',
@@ -1589,6 +1621,12 @@ $MakeOldBufferPc = {
         '{"slang":"de,en","alang":"de,en","hdr_peak":350,"buffer":"xlarge","buffer_wait":3}'
 }
 
+# settings: before the fifth process, a settings.json that is no JSON. It counted as no
+# file yet, and the defaults went over it without a word (#96): it is kept beside now.
+$DamageSettingsFile = {
+    Set-Content -LiteralPath (Join-Path $root 'portable_config/settings.json') -NoNewline '{"slang":"de,en", broken'
+}
+
 # welcome: the third process is a first start again, with no file
 $ForgetWelcome = {
     Remove-Item -LiteralPath (Join-Path $root 'portable_config/welcome.json') -ErrorAction SilentlyContinue
@@ -1649,11 +1687,13 @@ $HeadlessTests = @(
             @{ Script = 'headless/test-sharpness-restore.lua'; File = 'plain/clip.mkv' })
     }
     @{ Name = 'config'; Phases = @(@{ Script = 'headless/test-config.lua'; File = 'plain/clip.mkv' }) }
+    @{ Name = 'state-file'; Phases = @(@{ Script = 'headless/test-state-file.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'settings'; Phases = @(
             @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'new' }
             @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'restored'; After = $MakeLegacyPc }
             @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'legacy'; After = $MakeOldBufferPc }
-            @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'migrated' })
+            @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'migrated'; After = $DamageSettingsFile }
+            @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'damaged' })
     }
     @{ Name = 'stream-buffer'; Phases = @(
             @{ Script = 'headless/test-stream-buffer.lua'; File = 'plain/clip.mkv'; Phase = 'stream'; Args = @('--script-opts-append=stream_buffer-local_is_stream=yes', '--script-opts-append=stream_buffer-headroom_mb=0') }

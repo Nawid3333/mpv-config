@@ -1,5 +1,5 @@
 -- Scripts/settings.lua (2026-10-09): the settings that differ from PC to PC.
--- Three processes (tests/run-tests.ps1, "settings"):
+-- Five processes (tests/run-tests.ps1, "settings"):
 --   new      - a new install: mpv's defaults (subtitles follow Windows' language,
 --              the file's default audio, HDR brightness auto), the buffer
 --              recommended for this PC's memory; a choice in the menu applies
@@ -10,7 +10,10 @@
 --              mpv.conf gave everyone until then: de,en, 350 nits, 3 s; its 1 GB
 --              is the RAM budget, with FastStream's other buffer defaults;
 --   migrated - a settings.json from before 2026-10-12 (Buffering = 2 GB, the
---              owner's): 2 GB becomes the RAM budget, the old key goes.
+--              owner's): 2 GB becomes the RAM budget, the old key goes;
+--   damaged  - a settings.json that is no JSON (the runner writes one after
+--              "migrated"): it is kept beside as settings.json.corrupt-<time>, and a
+--              good one is written, not the defaults over it without a word (#96).
 -- The buffering itself: test-stream-buffer.lua.
 -- MPV_TEST_PHASE names the phase.
 local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$') .. 'lib/harness.lua')
@@ -227,5 +230,24 @@ H.run(function()
 			s and s.ram_budget == 2e9 and s.buffer == nil and s.hdr_peak == 350,
 			utils.format_json(s)
 		)
+	elseif PHASE == 'damaged' then
+		local dir = mp.command_native({ 'expand-path', '~~state/' })
+		local aside = {}
+		for _, name in ipairs(utils.readdir(dir, 'files') or {}) do
+			if name:match('^settings%.json%.corrupt%-') then
+				aside[#aside + 1] = name
+			end
+		end
+		H.eq('a damaged settings.json is kept beside it', #aside, 1)
+		local f = #aside == 1 and io.open(utils.join_path(dir, aside[1]), 'r')
+		local kept = f and f:read('*a')
+		if f then
+			f:close()
+		end
+		H.eq('... as it was', kept, '{"slang":"de,en", broken')
+		H.check('... and a good settings.json is written', type(saved()) == 'table', utils.format_json(saved()))
+		for _, name in ipairs(aside) do
+			os.remove(utils.join_path(dir, name))
+		end
 	end
 end)

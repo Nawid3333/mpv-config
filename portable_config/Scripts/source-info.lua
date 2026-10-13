@@ -45,6 +45,8 @@ local mp = require('mp')
 local msg = require('mp.msg')
 local utils = require('mp.utils')
 local options = require('mp.options')
+-- the FastStream tags in the URL fragment (AGENTS.md, "FastStream contract")
+local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
 
 local opts = { launch = true }
 options.read_options(opts, 'source_info')
@@ -81,16 +83,7 @@ local function fragment_value(url, marker)
 	-- Only the fragment: a marker-looking query parameter in the page's own
 	-- URL must not be readable as ours (the host writes its markers into the
 	-- fragment only).
-	local hash = url:find('#', 1, true)
-	if not hash then
-		return nil
-	end
-	local value
-	for item in (url:sub(hash + 1) .. '&'):gmatch('([^&]*)&') do
-		if item:sub(1, #marker) == marker then
-			value = item:sub(#marker + 1)
-		end
-	end
+	local value = fragment.value(url, marker)
 	return value ~= '' and value or nil
 end
 
@@ -129,7 +122,7 @@ local function without_fs_tags(url)
 		return url
 	end
 	local kept = {}
-	for item in (url:sub(hash + 1) .. '&'):gmatch('([^&]*)&') do
+	for _, item in ipairs(fragment.items(url)) do
 		if item ~= '' and not item:find('^fs%-') then
 			kept[#kept + 1] = item
 		end
@@ -354,24 +347,10 @@ end
 --- file-local too, so a plain `loadfile <url> replace` opened the stream without
 --- them: no Referer/Origin/User-Agent, and a CDN that checks them refused it
 --- ("The stream could not be opened"); the title fell back to the URL's name.
---- mpv's list syntax: ',' separates the items, '\,' is a comma inside one, and an
---- item ending in '\' would swallow the separator after it (left out, as the host
---- does: no real Referer, Origin or User-Agent ends in one).
+--- (faststream-fragment.lua's reopen_options, shared with faststream-quality.lua)
 ---@return table|nil options for loadfile, nil when there are none
 local function reopen_options()
-	local file_options, fields = {}, {}
-	for _, field in ipairs(mp.get_property_native('http-header-fields') or {}) do
-		if type(field) == 'string' and field ~= '' and field:sub(-1) ~= '\\' then
-			fields[#fields + 1] = (field:gsub(',', '\\,'))
-		end
-	end
-	if #fields > 0 then
-		file_options['http-header-fields'] = table.concat(fields, ',')
-	end
-	local title = mp.get_property('options/force-media-title') or ''
-	if title ~= '' then
-		file_options['force-media-title'] = title
-	end
+	local file_options = fragment.reopen_options()
 	return next(file_options) and file_options or nil
 end
 

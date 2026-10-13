@@ -12,6 +12,8 @@ local mp = require('mp')
 local msg = require('mp.msg')
 local options = require('mp.options')
 local utils = require('mp.utils')
+-- the FastStream tags in the URL fragment (AGENTS.md, "FastStream contract")
+local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
 
 -- script-opts/gpu_toggles.conf. movie_sharpness is the adaptive-sharpen
 -- strength the Movie presets start with: `auto` (by display scale, see
@@ -34,6 +36,8 @@ options.read_options(opts, 'gpu_toggles')
 
 local SHARPNESS_FILE = mp.command_native({ 'expand-path', '~~state/' }) .. '/movie-sharpness.json'
 local UPSCALE_FILE = mp.command_native({ 'expand-path', '~~state/' }) .. '/upscale.json'
+-- both written whole or not at all (issue #96)
+local statefile = dofile(mp.command_native({ 'expand-path', '~~/script-modules/state-file.lua' }))
 
 local SHADER_DIR = mp.command_native({ 'expand-path', '~~/shaders' })
 
@@ -59,17 +63,8 @@ local SHADER_DIR = mp.command_native({ 'expand-path', '~~/shaders' })
 ---@param path string|nil
 ---@return string|nil
 local function fs_content(path)
-	local hash = path and path:find('#', 1, true)
-	if not path or not hash then
-		return nil
-	end
-	local content
-	for item in (path:sub(hash + 1) .. '&'):gmatch('([^&]*)&') do
-		if item:sub(1, 11) == 'fs-content=' then
-			content = item:sub(12):match('^(%a*)')
-		end
-	end
-	return content
+	local content = fragment.value(path, 'fs-content=')
+	return content and content:match('^(%a*)')
 end
 
 local function is_anime_content()
@@ -263,23 +258,19 @@ local function load_sharpness()
 	return parse_sharpness(data.sharpness)
 end
 
--- Through a temp file of this process's own, so a crash cannot leave it empty.
+-- Whole or not at all (state-file.lua), so neither a crash nor a full disk leaves it
+-- empty or gone.
 local function save_sharpness(v)
 	if not opts.remember then
 		return
 	end
 	local json = utils.format_json({ sharpness = v })
-	local tmp = SHARPNESS_FILE .. '.' .. utils.getpid() .. '.tmp'
-	local f = json and io.open(tmp, 'w')
-	if not f then
-		msg.warn('cannot write ' .. tmp)
-		return
+	local ok, err = false, 'cannot serialize the sharpness'
+	if json then
+		ok, err = statefile.write(SHARPNESS_FILE, json)
 	end
-	f:write(json)
-	f:close()
-	os.remove(SHARPNESS_FILE)
-	if not os.rename(tmp, SHARPNESS_FILE) then
-		msg.warn('cannot replace ' .. SHARPNESS_FILE)
+	if not ok then
+		msg.warn(err)
 	end
 end
 
@@ -368,17 +359,12 @@ local function save_upscale_state()
 	end
 	local json =
 		utils.format_json({ quality = chosen_quality, screen = screen, costs = costs, anime_lines = anime_lines })
-	local tmp = UPSCALE_FILE .. '.' .. utils.getpid() .. '.tmp'
-	local f = json and io.open(tmp, 'w')
-	if not f then
-		msg.warn('cannot write ' .. tmp)
-		return
+	local ok, err = false, 'cannot serialize the upscale state'
+	if json then
+		ok, err = statefile.write(UPSCALE_FILE, json)
 	end
-	f:write(json)
-	f:close()
-	os.remove(UPSCALE_FILE)
-	if not os.rename(tmp, UPSCALE_FILE) then
-		msg.warn('cannot replace ' .. UPSCALE_FILE)
+	if not ok then
+		msg.warn(err)
 	end
 end
 

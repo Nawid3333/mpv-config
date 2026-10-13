@@ -26,6 +26,8 @@ local msg = require('mp.msg')
 local utils = require('mp.utils')
 
 local state_file = mp.command_native({ 'expand-path', '~~state/' }) .. '/speed.json'
+-- written whole or not at all (issue #96)
+local statefile = dofile(mp.command_native({ 'expand-path', '~~/script-modules/state-file.lua' }))
 
 --- True if the current file has a real video track (not album art, not a
 --- single-image track). nil while track-list is empty: at script load and
@@ -70,19 +72,9 @@ local function save_speed(speed)
 		msg.error('cannot serialize speed ' .. tostring(speed))
 		return
 	end
-	local tmp = state_file .. '.' .. utils.getpid() .. '.tmp'
-	local file, open_err = io.open(tmp, 'w')
-	if not file then
-		msg.error('cannot write ' .. tmp .. ': ' .. tostring(open_err))
-		return
-	end
-	file:write(json)
-	file:close()
-	-- os.rename does not replace an existing file on Windows.
-	os.remove(state_file)
-	local ok, rename_err = os.rename(tmp, state_file)
+	local ok, err = statefile.write(state_file, json)
 	if not ok then
-		msg.error('cannot replace ' .. state_file .. ': ' .. tostring(rename_err))
+		msg.error(err)
 	end
 end
 

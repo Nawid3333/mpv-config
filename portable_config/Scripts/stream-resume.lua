@@ -33,6 +33,8 @@
 local mp = require('mp')
 local msg = require('mp.msg')
 local utils = require('mp.utils')
+-- the FastStream tags in the URL fragment (AGENTS.md, "FastStream contract")
+local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
 
 local EXPIRY_SECONDS = 7 * 24 * 60 * 60
 local SAVE_INTERVAL = 5
@@ -44,6 +46,8 @@ local DURATION_TOLERANCE = 5
 local NOTE_SECONDS = 4
 
 local state_file = mp.command_native({ 'expand-path', '~~state/' }) .. '/stream-resume.json'
+-- written whole or not at all (issue #96)
+local statefile = dofile(mp.command_native({ 'expand-path', '~~/script-modules/state-file.lua' }))
 
 -- The file being played, or nil when it has no fs-id marker:
 --   { id = string, resumed = entry|nil, ready = bool, last_saved = number|nil }
@@ -57,17 +61,8 @@ local current = nil
 ---@param path string|nil
 ---@return string|nil
 local function resume_id(path)
-	local hash = path and path:find('#', 1, true)
-	if not path or not hash then
-		return nil
-	end
-	local id
-	for item in (path:sub(hash + 1) .. '&'):gmatch('([^&]*)&') do
-		if item:sub(1, 6) == 'fs-id=' then
-			id = item:sub(7):match('^(%x+)')
-		end
-	end
-	return id
+	local id = fragment.value(path, 'fs-id=')
+	return id and id:match('^(%x+)')
 end
 
 --- Read the saved entries, dropping expired and malformed ones. A missing or
@@ -109,26 +104,15 @@ local function load_entries(path)
 	return entries, pruned, false
 end
 
---- Write via a temp file, so a crash mid-write cannot leave a truncated file.
---- The temp file name is this process's own: two mpv windows saving at once
---- could otherwise write into each other's. Failures are logged, never fatal.
+--- Written whole or not at all (state-file.lua): a crash or a full disk mid-write
+--- cannot leave a truncated file, nor none. Failures are logged, never fatal.
 ---@param entries table
 local function save_entries(entries)
-	local tmp = state_file .. '.' .. utils.getpid() .. '.tmp'
-	local file, open_err = io.open(tmp, 'w')
-	if not file then
-		msg.error('cannot write ' .. tmp .. ': ' .. tostring(open_err))
-		return
-	end
 	-- format_json turns an empty table into [], which parse_json reads back as
 	-- an empty table all the same.
-	file:write(utils.format_json(entries) or '{}')
-	file:close()
-	-- os.rename does not replace an existing file on Windows.
-	os.remove(state_file)
-	local ok, rename_err = os.rename(tmp, state_file)
+	local ok, err = statefile.write(state_file, utils.format_json(entries) or '{}')
 	if not ok then
-		msg.error('cannot replace ' .. state_file .. ': ' .. tostring(rename_err))
+		msg.error(err)
 	end
 end
 

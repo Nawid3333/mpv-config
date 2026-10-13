@@ -17,8 +17,10 @@
 -- url plus the current fragment, '#' and all items unchanged: the FastStream tags,
 -- fs-quality included, travel with the next file, and the button keeps working;
 -- with it travel the position (whole seconds, rounded down), the request headers and
--- the title the file came with (reopen_options, as source-info.lua), the host's
--- subtitle paths (options/sub-files) and the pause state.
+-- the title the file came with (faststream-fragment.lua's reopen_options), the host's
+-- subtitle paths (options/sub-files) and the pause state. auto-start.lua unpauses every
+-- new file, so a switch made while paused names the file it loads in
+-- user-data/auto-start/keep-pause, and that one stays paused (issue #96).
 --
 -- Only http(s) entries are ever loaded: the list comes from a web page, and mpv opens
 -- local files and UNC paths too. The tests run with
@@ -46,6 +48,8 @@ local mp = require('mp')
 local msg = require('mp.msg')
 local options = require('mp.options')
 local utils = require('mp.utils')
+-- the FastStream tags in the URL fragment (AGENTS.md, "FastStream contract")
+local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
 
 local opts = {
 	-- the tests' local clips: entries without a scheme are taken too
@@ -66,6 +70,23 @@ local state = {
 
 -- ---- reading the fragment -------------------------------------------------------------
 
+-- The first n characters of a UTF-8 string, whole characters: the labels come from web
+-- pages ("高清 1080P"), and a cut by bytes left half a character, which uosc drew as
+-- invalid text (issue #96). LuaJIT has no utf8 library.
+---@param s string
+---@param n integer
+---@return string
+local function utf8_prefix(s, n)
+	local out = {}
+	for char in s:gmatch('[%z\1-\127\194-\244][\128-\191]*') do
+		if #out == n then
+			break
+		end
+		out[#out + 1] = char
+	end
+	return table.concat(out)
+end
+
 ---@param s string
 ---@return string
 local function url_decode(s)
@@ -83,16 +104,7 @@ end
 ---@param marker string
 ---@return string|nil
 local function fragment_value(url, marker)
-	local hash = url:find('#', 1, true)
-	if not hash then
-		return nil
-	end
-	local value
-	for item in (url:sub(hash + 1) .. '&'):gmatch('([^&]*)&') do
-		if item:sub(1, #marker) == marker then
-			value = item:sub(#marker + 1)
-		end
-	end
+	local value = fragment.value(url, marker)
 	return value ~= '' and value or nil
 end
 
@@ -228,7 +240,7 @@ local function recompute()
 	}
 	if current then
 		-- uosc badges stay short; the labels are ("1080p"), a longer one is cut
-		data.badge = list[current].label:sub(1, 5)
+		data.badge = utf8_prefix(list[current].label, 5)
 	end
 	mp.set_property_native('user-data/faststream-quality/button', data) -- for the tests
 	local sent = push_button(data)
@@ -289,30 +301,6 @@ local function path_fragment(path)
 	return hash and path:sub(hash) or ''
 end
 
---- The per-file options the stream came with: its request headers and its title. The
---- FastStream host hands them over as per-file options of the one file (loadfile's
---- options), so a plain `loadfile <url> replace` opened the next file without them: no
---- Referer/Origin/User-Agent, which a CDN that checks them refuses. mpv's list syntax:
---- ',' separates the items, '\,' is a comma inside one, and an item ending in '\'
---- would swallow the separator after it (left out, as the host does).
----@return table options for loadfile
-local function reopen_options()
-	local file_options, fields = {}, {}
-	for _, field in ipairs(mp.get_property_native('http-header-fields') or {}) do
-		if type(field) == 'string' and field ~= '' and field:sub(-1) ~= '\\' then
-			fields[#fields + 1] = (field:gsub(',', '\\,'))
-		end
-	end
-	if #fields > 0 then
-		file_options['http-header-fields'] = table.concat(fields, ',')
-	end
-	local title = mp.get_property('options/force-media-title') or ''
-	if title ~= '' then
-		file_options['force-media-title'] = title
-	end
-	return file_options
-end
-
 --- Plays the entry at `index` from where the video is. The playing entry does nothing.
 ---@param index number
 local function choose(index)
@@ -320,7 +308,11 @@ local function choose(index)
 	if not entry or index == state.current then
 		return
 	end
-	local file_options = reopen_options()
+	-- the request headers and the title the stream came with (faststream-fragment.lua): the
+	-- FastStream host hands them over as per-file options of the one file, so a plain
+	-- `loadfile <url> replace` opened the next file without them, and a CDN that checks
+	-- Referer/Origin/User-Agent refused it
+	local file_options = fragment.reopen_options()
 	local time = mp.get_property_number('time-pos')
 	if time and time >= 1 then
 		-- a whole second, down: a switch in the middle of one restarts there
@@ -331,10 +323,21 @@ local function choose(index)
 	if subs and subs ~= '' then
 		file_options['sub-files'] = subs
 	end
-	if mp.get_property_native('pause') then
-		file_options['pause'] = 'yes'
+	-- a delay the user set for this video: auto-start.lua puts both back to 0 when a file
+	-- unloads, and a per-file option is applied after that
+	for _, name in ipairs({ 'sub-delay', 'audio-delay' }) do
+		local delay = mp.get_property_number(name) or 0
+		if delay ~= 0 then
+			file_options[name] = tostring(delay)
+		end
 	end
 	local url = entry.url .. path_fragment(state.path)
+	if mp.get_property_native('pause') then
+		file_options['pause'] = 'yes'
+		-- auto-start.lua unpauses every new file; this one is the paused file in another
+		-- quality, so it stays paused (issue #96)
+		mp.set_property_native('user-data/auto-start/keep-pause', url)
+	end
 	mp.set_property_native('user-data/faststream-quality/last-load', { url = url, options = file_options })
 	-- named arguments: loadfile's options come after its index (mpv 0.38+)
 	mp.command_native({

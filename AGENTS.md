@@ -65,7 +65,9 @@ local copy of mpv's manual: grep it before guessing what an option does.
 **Layout.** `portable_config/` next to `mpv.exe` (portable mode: `~~/`, `~~state/`,
 `~~cache/` all resolve there). `mpv.conf`, `input.conf` (keys, and the right-click
 menu from trailing menu comments - uosc reads them), `Scripts/*.lua`,
-`script-opts/*.conf`, `shaders/` (only the files the presets use; installed by
+`script-modules/` (code the scripts load with `dofile`, not scripts themselves: mpv
+runs every file and folder in `Scripts/`; `state-file.lua` writes every state file
+whole or not at all and keeps a damaged one aside), `script-opts/*.conf`, `shaders/` (only the files the presets use; installed by
 `installer/install-shaders.ps1`, except the locally modified `adaptive-sharpen.glsl`).
 A new shader goes into BOTH `gpu-toggles.lua` and `install-shaders.ps1` (a preset
 naming a missing file drops it with only a warning). Never write `//!` inside a
@@ -94,7 +96,7 @@ Installer scripts are plain ASCII and run native programs through `Invoke-Native
 | `speed-presets.lua` | preset keys: same key again = back to the speed before it (per key) |
 | `speed-button.lua` | toolbar speed button (badge, click = next step, right-click = menu), the speed banner |
 | `remember-speed.lua` | `~~state/speed.json`; videos only; a song/video switch sets that kind's speed; a speed picked while a file loads wins |
-| `auto-start.lua` | an inherited pause is cleared at file-loaded; sub/audio delay back to 0 at unload |
+| `auto-start.lua` | an inherited pause is cleared at file-loaded, except for a quality switch made while paused (`user-data/auto-start/keep-pause`); sub/audio delay back to 0 at unload |
 | `gpu-toggles.lua` | the upscale state (Off/Auto/Anime/Movie), quality High/Fast/Auto (measured per GPU, `~~state/upscale.json`), screen override, Movie sharpness, the upscale button and menus |
 | `shader-cache/` | background shader warm-up in a hidden second mpv when the cache is stale (`fingerprint.lua`), "Rebuild shaders" |
 | `settings.lua` | per-PC settings and their menus (`~~state/settings.json`): buffering, start/stall wait, languages, HDR brightness per screen; the Welcome menu |

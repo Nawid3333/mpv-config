@@ -25,6 +25,8 @@
 -- and a cover's size is not what anyone wants to know.
 
 local mp = require('mp')
+-- the FastStream tags in the URL fragment (AGENTS.md, "FastStream contract")
+local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
 
 -- Long enough to read a three-part line.
 local NOTE_SECONDS = 4
@@ -85,16 +87,7 @@ end
 -- anywhere in the address, which a site's own query can hold.
 -- Plain string compares: a stray "%" in the path never starts a Lua pattern class.
 local function faststream_tagged(path)
-	local hash = path:find('#', 1, true)
-	if not hash then
-		return false
-	end
-	for item in (path:sub(hash + 1) .. '&'):gmatch('([^&]*)&') do
-		if item:sub(1, 11) == 'fs-content=' then
-			return true
-		end
-	end
-	return false
+	return fragment.value(path, 'fs-content=') ~= nil
 end
 
 local function source_of()

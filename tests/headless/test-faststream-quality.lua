@@ -142,6 +142,40 @@ H.run(function()
 		'Referer: https://site.example/watch'
 	)
 
+	-- paused, with a subtitle delay: the other quality loads paused and keeps the delay
+	-- (issue #96: auto-start.lua unpaused it, and put the delay back to 0 at the unload)
+	H.check('the stream loads again', H.load(main_name))
+	local switched = stem .. '_720' .. fragment
+	mapped[switched] = clip
+	mp.set_property_native('pause', true)
+	mp.set_property_number('sub-delay', 0.5)
+	activate(2)
+	H.wait_until(function()
+		local path = mp.get_property('path') or ''
+		return path:sub(-#switched) == switched and mp.get_property_native('duration') ~= nil
+	end, 8)
+	H.sleep(0.5)
+	H.eq('the switch loaded the other quality', (mp.get_property('path') or ''):sub(-#switched), switched)
+	H.eq('a switch made while paused stays paused', mp.get_property_native('pause'), true)
+	H.eq('a switch keeps the subtitle delay', mp.get_property_number('sub-delay'), 0.5)
+	H.eq('the keep-pause note is used up', mp.get_property_native('user-data/auto-start/keep-pause'), nil)
+	mp.set_property_number('sub-delay', 0)
+	mp.set_property_native('pause', false)
+
+	-- a label a web page wrote in another script: the badge is cut between whole UTF-8
+	-- characters (issue #96: a cut by bytes left half of one)
+	local wide = stem
+		.. '_wide#fs-id=t2&fs-quality='
+		.. encode(utils.format_json({
+			{ label = '高清 1080P', height = 1080, url = prefix .. stem .. '_wide' },
+			{ label = '720p', height = 720, url = prefix .. stem .. '_w720' },
+		}))
+	mapped[wide] = clip
+	H.check('a stream with a wide label loads', H.load(wide))
+	H.expect('its badge is cut between whole characters', function()
+		return (mp.get_property_native('user-data/faststream-quality/button') or {}).badge
+	end, '高清 10', nil, 3)
+
 	-- a bad tag: an entry with another scheme and one without a url are left out, one
 	-- entry is no list, the button hides
 	local bad_name = stem

@@ -140,18 +140,51 @@ function Get-NodeMajor([string]$Exe) {
     return 0
 }
 
-# A node.exe of the current LTS for the helper alone, in <HelperDir>\node.
+# The version of the private node.exe: what this script wrote beside it when it installed
+# it (node-version.txt), else what the node.exe says (an install from before 2026-10-13).
+function Get-PrivateNodeVersion([string]$Dir) {
+    $file = Join-Path $Dir 'node-version.txt'
+    if (Test-Path -LiteralPath $file -PathType Leaf) {
+        $v = "$(Get-Content -Raw -LiteralPath $file)".Trim()
+        if ($v -match '^v\d+\.\d+\.\d+$') { return $v }
+    }
+    $exe = Join-Path $Dir 'node.exe'
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { return $null }
+    $ErrorActionPreference = 'Continue'
+    try { $v = & $exe --version 2>$null } catch { $v = '' }
+    if ($LASTEXITCODE -eq 0 -and "$v".Trim() -match '^v\d+\.\d+\.\d+$') { return "$v".Trim() }
+    return $null
+}
+
+# A node.exe of the current LTS for the helper alone, in <HelperDir>\node, kept at the
+# newest LTS release: one that was there of any version from 22 on was kept for good, so
+# no security release ever reached it, and it ran on past its line's end of life (issue
+# #96). nodejs.org out of reach keeps the one that is there.
 function Install-PrivateNode([string]$Dir, [string]$Work, [string]$Dist) {
     $exe = Join-Path $Dir 'node.exe'
     $major = Get-NodeMajor $exe
-    if ($major -ge $NodeMinMajor) {
-        Write-Host "Node.js for the helper: v$major is there."
+    $failBefore = $script:failCode
+    $index = try {
+        if (Test-Path -LiteralPath $Dist -PathType Container) { Read-Json (Join-Path $Dist 'index.json') } else { Read-Json "$($Dist.TrimEnd('/'))/index.json" }
+    }
+    catch {
+        if ($major -lt $NodeMinMajor) { throw }
+        # not a failed update: the helper's Node.js stays as it is, and the next run asks again
+        $script:failCode = $failBefore
+        Write-Host "Node.js for the helper: v$major is there (nodejs.org could not be asked: $($_.Exception.Message))."
         return $exe
     }
-    $index = if (Test-Path -LiteralPath $Dist -PathType Container) { Read-Json (Join-Path $Dist 'index.json') } else { Read-Json "$($Dist.TrimEnd('/'))/index.json" }
     $rel = @($index | Where-Object { $_.lts -and @($_.files) -contains 'win-x64-zip' })[0]
     if (-not $rel) { throw 'nodejs.org lists no LTS release for Windows x64' }
     $ver = "$($rel.version)"
+    if ($major -ge $NodeMinMajor) {
+        $have = Get-PrivateNodeVersion $Dir
+        if ($have -eq $ver) {
+            Write-Host "Node.js for the helper: $have is up to date."
+            return $exe
+        }
+        Write-Host "Node.js for the helper: $have; the current LTS is $ver."
+    }
     $name = "node-$ver-win-x64"
     Write-Host "Downloading Node.js $ver for the helper (~30 MB) ..." -ForegroundColor Cyan
     $sums = Join-Path $Work 'SHASUMS256.txt'
@@ -172,8 +205,16 @@ function Install-PrivateNode([string]$Dir, [string]$Work, [string]$Dist) {
         [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, "$exe.new", $true)
     }
     finally { $archive.Dispose() }
+    # The old node.exe may be running (the helper of an open Firefox): Windows lets a running
+    # program be renamed, not replaced, so it is moved aside, and removed on a later run.
+    Get-ChildItem -LiteralPath $Dir -Filter 'node.exe.old-*' -ErrorAction SilentlyContinue |
+        Remove-Item -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $exe) {
+        Move-Item -LiteralPath $exe -Destination "$exe.old-$((Get-Date).ToString('yyyyMMddHHmmss'))" -Force
+    }
     Move-Item -LiteralPath "$exe.new" -Destination $exe -Force
     if ((Get-NodeMajor $exe) -lt $NodeMinMajor) { throw "the downloaded node.exe does not run" }
+    Set-Content -LiteralPath (Join-Path $Dir 'node-version.txt') -Value $ver -NoNewline
     Write-Host "Node.js $ver installed for the helper." -ForegroundColor Green
     return $exe
 }
@@ -252,6 +293,10 @@ try {
             elseif ($m -and "$($m.version)" -eq $version -and "$($m.mpv)" -eq $MpvExe -and (Get-NodeMajor "$($m.node)") -ge $NodeMinMajor) {
                 Write-Host "The FastStream helper is up to date ($version)." -ForegroundColor Green
                 $doHelper = $false
+                # its private Node.js all the same: a helper can stay at one version for long,
+                # and a Node.js security release does not wait for the next one (issue #96)
+                $privateNode = Join-Path (Join-Path $HelperDir 'node') 'node.exe'
+                if ("$($m.node)" -eq $privateNode) { $null = Install-PrivateNode (Split-Path $privateNode) $work $NodeDist }
             }
         }
         if ($doHelper) {

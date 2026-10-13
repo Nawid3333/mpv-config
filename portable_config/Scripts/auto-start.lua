@@ -12,13 +12,27 @@
 -- from an inherited one). The cache's own buffering pause (paused-for-cache) is
 -- separate and untouched.
 --
+-- One file is left paused: the one a quality switch made while paused loads
+-- (faststream-quality.lua), the same video in another quality. Its switch names it in
+-- user-data/auto-start/keep-pause, read and cleared at the next file-loaded: a switch
+-- whose file never loaded leaves no pause for the file after it (issue #96).
+--
 -- The delays go back to 0 when a file UNLOADS, not at the next file-loaded: by
 -- then mpv has applied that file's own delays (watch-later, a per-file option,
 -- --sub-delay), which must survive.
 
 local mp = require('mp')
 
+local KEEP_PAUSE = 'user-data/auto-start/keep-pause'
+
 mp.register_event('file-loaded', function()
+	local keep = mp.get_property_native(KEEP_PAUSE)
+	if keep ~= nil then
+		mp.del_property(KEEP_PAUSE)
+		if keep == mp.get_property('path') then
+			return
+		end
+	end
 	if mp.get_property_native('pause') then
 		mp.set_property_native('pause', false)
 	end
