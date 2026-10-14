@@ -26,6 +26,8 @@
 --     DURATION_TOLERANCE), so a site that serves several episodes under one
 --     page URL cannot resume episode 3 at episode 2's position
 --   - progress is mpv-only; the FastStream browser player keeps its own
+--   - a stream FastStream sent from a private window (fs-private=1) is neither
+--     resumed nor saved
 --
 -- State: ~~state/stream-resume.json (= portable_config/ here, see
 -- remember-speed.lua), gitignored, safe to delete at any time.
@@ -58,9 +60,15 @@ local current = nil
 --- native host drops fs-* items a stream URL already carries and appends its
 --- own last, so neither a query parameter ("?x=1&fs-id=...") nor anything
 --- else the stream URL brings can pass for it.
+--- None for a stream FastStream sent from a private window (an "fs-private=1" item, after
+--- the fs-id): no position is read or saved for it (the owner's pick, 2026-10-14). Its fs-id
+--- stays for faststream-episodes.lua, which knows a FastStream stream by it.
 ---@param path string|nil
 ---@return string|nil
 local function resume_id(path)
+	if fragment.value(path, 'fs-private=') == '1' then
+		return nil
+	end
 	local id = fragment.value(path, 'fs-id=')
 	return id and id:match('^(%x+)')
 end

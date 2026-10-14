@@ -124,7 +124,8 @@ keyframe; `lib/intl.lua` reads the UI language from settings.json.
 **FastStream contract** (the extension and helper live in `Nawid3333/FastStream`):
 the helper starts mpv with `--force-window=immediate` and appends URL-fragment
 items to the stream URL - `fs-content=anime|movie`, `fs-id=<16 hex>` (resume key),
-`fs-page=<encoded page URL>`. Scripts read the LAST whole item of the fragment
+`fs-private=1` (a private window's stream: stream-resume keeps nothing, since
+2026-10-14), `fs-page=<encoded page URL>`. Scripts read the LAST whole item of the fragment
 (after the first `#`, split on `&`), never a match anywhere in the URL. The helper
 sets `user-data/faststream/connected`, `.../autoplay` and `.../heartbeat` (every
 30 s; stale after 90 s), and hears `script-message faststream-next|previous|autoplay`.

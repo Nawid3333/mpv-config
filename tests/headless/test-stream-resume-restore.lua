@@ -9,6 +9,8 @@ local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\
 local EPISODE = 'fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv'
 -- The same episode with an fs-id BEFORE the fragment (a query parameter in real life).
 local QUERY_ID = 'fs-query/ep&fs-id=cccccccccccccccc#fs-content=anime.mkv'
+-- The same episode sent from a private window: its fs-id, then fs-private=1 (FastStream's order).
+local PRIVATE = 'fs-private/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718&fs-private=1&fs-page=x.mkv'
 
 local function seek(t)
 	local done = H.expect_event('playback-restart')
@@ -63,6 +65,16 @@ H.run(function()
 	H.load(H.media_path(QUERY_ID))
 	H.check('an fs-id before the fragment is not resumed', pos() < 2, pos())
 	H.load(H.media_path(EPISODE))
+
+	-- A private window's stream (fs-private=1; the owner's pick, 2026-10-14): no position
+	-- read, though its fs-id has one, and none saved over the episode's.
+	H.load(H.media_path(PRIVATE))
+	H.check("a private window's stream is not resumed", pos() < 2, pos())
+	H.eq('and shows no resume note', note(), nil)
+	seek(60)
+	H.load(H.media_path('plain/clip.mkv'))
+	H.load(H.media_path(EPISODE))
+	H.eq("its position is not saved over the episode's", pos(), 40, 2)
 
 	-- Finishing it (the last 8 %, at least 30 s) forgets it.
 	seek(100)

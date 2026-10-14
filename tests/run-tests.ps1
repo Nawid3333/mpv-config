@@ -1345,6 +1345,12 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
         New-Item -ItemType Directory -Force (Split-Path -Parent $token2) | Out-Null
         Copy-Item -LiteralPath $ep -Destination $token2
     }
+    # stream-resume: the episode sent from a private window (fs-private=1), which keeps nothing.
+    $privateEp = Join-Path $m 'fs-private/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718&fs-private=1&fs-page=x.mkv'
+    if (-not (Test-Path -LiteralPath $privateEp)) {
+        New-Item -ItemType Directory -Force (Split-Path -Parent $privateEp) | Out-Null
+        Copy-Item -LiteralPath $ep -Destination $privateEp
+    }
     # stream-resume: an fs-id before the fragment, which is no resume key.
     $queryId = Join-Path $m 'fs-query/ep&fs-id=cccccccccccccccc#fs-content=anime.mkv'
     if (-not (Test-Path -LiteralPath $queryId)) {
