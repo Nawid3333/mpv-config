@@ -7,10 +7,12 @@
 --   restored - a FRESH process restores the choices (AGENTS.md validation 6a);
 --   legacy   - a PC that ran this config before (the runner removes
 --              settings.json and leaves a speed.json after "restored") keeps what
---              mpv.conf gave everyone until then: de,en, 350 nits, 3 s; its 1 GB
---              is the RAM budget, with FastStream's other buffer defaults;
+--              mpv.conf gave everyone until then: de,en, 350 nits; its 1 GB is the
+--              RAM budget, with FastStream's other buffer defaults; the start
+--              waits Adaptive (mpv.conf's 3 s gave way to it everywhere);
 --   migrated - a settings.json from before 2026-10-12 (Buffering = 2 GB, the
---              owner's): 2 GB becomes the RAM budget, the old key goes;
+--              owner's, and the fixed 3 s wait): 2 GB becomes the RAM budget, the
+--              3 s Adaptive, the old keys go;
 --   damaged  - a settings.json that is no JSON (the runner writes one after
 --              "migrated"): it is kept beside as settings.json.corrupt-<time>, and a
 --              good one is written, not the defaults over it without a word (#96).
@@ -107,14 +109,31 @@ H.run(function()
 			tonumber(mp.get_property('options/demuxer-max-bytes')),
 			math.floor(math.max(math.min(150 * 1048576, rec * 0.75), 4 * 1048576))
 		)
-		H.eq('... buffers 3 s before starting (as tuned)', initial_at_load[1], 'yes')
-		H.eq('... and after a stall', mp.get_property('options/cache-pause-wait'), '3.000000')
+		H.eq('... starts Adaptive', published('start_wait'), 'auto')
+		H.eq('... which waits before the start', initial_at_load[1], 'yes')
+		-- what the line brings per second of the stream decides the wait (mpv ends a
+		-- wait as soon as the buffer reaches cache-pause-wait)
+		mp.commandv('script-message-to', 'settings', 'adaptive-line', '5')
+		H.expect(
+			'... a line 5x the stream: 1 s of buffer, it starts at once',
+			prop('options/cache-pause-wait'),
+			'1.000000'
+		)
+		mp.commandv('script-message-to', 'settings', 'adaptive-line', '0.6')
+		H.expect('... a line slower than the stream: buffers longer', function()
+			return (mp.get_property_number('options/cache-pause-wait') or 0) > 1.5
+		end, true)
+		mp.commandv('script-message-to', 'settings', 'adaptive-line', 'none')
+		H.expect('... no speed known yet: 3 s, as before', prop('options/cache-pause-wait'), '3.000000')
+		mp.commandv('script-message-to', 'settings', 'adaptive-line', '')
 		-- mpv applies cache-pause-initial after every seek too (playloop.c): a jump
 		-- past the downloaded part waited for 3 s more of the stream
 		H.expect('... but not after a seek: off once the file has started', initial, 'no')
 		H.check('a seek lands', seek_to(1))
 		H.eq('... and the initial wait stays off after it', initial(), 'no')
-		H.eq('... while a stall still waits 3 s', mp.get_property('options/cache-pause-wait'), '3.000000')
+		mp.commandv('script-message-to', 'settings', 'adaptive-line', '1.5')
+		H.expect('... and a stall waits as the line says', prop('options/cache-pause-wait'), '1.000000')
+		mp.commandv('script-message-to', 'settings', 'adaptive-line', '')
 		local s = saved()
 		H.check(
 			'... and settings.json written at once (decided once per PC)',
@@ -151,13 +170,17 @@ H.run(function()
 		H.expect('Seconds ahead 0', buffering('buffer_ahead'), 0)
 		set('buffer_behind', '600')
 		H.expect('Seconds behind 600', buffering('buffer_behind'), 600)
-		set('buffer_wait', '0')
+		set('start_wait', '0')
 		H.expect("Start at once -> mpv's own 1 s after a stall", prop('options/cache-pause-wait'), '1.000000')
 		H.load(H.media_path('plain/clip.mkv'))
 		H.eq('... and no wait before the next start', last_initial(), 'no')
-		set('buffer_wait', '5')
+		set('start_wait', '5')
 		H.expect('Buffer 5 s -> cache-pause-wait 5', prop('options/cache-pause-wait'), '5.000000')
 		H.eq('... the playing file has started: its seeks still play at once', initial(), 'no')
+		mp.commandv('script-message-to', 'settings', 'adaptive-line', '5')
+		H.sleep(0.3)
+		H.eq('... and the line decides nothing then', mp.get_property('options/cache-pause-wait'), '5.000000')
+		mp.commandv('script-message-to', 'settings', 'adaptive-line', '')
 		set('download_all', 'yes')
 		set('buffer_to_disk', 'yes')
 		H.load(H.media_path('plain/clip.mkv'))
@@ -186,7 +209,8 @@ H.run(function()
 				and s2.buffer_ahead == 0
 				and s2.buffer_behind == 600
 				and s2.buffer == nil
-				and s2.buffer_wait == 5,
+				and s2.start_wait == 5
+				and s2.buffer_wait == nil,
 			utils.format_json(s2)
 		)
 		-- a choice made in the open menu keeps it open and shows at once (update-menu)
@@ -215,7 +239,31 @@ H.run(function()
 		H.eq('... its tuned 1 GB is the RAM budget now', buffering('ram_budget')(), 1e9)
 		H.eq("... with FastStream's defaults: predownload on", buffering('download_all')(), true)
 		H.eq('... beyond the RAM on disk', buffering('buffer_to_disk')(), true)
-		H.eq('... buffering 3 s first', mp.get_property('options/cache-pause-wait'), '3.000000')
+		H.eq('... and waits Adaptive at the start', published('start_wait'), 'auto')
+		-- the timer measures while a file waits: the next file's load (3 s until it
+		-- knows the line) and a line 5x the stream
+		mp.commandv('script-message-to', 'settings', 'adaptive-line', '5')
+		set('start_wait', '10')
+		set('start_wait', 'auto')
+		H.eq(
+			'... chosen again while a file plays: 3 s until it measures',
+			prop('options/cache-pause-wait')(),
+			'3.000000'
+		)
+		H.load(H.media_path('plain/clip.mkv'))
+		H.expect("... the next file's wait follows the line (1 s)", prop('options/cache-pause-wait'), '1.000000')
+		-- the caps: a stall waits at most 10 s, the first frame at most the old 3 s
+		-- (the 20 s clip has more than 10 s left here)
+		mp.commandv('script-message-to', 'settings', 'adaptive-line', '0')
+		H.expect(
+			'... a stall on a line that brings nothing: 10 s at most',
+			prop('options/cache-pause-wait'),
+			'10.000000'
+		)
+		mp.commandv('script-message-to', 'settings', 'adaptive-line', '0.3')
+		H.load(H.media_path('plain/clip.mkv'))
+		H.expect('... before the first frame on a slow line: 3 s at most', prop('options/cache-pause-wait'), '3.000000')
+		mp.commandv('script-message-to', 'settings', 'adaptive-line', '')
 		H.load(H.media_path('hdr/pq.mkv'))
 		H.expect('... and 350 nits for HDR, as [hdr-target-peak] gave it', peak, '350')
 		local s = saved()
@@ -224,10 +272,16 @@ H.run(function()
 		H.eq('Buffering 2 GB from before: the RAM budget now', buffering('ram_budget')(), 2e9)
 		H.eq('... predownload on (the owner moved every PC)', buffering('download_all')(), true)
 		H.eq('... the other settings kept', mp.get_property('slang'), 'de,en')
+		H.eq('... the fixed 3 s wait from before (its default): Adaptive now', published('start_wait'), 'auto')
 		local s = saved()
 		H.check(
-			'... written at once, without the old key',
-			s and s.ram_budget == 2e9 and s.buffer == nil and s.hdr_peak == 350,
+			'... written at once, without the old keys',
+			s
+				and s.ram_budget == 2e9
+				and s.buffer == nil
+				and s.hdr_peak == 350
+				and s.start_wait == 'auto'
+				and s.buffer_wait == nil,
 			utils.format_json(s)
 		)
 	elseif PHASE == 'damaged' then

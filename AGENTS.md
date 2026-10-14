@@ -163,6 +163,11 @@ at startup was rejected as a visible race.
 - **Two user-facing presets**, Anime and Movie: the cycle stays Off/Auto/Anime/Movie.
 - **cache-pause-initial** is on only until a file first plays (settings.lua re-arms
   it in on_load): mpv applies it after every seek, which stalled each seek on a stream.
+- **Start and stalls is Adaptive** by default (the owner, 2026-10-14: no fixed wait,
+  start as soon as the stream can play through): the start waits at most the old 3 s,
+  a stall by the line's speed (at most 10 s). Measured on a throttled line: starting
+  at once stalled right after the start on HLS, and a long first wait meant seconds of
+  black on a slow line. The fixed choices stay in the menu.
 - **The shader warm-up stays**, slimmed (measured 2026-10-05).
 - **Builds are offered, never auto-installed**: the owner merges the mpv-update PR.
 - `q` is a speed key; quit is Ctrl+w / Ctrl+c (mpv's), Q quits and saves.

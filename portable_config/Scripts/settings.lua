@@ -13,7 +13,9 @@
 --     video (on), its maximum size (5 GB), RAM for buffered video (Auto by
 --     this PC's memory), keep video on disk when that RAM is full (on), seconds
 --     ahead (300) and behind (20). Every number also takes 0 (none) and no limit,
---     and any value typed in (Custom...). Start and stalls: start at once, or
+--     and any value typed in (Custom...). Start and stalls: Adaptive (the
+--     default: start as soon as the line keeps up with the stream, and after a
+--     stall wait by the line's speed - see adaptive_wait()), start at once, or
 --     buffer N seconds first and after a stall (cache-pause-initial/-wait). A
 --     seek never waits for it (see apply_buffer()).
 --   Upscaling quality, screen, Movie sharpness - gpu-toggles.lua owns them (and
@@ -71,8 +73,9 @@ local BUFFERING = {
 	buffer_behind = 20,
 }
 -- What mpv.conf set for everyone (1 GB: the RAM budget now).
-local LEGACY = { slang = 'de,en', alang = 'de,en', hdr_peak = 350, ram_budget = 1e9, buffer_wait = 3 }
-local DEFAULTS = { slang = '', alang = '', hdr_peak = 'auto', ram_budget = 'auto', buffer_wait = 3 }
+-- (start_wait: mpv.conf's 3 s gave way to Adaptive everywhere, at the owner's word.)
+local LEGACY = { slang = 'de,en', alang = 'de,en', hdr_peak = 350, ram_budget = 1e9, start_wait = 'auto' }
+local DEFAULTS = { slang = '', alang = '', hdr_peak = 'auto', ram_budget = 'auto', start_wait = 'auto' }
 -- Files only a PC that already ran this config has (remember-speed.lua,
 -- gpu-toggles.lua, stream-resume.lua, mpv's watch-later, the shader warm-up).
 local LEGACY_MARKERS = {
@@ -110,7 +113,7 @@ local AHEADS = { 0, 30, 60, 120, 300, 600, 1800, -1 }
 local BEHINDS = { 0, 20, 60, 300, 1800, -1 }
 -- the old Buffering choices, as RAM budgets
 local OLD_BUFFERS = { small = 150e6, medium = 512e6, large = 1e9, xlarge = 2e9, whole = 'auto', auto = 'auto' }
-local WAITS = { 0, 3, 5, 10 }
+local WAITS = { 'auto', 0, 3, 5, 10 }
 
 local function exists(path)
 	return utils.file_info(mp.command_native({ 'expand-path', path })) ~= nil
@@ -169,6 +172,9 @@ local function valid_bool(v)
 end
 
 local function valid_wait(v)
+	if v == 'auto' then
+		return v
+	end
 	v = tonumber(v)
 	return v and v >= 0 and v <= 60 and math.floor(v) or nil
 end
@@ -249,8 +255,14 @@ do
 	settings.max_video_size = valid_size(src.max_video_size) or BUFFERING.max_video_size
 	settings.buffer_ahead = valid_secs(src.buffer_ahead) or BUFFERING.buffer_ahead
 	settings.buffer_behind = valid_secs(src.buffer_behind) or BUFFERING.buffer_behind
-	settings.buffer_wait = valid_wait(src.buffer_wait) or base.buffer_wait
-	migrated = old ~= nil and src.ram_budget == nil
+	-- the fixed wait from before: its default (3 s) is Adaptive now, a wait chosen by
+	-- hand (start at once, 5 s, 10 s) stays
+	local old_wait = valid_wait(src.buffer_wait)
+	if old_wait == 3 then
+		old_wait = 'auto'
+	end
+	settings.start_wait = valid_wait(src.start_wait) or old_wait or base.start_wait
+	migrated = (old ~= nil and src.ram_budget == nil) or (src.buffer_wait ~= nil and src.start_wait == nil)
 	-- every screen seen: key 'WxH@Hz' -> { label, seen, hdr_peak }
 	settings.screens = {}
 	if type(src.screens) == 'table' then
@@ -310,7 +322,8 @@ end
 -- needs no cache-pause-initial.
 local started = false -- this file has started: its next restarts are seeks
 local function apply_initial_wait()
-	mp.set_property('cache-pause-initial', (settings.buffer_wait > 0 and not started) and 'yes' or 'no')
+	local w = settings.start_wait
+	mp.set_property('cache-pause-initial', ((w == 'auto' or w > 0) and not started) and 'yes' or 'no')
 end
 
 -- What stream-buffer.lua buffers the next file with (user-data/settings/buffering,
@@ -326,23 +339,183 @@ local function buffering_config()
 	}
 end
 
+-- Adaptive: how long to wait, from the line's speed. While mpv waits (before a
+-- file plays, and in a stall) playback stands still, so the buffer grows by what
+-- the line brings. q, the seconds of the stream per second, is the largest of
+-- three readings, so the wait ends as soon as any of them says the line keeps up:
+-- how far the buffer's end moved since this wait began (known at once; low before
+-- the first frame, where the opening counts too), how far over the last
+-- ADAPT_SLOPE_SECS, and mpv's raw-input-rate over the bytes the buffer holds per
+-- second of the stream (0 for the first second; on HLS it runs ahead of the
+-- buffer, which lags the line at the start). The end, not cache-duration: that
+-- subtracts the reader, which the decoders move at the start, and it started some
+-- HLS streams a second later. A line that keeps up (q >= ADAPT_FAST) waits
+-- ADAPT_SHORT seconds of buffer (mpv's own stall default): no stall right after
+-- the start, which starting at once had on HLS. A slower one waits for what
+-- drains in ADAPT_PLAY_ON seconds: before the first frame never longer than the
+-- old fixed 3 s (the video shows up soon), in a stall up to ADAPT_STALL_MAX - the
+-- same total wait in fewer, longer pauses. Measured 2026-10-14 on a throttled line
+-- (MP4, HLS with 4 and 10 s segments, 0.6x to 5x the stream). mpv compares the
+-- buffer with cache-pause-wait on every update, so a lower value ends the wait at
+-- once (player/playloop.c, handle_update_cache()).
+local ADAPT_FAST = 1.2
+local ADAPT_SHORT = 1
+local ADAPT_UNKNOWN = 3
+local ADAPT_START_MAX = 3
+local ADAPT_STALL_MAX = 10
+local ADAPT_PLAY_ON = 30
+local ADAPT_SLOPE_SECS = 0.75
+local adapt_timer = nil
+local file_open = false
+local played = false -- this file's first frame moved: a wait now is a stall
+local adapt_since = nil -- when this file's load began
+local wait_began = nil -- { time, the buffer's end (nil: the first one seen) } when this wait began
+local adapt_samples = {} -- { time, the buffer's end } during this wait
+local adapt_state = nil -- the last decision: { q, wait }
+local line_stand_in = nil -- the tests' line (adaptive-line): a number, or false = unknown
+
+-- seconds of the stream per second of the line, or nil
+local function line_ratio()
+	if line_stand_in ~= nil then
+		return line_stand_in or nil
+	end
+	local s = mp.get_property_native('demuxer-cache-state')
+	if type(s) ~= 'table' or s['seeking'] or not wait_began then
+		return nil
+	end
+	local now, ends, ahead = mp.get_time(), s['cache-end'], s['cache-duration']
+	if not ends or not ahead then
+		return nil
+	end
+	local last = adapt_samples[#adapt_samples]
+	-- a seek or a timestamp jump: measure anew
+	if last and (ends < last[2] - 0.5 or ends > last[2] + 30) then
+		adapt_samples = {}
+		wait_began = { now, ends }
+	end
+	wait_began[2] = wait_began[2] or ends
+	adapt_samples[#adapt_samples + 1] = { now, ends }
+	while #adapt_samples > 1 and now - adapt_samples[1][1] > 2 * ADAPT_SLOPE_SECS do
+		table.remove(adapt_samples, 1)
+	end
+	local q = nil
+	if now - wait_began[1] >= 0.25 then
+		q = (ends - wait_began[2]) / (now - wait_began[1])
+	end
+	local first = adapt_samples[1]
+	if now - first[1] >= ADAPT_SLOPE_SECS then
+		q = math.max(q or 0, (ends - first[2]) / (now - first[1]))
+	end
+	local fw, raw = s['fw-bytes'], s['raw-input-rate']
+	if raw and raw > 0 and fw and fw > 0 and ahead >= 0.5 then
+		q = math.max(q or 0, raw / (fw / ahead))
+	end
+	return q
+end
+
+local function adaptive_wait()
+	local q = line_ratio()
+	local w
+	if not q then
+		w = ADAPT_UNKNOWN
+	else
+		-- what drains in play_on seconds when the line brings q/ADAPT_FAST of the
+		-- stream; a line that keeps up drains nothing and gets ADAPT_SHORT
+		local play_on = ADAPT_PLAY_ON
+		local left = (mp.get_property_number('duration') or 0) - (mp.get_property_number('time-pos') or 0)
+		if left > 0 then
+			play_on = math.min(play_on, left)
+		end
+		local most = played and ADAPT_STALL_MAX or ADAPT_START_MAX
+		w = math.max(ADAPT_SHORT, math.min(most, play_on * (1 - q / ADAPT_FAST)))
+	end
+	adapt_state = { q = q, wait = w }
+	local old = mp.get_property_number('cache-pause-wait')
+	if not old or math.abs(old - w) >= 0.25 then
+		mp.set_property_number('cache-pause-wait', w)
+		msg.verbose(string.format('line %s the stream: wait %.1f s', q and string.format('%.2fx', q) or 'unknown', w))
+	end
+end
+
+-- The timer runs while mpv waits: before the file plays, and in a stall.
+local function update_adaptive()
+	local waiting = settings.start_wait == 'auto'
+		and file_open
+		and (not played or mp.get_property_bool('paused-for-cache'))
+	if waiting and not adapt_timer then
+		adapt_samples = {}
+		-- before the first frame the wait began at the load, from the first end seen
+		if played then
+			local s = mp.get_property_native('demuxer-cache-state')
+			wait_began = { mp.get_time(), type(s) == 'table' and s['cache-end'] or nil }
+		else
+			wait_began = { adapt_since or mp.get_time(), nil }
+		end
+		adapt_timer = mp.add_periodic_timer(0.25, adaptive_wait)
+		adaptive_wait()
+	elseif not waiting and adapt_timer then
+		adapt_timer:kill()
+		adapt_timer = nil
+	end
+end
+
 -- The waits apply at once (the sizes: publish(), for the next file).
 local function apply_buffer()
-	local wait = settings.buffer_wait
+	local wait = settings.start_wait
 	apply_initial_wait()
-	mp.set_property('cache-pause-wait', tostring(wait > 0 and wait or 1))
+	if wait == 'auto' then
+		mp.set_property('cache-pause-wait', tostring(ADAPT_UNKNOWN))
+	else
+		mp.set_property('cache-pause-wait', tostring(wait > 0 and wait or 1))
+	end
+	update_adaptive()
 end
 
 mp.add_hook('on_load', 50, function()
 	started = false
+	played = false
+	file_open = true
+	adapt_since = mp.get_time()
+	if settings.start_wait == 'auto' then
+		mp.set_property('cache-pause-wait', tostring(ADAPT_UNKNOWN))
+	end
 	apply_initial_wait() -- the wait before this file's start
+	update_adaptive()
 end)
 
--- The first restart of a file is its start; every later one is a seek.
+-- The first restart of a file is its start; every later one is a seek. The
+-- initial wait, if any, runs after it (paused-for-cache); the first frame moves
+-- when that ends.
 mp.register_event('playback-restart', function()
 	if not started then
 		started = true
+		played = not mp.get_property_bool('paused-for-cache')
 		apply_initial_wait()
+		update_adaptive()
+	end
+end)
+mp.observe_property('paused-for-cache', 'bool', function(_, waiting)
+	if started and not waiting then
+		played = true
+	end
+	update_adaptive()
+end)
+mp.register_event('end-file', function()
+	file_open = false
+	update_adaptive()
+end)
+
+-- Tests stand in for the line: `script-message-to settings adaptive-line <q>` decides
+-- as if the line brought q seconds of the stream per second, `none` as if no speed
+-- were known yet; no argument measures again.
+mp.register_script_message('adaptive-line', function(q)
+	if q == 'none' then
+		line_stand_in = false
+	else
+		line_stand_in = tonumber(q)
+	end
+	if settings.start_wait == 'auto' then
+		adaptive_wait()
 	end
 end)
 
@@ -408,7 +581,7 @@ local function publish()
 		buffering = buffering_config(),
 		ram_budget = settings.ram_budget,
 		ram_recommended = recommended_ram(),
-		buffer_wait = settings.buffer_wait,
+		start_wait = settings.start_wait,
 		ram_gb = RAM_GB and math.floor(RAM_GB + 0.5) or nil,
 		seeded = seeded,
 	})
@@ -485,6 +658,9 @@ local function buffer_label()
 end
 
 local function wait_label(w)
+	if w == 'auto' then
+		return 'adaptive'
+	end
 	return w > 0 and string.format('buffer %d s', w) or 'start at once'
 end
 
@@ -694,20 +870,38 @@ end
 
 local WAIT_HINTS = {
 	[0] = "mpv's default · fastest start, may stall early",
-	[3] = 'as tuned · recommended',
+	[3] = 'a fixed wait at every start',
 	[5] = 'smoother on a slow line',
 	[10] = 'longest wait, fewest stalls',
 }
+
+-- What Adaptive did last: the line's speed and the wait it chose.
+local function adaptive_hint()
+	local st = adapt_state
+	if not st or not st.q then
+		return 'recommended · starts once the line keeps up'
+	elseif st.wait <= ADAPT_SHORT then
+		return string.format('recommended · now: line %.1fx the stream, starts at once', st.q)
+	end
+	return string.format('recommended · now: line %.1fx the stream, buffers %d s', st.q, math.floor(st.wait + 0.5))
+end
 
 local function wait_items()
 	local items = {
 		note('Wait for some seconds of video before playing,'),
 		note('and again when the stream ran dry (a stall).'),
+		note('Adaptive waits only as long as the line needs.'),
 		note('A seek plays at once, without this wait.', true),
 	}
 	for _, w in ipairs(WAITS) do
-		local title = w > 0 and string.format('Buffer %d s first, and after a stall', w) or 'Start at once'
-		items[#items + 1] = choice(title, WAIT_HINTS[w], 'buffer_wait', w, settings.buffer_wait == w)
+		local title, hint
+		if w == 'auto' then
+			title, hint = 'Adaptive', adaptive_hint()
+		else
+			title = w > 0 and string.format('Buffer %d s first, and after a stall', w) or 'Start at once'
+			hint = WAIT_HINTS[w]
+		end
+		items[#items + 1] = choice(title, hint, 'start_wait', w, settings.start_wait == w)
 	end
 	return items
 end
@@ -763,7 +957,7 @@ local function settings_items(prefix)
 		true
 	)
 	sub('buffer', 'Buffering', buffer_label(), buffer_items())
-	sub('wait', 'Start and stalls', wait_label(settings.buffer_wait), wait_items(), true)
+	sub('wait', 'Start and stalls', wait_label(settings.start_wait), wait_items(), true)
 	if gpu and type(gpu.quality_items) == 'table' then
 		sub('quality', 'Upscaling quality', gpu.label, gpu.quality_items)
 		sub('screen', 'Screen for upscaling', gpu.screen_label, gpu.screen_items)
@@ -1022,12 +1216,12 @@ local SETTERS = {
 		settings.buffer_behind = v
 		return 'Seconds behind: ' .. secs_label(v), 'from the next video on'
 	end,
-	buffer_wait = function(v)
+	start_wait = function(v)
 		v = valid_wait(v)
 		if not v then
 			return nil
 		end
-		settings.buffer_wait = v
+		settings.start_wait = v
 		apply_buffer()
 		return 'Start and stalls: ' .. wait_label(v), nil
 	end,

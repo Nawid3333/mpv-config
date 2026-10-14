@@ -27,9 +27,10 @@ suite checks every feature.
     predownload the whole video, its maximum size, how much is kept in RAM
     before the rest goes on disk (or nowhere), and the seconds kept ahead and
     behind. Every number also takes 0, no limit, or any value you type.
-  - **Start and stalls**: start at once, or wait until a few seconds are
-    downloaded, before playing and after the stream runs dry (a stall). A
-    seek never waits for it.
+  - **Start and stalls**: Adaptive (starts as soon as the download keeps up
+    with the video, and waits longer only on a slower line), start at once,
+    or wait until a few seconds are downloaded, before playing and after the
+    stream runs dry (a stall). A seek never waits for it.
   - **Upscaling quality**: Auto, High or Fast, with the time each one took
     on your GPU.
   - **Screen for upscaling**, **Anime lines**, **Movie sharpness**, **HDR brightness**.
@@ -298,7 +299,7 @@ git).
 | **Buffering ▸ Keep video on disk when that RAM is full** | Beyond the RAM above, the stream goes into a temp file (deleted when the video closes). | On | Off: nothing is written to the disk; the buffer stops at the RAM above |
 | **Buffering ▸ Seconds ahead** | Kept ahead of playback when predownload is off, has stopped or ran out of space. | 300 s | 0: nothing ahead, the video stops to load often. No limit: the whole video, even with predownload off |
 | **Buffering ▸ Seconds behind** | Kept behind playback while the whole video is not predownloaded (a predownload keeps everything). | 20 s | 0: seeking back loads it again. No limit: everything played is kept |
-| **Start and stalls** | Waits for some seconds of video before playing, and again after the stream ran dry. A seek plays at once. | buffer 3 s | Start at once: fastest start, may stall early. 3 s: as tuned. 5 s: smoother on a slow line. 10 s: longest wait, fewest stalls |
+| **Start and stalls** | Waits for some seconds of video before playing, and again after the stream ran dry. A seek plays at once. | Adaptive | Adaptive: measures the line while it waits; a line that keeps up with the video starts after 1 s of buffer; a slower one waits at most 3 s before the first frame, and after a stall buffers for about half a minute of play (at most 10 s): the same total wait in fewer pauses; the menu shows what it measured. Start at once: fastest start, may stall early. 3 s: a fixed wait. 5 s: smoother on a slow line. 10 s: longest wait, fewest stalls |
 | **Upscaling quality** | How much GPU time the upscaling may take. | Auto: measured on your GPU (High if it fits, else Fast, else off) | High: sharpest, most GPU time. Fast: about half the time, a bit softer. Each shows the time it took on your GPU; a choice here always runs |
 | **Screen for upscaling** | The screen size the upscaling plans for: which Movie chain runs, how much it sharpens. | Auto: the screen mpv is on | 1920x1080, 2560x1440, 3440x1440, 3840x2160 - only for when mpv reads the screen wrong |
 | **Anime lines** | How anime upscaling treats line art: Anime4K's Restore step redraws lines crisper and thinner. | Crisp | Crisp: clean, thin lines; right for blurry sources. As drawn: without Restore, the show's own line weight (for one whose lines look too thin) |
