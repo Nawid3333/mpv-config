@@ -670,6 +670,11 @@ function Invoke-StaticCheck {
 
     # -- uosc: config + the local changes that an update would drop --------------
     Test-Check $t 'uosc.conf: animation_duration=0 (the controls appear at once, no fades)' ($uoscConf -match '(?m)^animation_duration=0\s*$')
+    # The pause indicator fades over 300 ms hard-coded in uosc: manual shows it only on
+    # uosc's flash-pause-indicator command, and nothing sends that (his pick, 2026-10-14).
+    $flashKeys = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s].*flash-pause-indicator' })
+    Test-Check $t 'uosc.conf: pause_indicator=manual and no key flashes it (no pause flash)' (
+        $uoscConf -match '(?m)^pause_indicator=manual\s*$' -and $flashKeys.Count -eq 0) ($flashKeys -join ' | ')
     Test-Check $t 'uosc.conf: proximity 10000/10100 (whole UI shows together)' (
         $uoscConf -match '(?m)^proximity_in=10000' -and $uoscConf -match '(?m)^proximity_out=10100')
     foreach ($b in 'button:speed', 'button:upscale', 'button:subtitle_sync', 'button:source', 'button:settings',
