@@ -96,6 +96,7 @@ Installer scripts are plain ASCII and run native programs through `Invoke-Native
 | `speed-presets.lua` | preset keys: same key again = back to the speed before it (per key) |
 | `speed-button.lua` | toolbar speed button (badge, click = next step, right-click = menu), the speed banner |
 | `remember-speed.lua` | `~~state/speed.json`; videos only; a song/video switch sets that kind's speed; a speed picked while a file loads wins |
+| `pause-flash.lua` | each step into pause flashes uosc's whole UI (`flash-ui`, uosc.conf's `flash_duration`, shared with the volume/speed flashes) |
 | `auto-start.lua` | an inherited pause is cleared at file-loaded, except for a quality switch made while paused (`user-data/auto-start/keep-pause`); sub/audio delay back to 0 at unload |
 | `gpu-toggles.lua` | the upscale state (Off/Auto/Anime/Movie), quality High/Fast/Auto (measured per GPU, `~~state/upscale.json`), screen override, Movie sharpness, the upscale button and menus |
 | `shader-cache/` | background shader warm-up in a hidden second mpv when the cache is stale (`fingerprint.lua`), "Rebuild shaders" |

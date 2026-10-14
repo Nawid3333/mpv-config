@@ -1733,6 +1733,7 @@ $HeadlessTests = @(
             @{ Script = 'headless/test-remember-speed-first-load.lua'; File = 'plain/clip.mkv' })
     }
     @{ Name = 'auto-start'; Phases = @(@{ Script = 'headless/test-auto-start.lua'; File = 'plain/clip.mkv' }) }
+    @{ Name = 'pause-flash'; Phases = @(@{ Script = 'headless/test-pause-flash.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'source-info-idle'; Phases = @(@{ Script = 'headless/test-source-idle.lua'; File = $null }) }
     @{ Name = 'subtitles'; Phases = @(@{ Script = 'headless/test-subtitles.lua'; File = 'subs/movie.mkv' }) }
     @{ Name = 'subtitle-folder'; Phases = @(@{ Script = 'headless/test-subtitle-folder.lua'; File = 'subs-folder/movie.mkv' }) }
