@@ -54,8 +54,11 @@ local opts = {
 	-- MB the RAM limit sits above the budget; the tests take 0, so that a local file
 	-- (read at once) reaches the limit and the demuxer's wake-up after the switch is seen
 	headroom_mb = 64,
+	-- for tests: the free space on the temp drive in MB (-1: read it from Windows)
+	free_space_mb = -1,
 }
-options.read_options(opts, 'stream_buffer')
+-- read again when script-opts change (the tests fill the drive up on the way)
+options.read_options(opts, 'stream_buffer', function() end)
 
 local MiB = 1048576
 local HUGE_BYTES = 1024 * 1024 * MiB -- "no limit" for a byte option (1 TiB)
@@ -146,6 +149,9 @@ if ffi_ok and ffi.os == 'Windows' then
 	end)
 end
 local function free_space(dir)
+	if opts.free_space_mb >= 0 then
+		return opts.free_space_mb * MiB
+	end
 	-- the drive's root: always plain ASCII, whatever the user folder is called
 	local root = type(dir) == 'string' and dir:match('^(%a:[/\\])')
 	if not (free_space_fn and root) then
@@ -277,6 +283,9 @@ end
 -- Too little disk left: what comes now stays in RAM (mpv keeps the file's old part).
 local function disk_full(st, total, fw)
 	st.disk_full = true
+	-- what comes from now on stays in RAM, on top of the RAM part from before (tick)
+	-- (no RAM part when the stream went to disk from the start)
+	st.ram_at_full, st.total_at_full = st.ram or 0, total
 	fset('cache-on-disk', 'no')
 	if st.mode == 'predownload' then
 		to_window(st, 'disk full')
@@ -312,6 +321,11 @@ local function tick()
 		st.ram = total
 		st.disk_bytes = 0
 	else
+		if st.disk_full then
+			-- the drive filled up: the packets since stay in RAM. The count stood still at
+			-- that moment, and the settings menu showed it for the rest of the video.
+			st.ram = st.ram_at_full + math.max(total - st.total_at_full, 0)
+		end
 		st.disk_bytes = s['file-cache-bytes'] or 0
 	end
 	st.downloaded = st.ram + st.disk_bytes

@@ -30,6 +30,10 @@
 # does not match is refused.
 
 $ErrorActionPreference = 'Stop'
+# A download that stalls halfway: PowerShell 7 waits for ever (-TimeoutSec does not cover the
+# body). -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for 120 s
+# (install-mpv.ps1).
+$StallLimit = if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('OperationTimeoutSeconds')) { @{ OperationTimeoutSeconds = 120 } } else { @{} }
 # Windows PowerShell 5.1 may not offer TLS 1.2 by default; GitHub needs it (as install-mpv.ps1)
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $dst = Join-Path $PSScriptRoot '..\portable_config\shaders'
@@ -94,7 +98,7 @@ else {
     $zip = Join-Path $env:TEMP 'Anime4K_v4.0.zip'
     $tmp = Join-Path $env:TEMP 'a4k_extract'
     try {
-        Invoke-WebRequest -Uri $anime4kZip -OutFile $zip -UseBasicParsing
+        Invoke-WebRequest -Uri $anime4kZip -OutFile $zip -UseBasicParsing @StallLimit
         if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
         Expand-Archive -Path $zip -DestinationPath $tmp -Force
         foreach ($n in $missingA4k) {
@@ -116,7 +120,7 @@ foreach ($f in $glslFiles) {
         Write-Host "Downloading $($f.n) ..." -ForegroundColor Cyan
         $part = "$target.part"
         try {
-            Invoke-WebRequest -Uri $f.u -OutFile $part -UseBasicParsing
+            Invoke-WebRequest -Uri $f.u -OutFile $part -UseBasicParsing @StallLimit
             Install-Shader $part $f.n $f.h
         }
         finally {

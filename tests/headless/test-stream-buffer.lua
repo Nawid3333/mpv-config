@@ -200,6 +200,31 @@ H.run(function()
 		H.expect('... a window once its duration grew for 3 s (live)', buf('reason'), 'live', nil, 6)
 		H.eq('... seconds ahead', opt('cache-secs')(), secs(300))
 
+		-- 9b. the temp drive fills up while the video goes to disk: the rest stays in RAM, and
+		-- the RAM count goes on with it (it stood still from then on, and the settings menu
+		-- showed that moment's figures). A window of 10 s, read as playback goes: the packets
+		-- keep coming after the drive is full.
+		local before = mp.get_property_native('user-data/settings/buffering') or {}
+		set('download_all', 'no')
+		set('buffer_ahead', 10)
+		set('ram_budget', 0)
+		mp.commandv('change-list', 'script-opts', 'append', 'stream_buffer-free_space_mb=100')
+		H.load(LONG)
+		H.eq('RAM 0, a window: on disk from the start', buf('storage')(), 'disk')
+		H.expect('... the temp drive full (less than 2 GB free): the rest in RAM', buf('disk_full'), true, nil, 8)
+		local ram_then = buf('ram_bytes')() or 0
+		H.check(
+			'... and the RAM count goes on as packets come',
+			H.wait_until(function()
+				return (buf('ram_bytes')() or 0) > ram_then + 100000
+			end, 8),
+			string.format('%d then, %d now', ram_then, buf('ram_bytes')() or 0)
+		)
+		mp.commandv('change-list', 'script-opts', 'append', 'stream_buffer-free_space_mb=-1')
+		set('download_all', before.download_all == false and 'no' or 'yes')
+		set('buffer_ahead', before.buffer_ahead or 300)
+		set('ram_budget', 'auto')
+
 		-- 10. Custom...: the values a user types
 		local function parsed(key, text)
 			mp.commandv('script-message-to', 'settings', 'parse', key, text)

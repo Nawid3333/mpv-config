@@ -38,7 +38,7 @@ end
 
 -- One event, exactly what uosc's callback mode produces for this menu:
 -- "script-message-to faststream_quality menu-callback <event json>", with the activated
--- item's 1-based index as the value.
+-- item's value: its url.
 local function activate(value)
 	mp.commandv(
 		'script-message-to',
@@ -48,7 +48,39 @@ local function activate(value)
 	)
 end
 
+-- Phase late-uosc: mpv loads no scripts but this one, and uosc only after 2 s, as on a slow
+-- start where uosc listens late. The button reached it only by the one retry after 0.5 s.
+local function late_uosc()
+	local clip = H.media_path('fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv')
+	local name = 'faststream-quality-late#fs-id=t1&fs-quality='
+		.. encode(utils.format_json({
+			{ label = '1080p', height = 1080, url = 'faststream-quality-late' },
+			{ label = '720p', height = 720, url = 'faststream-quality-late_720' },
+		}))
+	mp.add_hook('on_load', 9, function()
+		local opened = mp.get_property('stream-open-filename') or ''
+		if opened:find('faststream-quality-late', 1, true) then
+			mp.set_property('stream-open-filename', clip)
+		end
+	end)
+	H.check('the stream loads', H.load(name))
+	H.expect('its list is read', function()
+		local list = mp.get_property_native('user-data/faststream-quality/list')
+		return type(list) == 'table' and #list
+	end, 2, nil, 3)
+	H.eq('no uosc yet: the button is not shown', mp.get_property_native('user-data/faststream-quality/shown'), false)
+	H.sleep(2)
+	mp.commandv('load-script', mp.command_native({ 'expand-path', '~~/Scripts/uosc' }))
+	H.expect('uosc started late: the button reaches it', function()
+		return mp.get_property_native('user-data/faststream-quality/shown')
+	end, true, nil, 5)
+end
+
 H.run(function()
+	if os.getenv('MPV_TEST_PHASE') == 'late-uosc' then
+		late_uosc()
+		return
+	end
 	local clip = H.media_path('fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv')
 	local stem = 'faststream-quality-film'
 	-- made-up name (as loaded) -> the clip mpv opens instead; mpv may hand the hook the
@@ -111,7 +143,7 @@ H.run(function()
 	close_menu()
 
 	-- the playing entry: nothing loads
-	activate(1)
+	activate(list[1].url)
 	H.sleep(0.3)
 	H.eq(
 		'activating the playing entry loads nothing',
@@ -125,7 +157,7 @@ H.run(function()
 		return (mp.get_property_number('time-pos') or 0) >= 1
 	end, 8)
 	mp.set_property_native('http-header-fields', { 'Referer: https://site.example/watch' })
-	activate(2)
+	activate(list[2].url)
 	local last
 	H.wait_until(function()
 		last = mp.get_property_native('user-data/faststream-quality/last-load')
@@ -149,7 +181,16 @@ H.run(function()
 	mapped[switched] = clip
 	mp.set_property_native('pause', true)
 	mp.set_property_number('sub-delay', 0.5)
-	activate(2)
+	-- the button stays up over the switch (it hid at the old file's end and showed again:
+	-- two pushes that repaint uosc's whole UI, and a relayout of the bar)
+	local hidden = 0
+	local function count_hidden(_, shown)
+		if shown == false then
+			hidden = hidden + 1
+		end
+	end
+	mp.observe_property('user-data/faststream-quality/shown', 'native', count_hidden)
+	activate(list[2].url)
 	H.wait_until(function()
 		local path = mp.get_property('path') or ''
 		return path:sub(-#switched) == switched and mp.get_property_native('duration') ~= nil
@@ -159,8 +200,21 @@ H.run(function()
 	H.eq('a switch made while paused stays paused', mp.get_property_native('pause'), true)
 	H.eq('a switch keeps the subtitle delay', mp.get_property_number('sub-delay'), 0.5)
 	H.eq('the keep-pause note is used up', mp.get_property_native('user-data/auto-start/keep-pause'), nil)
+	mp.unobserve_property(count_hidden)
+	H.eq('the button stayed up over the switch', hidden, 0)
 	mp.set_property_number('sub-delay', 0)
 	mp.set_property_native('pause', false)
+
+	-- a row of the last file's menu (uosc keeps a callback menu open over a file change,
+	-- the next episode after autoplay): a url this file's list does not have does nothing
+	local loads_before = utils.format_json(mp.get_property_native('user-data/faststream-quality/last-load'))
+	activate('https://cdn.example/another-episode/720.mp4')
+	H.sleep(0.3)
+	H.eq(
+		"a url not in this file's list loads nothing",
+		utils.format_json(mp.get_property_native('user-data/faststream-quality/last-load')),
+		loads_before
+	)
 
 	-- a label a web page wrote in another script: the badge is cut between whole UTF-8
 	-- characters (issue #96: a cut by bytes left half of one)

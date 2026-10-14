@@ -348,7 +348,8 @@ local function load_subs()
 		go_live(key, 'no ffmpeg: lines appear as they are read · put ffmpeg.exe next to mpv.exe to read them all')
 		return
 	end
-	sub_job = mp.command_native_async({
+	local job
+	job = mp.command_native_async({
 		name = 'subprocess',
 		args = {
 			ffmpeg,
@@ -369,6 +370,13 @@ local function load_subs()
 		capture_stdout = true,
 		capture_stderr = true,
 	}, function(ok, res)
+		-- An aborted read (the track switched): its end comes after the next read began,
+		-- and cleared that one's handle, so the next switch could not stop it, and quick
+		-- switching left whole-file ffmpeg reads running side by side. It said "failed",
+		-- too. The audio half guards this with audio.gen.
+		if sub_job ~= job then
+			return
+		end
 		sub_job = nil
 		local cues = ok and res and res.status == 0 and finish_cues(parse_ass(res.stdout or '')) or nil
 		if cues and #cues > 0 then
@@ -378,6 +386,7 @@ local function load_subs()
 			go_live(key, 'lines appear as they are read')
 		end
 	end)
+	sub_job = job
 end
 
 -- 'live' mode, every half second while the tool is open

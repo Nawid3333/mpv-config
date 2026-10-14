@@ -446,12 +446,16 @@ end)
 ---@param event {reason: string, file_error: string|nil}
 local function announce_failure(event)
 	local path = state.loading or ''
-	local hash = path:find('#', 1, true)
-	if event.reason ~= 'error' or not hash then
-		return
-	end
-	local fragment = path:sub(hash)
-	if not (fragment:find('fs-content=', 1, true) or fragment:find('fs-id=', 1, true)) then
+	-- the tags as source_of() reads them (whole fragment items): a search for the text
+	-- anywhere after the '#' took a site's own "xfs-id=" for FastStream's
+	if
+		event.reason ~= 'error'
+		or not (
+			fragment_value(path, 'fs-content=')
+			or fragment_value(path, 'fs-id=')
+			or fragment_value(path, PAGE_MARKER)
+		)
+	then
 		return
 	end
 	mp.commandv(

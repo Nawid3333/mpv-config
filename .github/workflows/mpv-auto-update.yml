@@ -429,7 +429,13 @@ jobs:
           # Nothing lands on main here: his merge is a push to main, which runs
           # the suite there and, green, publish.yml - as for any other change.
           if [ "$conclusion" = success ]; then
-            authgit push -q -f origin "$commit:refs/heads/$PR_BRANCH"
+            # From here on a failure (GitHub answering an error for a moment) deletes the
+            # build's branch, as the dispatch's failures above do: left there, it reads as
+            # "failed its tests", and a build that passed was never offered again.
+            if ! authgit push -q -f origin "$commit:refs/heads/$PR_BRANCH"; then
+              authgit push -q origin --delete "$branch" || true
+              exit 1
+            fi
             title="ci: pin mpv $latest (shinchiro)"
             # shellcheck disable=SC2016 # backticks are Markdown
             {
@@ -440,13 +446,18 @@ jobs:
               printf 'This pull request keeps up: a newer build that passes moves here, and the title says which. Closing it skips this build; the next one that passes opens a new pull request.\n'
             } > "$RUNNER_TEMP/pr.md"
             if [ -n "$pr" ]; then
-              gh pr edit "$pr" --repo "$GH_REPO" --title "$title" --body-file "$RUNNER_TEMP/pr.md" > /dev/null
+              if ! gh pr edit "$pr" --repo "$GH_REPO" --title "$title" --body-file "$RUNNER_TEMP/pr.md" > /dev/null; then
+                authgit push -q origin --delete "$branch" || true
+                exit 1
+              fi
               echo "#$pr offers $latest now."
             else
               # A branch that offers the build with no pull request would read as
               # "waits for the owner" on every later run, so nobody would ever see it:
               # deleted, and the next run offers the build anew.
               if ! url=$(gh pr create --repo "$GH_REPO" --base main --head "$PR_BRANCH" --title "$title" --body-file "$RUNNER_TEMP/pr.md" --assignee "$OWNER"); then
+                # The build's branch first: set -e ends the step at a delete that fails.
+                authgit push -q origin --delete "$branch" || true
                 authgit push -q origin --delete "$PR_BRANCH"
                 exit 1
               fi

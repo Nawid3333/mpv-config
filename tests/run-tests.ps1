@@ -129,11 +129,27 @@ function Invoke-OneClickCheck([string]$t) {
     Test-Check $t 'installer scripts and .bat files are plain ASCII (Windows PowerShell 5.1, cmd)' ($nonAscii.Count -eq 0) ($nonAscii -join ', ')
     # a download that stalls halfway: PowerShell 7, which updater.bat uses when it is there,
     # waited for ever (measured 2026-10-10); $StallLimit gives it -OperationTimeoutSeconds
-    $noLimit = @(foreach ($f in 'install-faststream.ps1', 'install-mpv.ps1', 'sync-config.ps1', 'update.ps1') {
-            Select-String -LiteralPath (Join-Path $installer $f) -Pattern 'Invoke-WebRequest .*-OutFile' |
-                Where-Object { $_.Line -notmatch '@StallLimit' } | ForEach-Object { "$f`:$($_.LineNumber)" }
+    # A call continued on the next line (a backtick at the end) counts as one: install-uosc's
+    # were, and a check line by line did not see them.
+    $noLimit = @(foreach ($f in 'install-faststream.ps1', 'install-mpv.ps1', 'sync-config.ps1', 'update.ps1', 'install-shaders.ps1', 'install-uosc.ps1') {
+            $lines = @(Get-Content -LiteralPath (Join-Path $installer $f))
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                if ($lines[$i] -notmatch 'Invoke-WebRequest ') { continue }
+                $call = $lines[$i]
+                for ($j = $i; $j + 1 -lt $lines.Count -and $lines[$j] -match '`\s*$'; $j++) { $call += ' ' + $lines[$j + 1] }
+                if ($call -match '-OutFile' -and $call -notmatch '@StallLimit') { "$f`:$($i + 1)" }
+            }
         })
     Test-Check $t 'every download updater.bat can run in PowerShell 7 ends when it stalls ($StallLimit)' ($noLimit.Count -eq 0) ($noLimit -join ', ')
+    # uosc's fonts: copied after main.lua and never checked, a stopped run left uosc without
+    # its icons, and every later run took main.lua for "installed" (review of 2026-10-14)
+    $uoscInstaller = Get-Content -Raw (Join-Path $installer 'install-uosc.ps1')
+    Test-Check $t 'install-uosc.ps1 counts uosc as installed only with both fonts, copies them first, and fails when a part is missing' (
+        $uoscInstaller -match "uosc_icons\.otf', 'uosc_textures\.ttf'" -and
+        $uoscInstaller -match '\$installed = \(Test-Path \(Join-Path \$uoscDir ''main\.lua''\)\) -and' -and
+        $uoscInstaller.IndexOf('Copy-Item (Join-Path $tmp ''fonts\*'')') -ge 0 -and
+        $uoscInstaller.IndexOf('Copy-Item (Join-Path $tmp ''fonts\*'')') -lt $uoscInstaller.IndexOf('Copy-Item $src $scripts') -and
+        $uoscInstaller -match '(?s)\$checks\.Values -contains \$false\)\s*\{.*exit 1') ''
     # updater.bat while its update replaces it (git pull, sync-config), and install.bat run
     # from an installed folder while the setup syncs it: cmd reads a batch file by byte
     # offset, and went on in the new file at the old offset - pieces of lines run as commands,
@@ -398,6 +414,30 @@ New-Item -ItemType Directory -Force $InstallDir | Out-Null
         Test-Check $t '... but not one set up for another mpv folder' ($r.Code -eq 0 -and (Test-Path (Join-Path $hd 'config.json'))) $r.Out
         $r = Invoke-Script uninstall.ps1 @('-Root', $srSpace, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', $hdu)
         Test-Check $t '... and removes it for a folder with a letter outside ASCII' ($r.Code -eq 0 -and -not (Test-Path $hdu)) $r.Out
+
+        # -- the Start menu (folders of the test's own, never the real one): the entries
+        # setup.ps1 made go, and the folder only once nothing else is in it; it took the whole
+        # folder, with anything the user had put there (review of 2026-10-14)
+        $wsh = New-Object -ComObject WScript.Shell
+        $newLink = {
+            param([string]$Dir, [string]$Name, [string]$Target)
+            $null = New-Item -ItemType Directory -Force $Dir
+            $link = $wsh.CreateShortcut((Join-Path $Dir "$Name.lnk"))
+            $link.TargetPath = $Target
+            $link.Save()
+        }
+        $menuMine = Join-Path $ob 'menu-with-mine'
+        & $newLink $menuMine 'mpv' (Join-Path $sr 'mpv.exe')
+        & $newLink $menuMine 'Update mpv' (Join-Path $sr 'updater.bat')
+        & $newLink $menuMine 'My notes' (Join-Path $env:WINDIR 'notepad.exe')
+        $r = Invoke-Script uninstall.ps1 @('-Root', $sr, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', (Join-Path $ob 'no-helper'), '-MenuDir', $menuMine)
+        Test-Check $t "uninstall.ps1 removes this mpv's Start menu entries and keeps the user's own" (
+            $r.Code -eq 0 -and -not (Test-Path (Join-Path $menuMine 'mpv.lnk')) -and
+            -not (Test-Path (Join-Path $menuMine 'Update mpv.lnk')) -and (Test-Path (Join-Path $menuMine 'My notes.lnk'))) $r.Out
+        $menuOurs = Join-Path $ob 'menu-ours'
+        foreach ($name in 'mpv', 'Update mpv', 'Uninstall mpv') { & $newLink $menuOurs $name (Join-Path $sr 'mpv.exe') }
+        $r = Invoke-Script uninstall.ps1 @('-Root', $sr, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', (Join-Path $ob 'no-helper'), '-MenuDir', $menuOurs)
+        Test-Check $t '... and the folder, once only its own entries were in it' ($r.Code -eq 0 -and -not (Test-Path $menuOurs)) $r.Out
     }
     # "Open with" another mpv registered (2026-10-09: the owner's Program Files mpv, for the
     # whole PC) - a stand-in key under HKCU, never a real App Paths entry
@@ -530,8 +570,11 @@ function Invoke-StaticCheck {
     # -- the FastStream fragment is read in one place (issue #96) -----------------------------
     # script-modules/faststream-fragment.lua holds the contract (whole items after the first
     # '#', the last of a name counting); six copies of its loop had to change alike.
+    # A search for a tag's text (find('fs-...')) is a parser too: source-info's failure banner
+    # had one, which the gmatch pattern alone did not see (review of 2026-10-14).
     $ownParsers = @(foreach ($f in $ownLua) {
             Select-String -LiteralPath $f.FullName -SimpleMatch -Pattern ".. '&'):gmatch(" | ForEach-Object { "$($f.Name):$($_.LineNumber)" }
+            Select-String -LiteralPath $f.FullName -Pattern "find\(\s*['""]#?fs-" | ForEach-Object { "$($f.Name):$($_.LineNumber)" }
         })
     Test-Check $t 'no script reads the FastStream fragment by itself (script-modules/faststream-fragment.lua)' ($ownParsers.Count -eq 0) ($ownParsers -join ', ')
 
@@ -1669,7 +1712,11 @@ $HeadlessTests = @(
     @{ Name = 'video-info'; Phases = @(@{ Script = 'headless/test-video-info.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'source-info'; Phases = @(@{ Script = 'headless/test-source-info.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=source_info-launch=no') }) }
     # test_local: its entries are local stems (no scheme), which only the tests take
-    @{ Name = 'faststream-quality'; Phases = @(@{ Script = 'headless/test-faststream-quality.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=faststream_quality-test_local=yes') }) }
+    @{ Name = 'faststream-quality'; Phases = @(
+            @{ Script = 'headless/test-faststream-quality.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=faststream_quality-test_local=yes') }
+            # uosc started late: no scripts but the quality button's, uosc loaded after 2 s
+            @{ Script = 'headless/test-faststream-quality.lua'; File = 'plain/clip.mkv'; Phase = 'late-uosc'; Args = @('--load-scripts=no', '--script=~~/Scripts/faststream-quality.lua', '--script-opts-append=faststream_quality-test_local=yes') })
+    }
     @{ Name = 'music-info'; Phases = @(@{ Script = 'headless/test-music-info.lua'; File = 'music-tagged/Nova Lane - Paper Lanterns.mp3' }) }
     @{ Name = 'keys'; Phases = @(@{ Script = 'headless/test-keys.lua'; File = 'long/long.mkv' }) }
     @{ Name = 'faststream-episodes'; Phases = @(

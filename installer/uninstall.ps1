@@ -44,7 +44,9 @@ param(
     [switch]$KeepFolder,
     [string]$HelperDir = (Join-Path $env:LOCALAPPDATA 'FastStreamMpvHost'),
     [switch]$NoFileTypes,
-    [string]$AppPathsKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\mpv.exe'
+    [string]$AppPathsKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\App Paths\mpv.exe',
+    # the Start menu folder setup.ps1 made (the tests give their own)
+    [string]$MenuDir = (Join-Path ([Environment]::GetFolderPath('Programs')) 'mpv')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -93,14 +95,23 @@ try {
         }
     }
 
-    # 2. the Start menu folder, only if it is this mpv's
-    $menu = Join-Path ([Environment]::GetFolderPath('Programs')) 'mpv'
-    $lnk = Join-Path $menu 'mpv.lnk'
+    # 2. the Start menu entries setup.ps1 made, only if they are this mpv's: the three of
+    # them, and the folder once nothing else is in it (it took the whole folder, with
+    # anything the user had put there)
+    $lnk = Join-Path $MenuDir 'mpv.lnk'
     if (Test-Path -LiteralPath $lnk) {
         $target = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk).TargetPath
         if ($target -eq $mpvExe) {
-            Remove-Item -LiteralPath $menu -Recurse -Force
-            Write-Host 'Start menu folder removed.'
+            foreach ($name in 'mpv', 'Update mpv', 'Uninstall mpv') {
+                Remove-Item -LiteralPath (Join-Path $MenuDir "$name.lnk") -Force -ErrorAction SilentlyContinue
+            }
+            if (-not @(Get-ChildItem -LiteralPath $MenuDir -Force).Count) {
+                Remove-Item -LiteralPath $MenuDir -Force
+                Write-Host 'Start menu folder removed.'
+            }
+            else {
+                Write-Host 'Start menu entries removed (the folder keeps what else is in it).'
+            }
         }
     }
 

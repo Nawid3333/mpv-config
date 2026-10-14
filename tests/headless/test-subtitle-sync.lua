@@ -208,6 +208,58 @@ H.run(function()
 	end
 	H.key('t')
 
+	-- A read the track switch aborts: its end came after the next read began, cleared that
+	-- one's handle (quick switching left ffmpeg reads running side by side) and said it
+	-- failed. A stand-in for ffmpeg that answers after 2 s keeps the first read running.
+	local tmp = os.getenv('TEMP') or os.getenv('TMP') or '.'
+	local ass_path = tmp .. '\\subsync-stand-in.ass'
+	local cmd_path = tmp .. '\\subsync-slow-ffmpeg.cmd'
+	local ass = assert(io.open(ass_path, 'w'))
+	ass:write('[Script Info]\nScriptType: v4.00+\n\n[Events]\n')
+	ass:write('Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n')
+	ass:write('Dialogue: 0,0:00:02.00,0:00:04.00,Default,,0,0,0,,one\n')
+	ass:write('Dialogue: 0,0:00:06.00,0:00:08.00,Default,,0,0,0,,two\n')
+	ass:close()
+	local cmd = assert(io.open(cmd_path, 'w'))
+	cmd:write('@echo off\r\nping -n 3 127.0.0.1 >nul\r\ntype "' .. ass_path .. '"\r\n')
+	cmd:close()
+	mp.commandv('change-list', 'script-opts', 'append', 'subtitle_sync-ffmpeg=' .. cmd_path)
+	local failed, reads = 0, 0
+	mp.enable_messages('v')
+	mp.register_event('log-message', function(e)
+		if e.prefix ~= 'subtitle_sync' then
+			return
+		end
+		if e.text:find('-nostdin', 1, true) then
+			reads = reads + 1
+		elseif e.text:find('reading the subtitle lines with ffmpeg failed', 1, true) then
+			failed = failed + 1
+		end
+	end)
+	H.load(embedded)
+	mp.set_property_native('pause', true)
+	mp.set_property('sid', '1')
+	H.key('t')
+	H.expect('a slow read runs', function()
+		return state().subs == 'loading' and reads >= 1
+	end, true, nil, 10)
+	mp.set_property('sid', 'no')
+	H.sleep(0.2)
+	mp.set_property('sid', '1')
+	H.expect(
+		'... the track off and on again: a second read, which ends with the lines',
+		field('subs'),
+		'ready',
+		nil,
+		10
+	)
+	H.eq('... (two reads)', reads, 2)
+	H.sleep(0.5)
+	H.eq('... and the aborted read said nothing', failed, 0)
+	H.key('t')
+	os.remove(ass_path)
+	os.remove(cmd_path)
+
 	-- without ffmpeg: the lines collected as playback reads them, kept over a seek
 	mp.commandv('change-list', 'script-opts', 'append', 'subtitle_sync-ffmpeg=C:/nonexistent/ffmpeg.exe')
 	H.load(embedded)

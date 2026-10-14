@@ -10,6 +10,10 @@
 # scripts/uosc/ and fonts/; thumbfast is pinned to a commit.
 
 $ErrorActionPreference = 'Stop'
+# A download that stalls halfway: PowerShell 7 waits for ever (-TimeoutSec does not cover the
+# body). -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for 120 s
+# (install-mpv.ps1).
+$StallLimit = if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('OperationTimeoutSeconds')) { @{ OperationTimeoutSeconds = 120 } } else { @{} }
 # Windows PowerShell 5.1 may not offer TLS 1.2 by default; GitHub needs it (as install-mpv.ps1)
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $cfg = Join-Path $PSScriptRoot '..\portable_config'
@@ -30,7 +34,11 @@ function Assert-Sha256([string]$Path, [string]$Hash, [string]$What) {
 $uoscDir = Join-Path $scripts 'uosc'
 $uoscVersion = '5.13.0'  # repo tracks this exact version
 $uoscSha256 = '4be9da3289285300fa374496c3f1bfd7bb20ac08e890d25bd5a06b28eebe4882'
-$installed = Test-Path (Join-Path $uoscDir 'main.lua')
+# installed means the fonts too: they used to be copied after main.lua and never checked, so
+# a run stopped in between left uosc without its icons, and every later run skipped it
+$uoscFonts = @('uosc_icons.otf', 'uosc_textures.ttf')
+$installed = (Test-Path (Join-Path $uoscDir 'main.lua')) -and
+    -not @($uoscFonts | Where-Object { -not (Test-Path (Join-Path $fonts $_)) }).Count
 $fetched = $false
 
 if ($installed) {
@@ -41,8 +49,8 @@ else {
     $zip = Join-Path $env:TEMP 'uosc.zip'
     $tmp = Join-Path $env:TEMP 'uosc_extract'
     try {
-        Invoke-WebRequest -Uri "https://github.com/tomasklaen/uosc/releases/download/$uoscVersion/uosc.zip" `
-            -OutFile $zip -UseBasicParsing
+        $uoscUrl = "https://github.com/tomasklaen/uosc/releases/download/$uoscVersion/uosc.zip"
+        Invoke-WebRequest -Uri $uoscUrl -OutFile $zip -UseBasicParsing @StallLimit
         Assert-Sha256 $zip $uoscSha256 "uosc.zip $uoscVersion"
         if (Test-Path $tmp) { Remove-Item $tmp -Recurse -Force }
         Expand-Archive -Path $zip -DestinationPath $tmp -Force
@@ -51,8 +59,9 @@ else {
             throw "uosc.zip $uoscVersion has no scripts\uosc\main.lua - its layout changed; install it by hand"
         }
         New-Item -ItemType Directory -Force $scripts, $fonts | Out-Null
-        Copy-Item $src $scripts -Recurse -Force
+        # the fonts first: main.lua is what says "installed"
         Copy-Item (Join-Path $tmp 'fonts\*') $fonts -Recurse -Force
+        Copy-Item $src $scripts -Recurse -Force
         $fetched = $true
     }
     finally {
@@ -69,8 +78,8 @@ else {
     Write-Host 'Installing thumbfast ...' -ForegroundColor Cyan
     $part = "$thumbfast.part"
     try {
-        Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/po5/thumbfast/0f711de3138c9bd6718209d819ac54022c23ded2/thumbfast.lua' `
-            -OutFile $part -UseBasicParsing
+        $thumbfastUrl = 'https://raw.githubusercontent.com/po5/thumbfast/0f711de3138c9bd6718209d819ac54022c23ded2/thumbfast.lua'
+        Invoke-WebRequest -Uri $thumbfastUrl -OutFile $part -UseBasicParsing @StallLimit
         Assert-Sha256 $part 'a3d08e71eae8b892f6cd39f9593ea219768e709312d176bca883841b156448bf' 'thumbfast.lua at 0f711de3'
         Move-Item -LiteralPath $part -Destination $thumbfast -Force
         $fetched = $true
@@ -86,11 +95,19 @@ if (-not (Test-Path (Join-Path $cfg 'script-opts\uosc.conf'))) {
 }
 
 Write-Host "`nVerify:" -ForegroundColor Green
-Write-Host "  uosc main.lua : $(Test-Path (Join-Path $uoscDir 'main.lua'))"
-Write-Host "  uosc fonts    : $(Test-Path (Join-Path $fonts 'uosc_icons.otf'))"
-Write-Host "  thumbfast     : $(Test-Path $thumbfast)"
+$checks = [ordered]@{
+    'uosc main.lua' = Test-Path (Join-Path $uoscDir 'main.lua')
+    'uosc fonts'    = -not @($uoscFonts | Where-Object { -not (Test-Path (Join-Path $fonts $_)) }).Count
+    'thumbfast'     = Test-Path $thumbfast
+}
+foreach ($name in $checks.Keys) { Write-Host ('  {0,-14}: {1}' -f $name, $checks[$name]) }
 Write-Host "  uosc.conf     : $(Test-Path (Join-Path $cfg 'script-opts\uosc.conf'))"
 if ($fetched) {
     Write-Warning ("Fetched from upstream: without this repo's local uosc changes (AGENTS.md). " +
         'In a clone, git checkout -- portable_config/Scripts/uosc portable_config/Scripts/thumbfast.lua portable_config/fonts puts them back.')
+}
+# a part missing is a failed install: exit 1, not a line that is easily overlooked
+if ($checks.Values -contains $false) {
+    Write-Host 'uosc is not complete (see above).' -ForegroundColor Red
+    exit 1
 }

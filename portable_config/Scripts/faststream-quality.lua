@@ -36,7 +36,9 @@
 -- loaded.
 --
 -- The menu is a uosc callback menu (source-info.lua's pattern): every event arrives
--- as JSON at our menu-callback, and "activate" carries the entry's 1-based index.
+-- as JSON at our menu-callback, and "activate" carries the entry's url: uosc keeps a
+-- callback menu open across a file change, and a place in the list then picked from
+-- the next file's list (the next episode after autoplay).
 -- input.conf's Video > Quality (FastStream) sends open-menu; a file without a list
 -- opens nothing.
 --
@@ -218,9 +220,33 @@ local function push_button(data)
 	return false
 end
 
+-- A push uosc did not get (it had not started yet) is sent again every second until it
+-- has it, as faststream-episodes.lua does: one retry after 0.5 s left a slow start
+-- without the button for that video.
+local retry = nil
+local recompute -- below
+local function retry_until_delivered(delivered)
+	if delivered then
+		if retry then
+			retry:kill()
+			retry = nil
+			-- uosc has only just started: a push in its first moment can come before it
+			-- listens (the reason for the 0.5 s push below), so once more a second later
+			mp.add_timeout(1, function()
+				pushed_json = nil
+				recompute()
+			end)
+		end
+	elseif not retry then
+		retry = mp.add_periodic_timer(1, function()
+			recompute()
+		end)
+	end
+end
+
 -- Reads the list and the playing entry for the current path again, publishes both for
 -- the tests, pushes the button and sets the disposition flag.
-local function recompute()
+function recompute()
 	local list, current = nil, nil
 	if state.path then
 		list = quality_list(state.path)
@@ -244,6 +270,8 @@ local function recompute()
 	end
 	mp.set_property_native('user-data/faststream-quality/button', data) -- for the tests
 	local sent = push_button(data)
+	-- nothing to show: no button to bring to a uosc that is not there
+	retry_until_delivered(sent or list == nil)
 	-- The flag uosc.conf's disposition reads: never true for a button uosc has not got,
 	-- which it would draw as a question mark.
 	mp.set_property_native('user-data/faststream-quality/shown', list ~= nil and sent)
@@ -271,7 +299,7 @@ local function open_menu()
 			title = entry.label,
 			hint = hint_for(entry),
 			active = i == state.current,
-			value = i, -- the 1-based index, back as the activate event's value
+			value = entry.url, -- back as the activate event's value
 		}
 	end
 	local json, err = utils.format_json({
@@ -301,10 +329,18 @@ local function path_fragment(path)
 	return hash and path:sub(hash) or ''
 end
 
---- Plays the entry at `index` from where the video is. The playing entry does nothing.
----@param index number
-local function choose(index)
-	local entry = state.list and state.list[index]
+--- Plays the entry with this url from where the video is. The playing entry does nothing,
+--- and so does a url this file's list does not have (a row of the last file's menu).
+---@param url string
+local function choose(url)
+	local index = nil
+	for i, entry in ipairs(state.list or {}) do
+		if entry.url == url then
+			index = i
+			break
+		end
+	end
+	local entry = index and state.list[index]
 	if not entry or index == state.current then
 		return
 	end
@@ -356,7 +392,7 @@ mp.register_script_message('menu-callback', function(json)
 	if type(event) ~= 'table' then
 		return
 	end
-	if event.type == 'activate' and type(event.value) == 'number' then
+	if event.type == 'activate' and type(event.value) == 'string' then
 		choose(event.value)
 	end
 end)
@@ -381,13 +417,10 @@ mp.observe_property('path', 'string', function(_, path)
 	end
 end)
 
--- The old file's end clears everything (the button hides between the files), and so
--- does idle.
-mp.register_event('end-file', function()
-	state.path = nil
-	recompute()
-end)
-
+-- Between two files the last path stays (a quality switch, the next episode): its end
+-- hid the button and the next file showed it again, two pushes that each repaint uosc's
+-- whole UI and a relayout of the bar (faststream-episodes.lua keeps it the same way).
+-- file-loaded reads the next file's path; idle clears it.
 mp.observe_property('idle-active', 'bool', function(_, idle)
 	if idle then
 		state.path = nil
