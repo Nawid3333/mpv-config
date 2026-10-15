@@ -219,7 +219,10 @@ next to `.luarc.json` and `lua-api/`; its single-file mode checks nothing).
   `<app hash><device hash>*.parc`; the app hash is per exe path). They re-poison
   each other: clear both - right-click > Video > Upscale > Rebuild shaders, and
   Adrenalin > Settings > Graphics > Advanced > Reset Shader Cache. The same build
-  ran fine from another path; the build was not the cause.
+  ran fine from another path; the build was not the cause. The suite's copy
+  (`%TEMP%\mpv-regression\root\mpv.exe`) has its own AMD files: a device loss in the
+  gpu tier's cold-cache test alone is those gone stale - delete the `.parc` files a
+  gpu tier run writes, then run that test once (2026-10-15).
 - **An mpv.conf option silently ignored**: `#` starts a comment anywhere, also in a
   value; mpv logs one "Error parsing option" line. The headless `config-load` check
   fails on any warning while loading.

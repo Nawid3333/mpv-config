@@ -360,3 +360,44 @@ specified API version of 1.4": OBS's own layer manifest
 user's OBS was already the latest. The layer is implicit (loads into every Vulkan
 program, mpv included), only works while OBS captures, and
 `DISABLE_VULKAN_OBS_CAPTURE=1` keeps it out.
+
+---
+
+## 2026-10-15 - build 20261015's gpu tier: the test copy's own AMD cache
+
+The rolling build PR (#104) pinned shinchiro's 20261015. Its libplacebo moved from
+`1dd0226` to `804dc71`: the AMD proprietary driver marked `host_ptr_slow`, a layout
+transition from UNDEFINED kept for transfers, the safety clamp in
+`pl_color_delinearize`, deband grain no longer scaled by the SDR white level. The gpu
+tier was due (a new pinned build) and had not run since the pink UI of 2026-10-12. The
+owner agreed to it.
+
+**First run** (a worktree with the build installed, a copy of the live shader cache):
+1095 passed, 4 failed.
+
+- `gpu-warm-cache`: 4 compiles, all for `dv-p8.1.mp4` (Dolby Vision). Every other chain
+  hit the 20261014 cache. Expected for a new libplacebo; the fingerprint's `libplacebo`
+  field makes the player warm up by itself after `updater.bat`.
+- `gpu-auto-warm` phase 1 (empty mpv cache): `VK_ERROR_DEVICE_LOST` 0.9 s after the
+  Anime chain began compiling, the D3D11 decoder's device removed with it (`887a0005`),
+  and the warm-up then compiled nothing. Windows logged no driver reset; both display
+  devices stayed OK. No further GPU run without the owner (AGENTS.md).
+
+**Why not the build.** Every GPU test with a warm mpv cache passed on it, and the Anime4K
+shaders were byte-identical to 20261014's (they hit its cache), so the device was lost
+compiling what the previous build compiles too. AMD's per-application cache is keyed by
+exe path, and the suite always runs `%TEMP%\mpv-regression\root\mpv.exe`. Its files
+(the only ones in `%LOCALAPPDATA%\AMD\VkCache` the run wrote) dated from 2026-09-26,
+the main one at exactly 16 MiB: the 2026-10-12 clean-up had cleared only the live path's.
+The cold-cache test is the only one in which nothing comes from mpv's cache, which fits
+the 2026-10-12 mechanism.
+
+**Second run**, on the owner's go-ahead: those four `.parc` files deleted, `-Tier gpu
+-Filter gpu-auto-warm` once. 169 passed: 153 compiles into the empty cache in 29 s with
+no device loss, no dropped frames beside it, and phase 2 fresh. #104 was merged.
+
+### Notes for the next gpu tier from a worktree
+
+- A worktree made with `GIT_LFS_SKIP_SMUDGE=1` has an LFS pointer for `7z\7zr.exe`, and
+  `installer/install-mpv.ps1 -Root <worktree>` then finds no 7-Zip: copy the real one in.
+- Copy the live `portable_config/cache` into the worktree first (see 2026-10-03 above).
