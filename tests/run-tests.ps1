@@ -745,6 +745,10 @@ function Invoke-StaticCheck {
     $uoscCursor = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/lib/cursor.lua')
     Test-Check $t 'uosc local change present: cursor.lua shows nothing for a pointer back over the window at the same pixel' (
         $uoscCursor.Contains('cursor.last_hover == false and mouse.hover and same_pixel')) 're-apply it after a uosc update (AGENTS.md)'
+    Test-Check $t 'uosc local change present: cursor.lua hides the UI with the pointer resting on it (autohide_over_controls)' (
+        $uoscCursor.Contains('self.is_dragging_prevented and options.autohide_over_controls <= 0') -and
+        $uoscCursor.Contains('not self:is_primary_held()') -and $uoscMain.Contains('autohide_over_controls = 0,') -and
+        $uoscConf -match '(?m)^autohide_over_controls=3000\s*$') 're-apply it after a uosc update (AGENTS.md)'
     # the feature tour names the keys input.conf binds, with the same command (settings.lua's
     # Welcome menu, 2026-10-09)
     $welcomeLua = Get-Content -Raw (Join-Path $Cfg 'Scripts/settings.lua')
@@ -1737,8 +1741,12 @@ $HeadlessTests = @(
     }
     @{ Name = 'auto-start'; Phases = @(@{ Script = 'headless/test-auto-start.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'pause-flash'; Phases = @(@{ Script = 'headless/test-pause-flash.lua'; File = 'plain/clip.mkv' }) }
-    # an OSD surface: uosc lays out (and publishes user-data/uosc/bottom-ui) only with one
-    @{ Name = 'ui-hover'; Phases = @(@{ Script = 'headless/test-ui-hover.lua'; File = $RealOsdClip; Args = $RealOsd }) }
+    # an OSD surface: uosc lays out (and publishes user-data/uosc/bottom-ui) only with one; a
+    # sound track, or uosc draws no volume slider
+    @{ Name = 'ui-hover'; Phases = @(@{ Script = 'headless/test-ui-hover.lua'; File = $RealOsdClip
+            Args = $RealOsd + @('--audio-file=av://lavfi:sine=frequency=440:duration=120')
+        })
+    }
     @{ Name = 'source-info-idle'; Phases = @(@{ Script = 'headless/test-source-idle.lua'; File = $null }) }
     @{ Name = 'subtitles'; Phases = @(@{ Script = 'headless/test-subtitles.lua'; File = 'subs/movie.mkv' }) }
     @{ Name = 'subtitle-folder'; Phases = @(@{ Script = 'headless/test-subtitle-folder.lua'; File = 'subs-folder/movie.mkv' }) }

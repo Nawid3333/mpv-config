@@ -1036,6 +1036,7 @@ local function tour_items()
 				run('Next episode: the page goes on, this window plays it', 'n', 'script-message faststream-next'),
 				info('Previous episode', 'N'),
 				info('At the end the next one follows (FastStream: Autoplay)', 'autoplay'),
+				info('Stop that countdown, autoplay stays on', 'Space'),
 				run('Autoplay next episode on / off', 'Ctrl+a', 'script-message faststream-autoplay'),
 				info('Previous, next and autoplay are buttons in the bar too', 'toolbar'),
 				run(

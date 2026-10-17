@@ -435,3 +435,58 @@ fix; with upstream's cursor.lua 3 of them red.
 pixel or two (a high-DPI sensor and a bumped desk). Then the cursor appears with the UI -
 mpv shows it on any move. If the owner still sees flashes WITH the cursor, a small
 movement threshold for showing a hidden UI is the next step; it is not built blind.
+
+## 2026-10-17 (later) - the UI that never went
+
+The owner, after the flash fix: sometimes the UI stays up for good while he does not
+touch the mouse. Reproduced in mpv 0.37 with this config (the same `--vo=sixel` set-up,
+the pointer moved by mpv's `mouse` command, then left still for 3 s):
+
+| the pointer rests | after 3 s |
+|---|---|
+| over the video | hidden after 1 s (cursor-autohide) |
+| on the bottom edge (the timeline), on the control row | **still shown**, mpv's cursor too |
+| anywhere, after Tab | still shown (cursor hidden): Tab is `uosc/toggle-ui`, a pin |
+| a right-click menu opened and closed with Esc | hidden |
+
+**The cause.** uosc's `cursor:is_autohide_allowed()` refused while `is_dragging_prevented`,
+i.e. whenever the pointer is on something clickable (`decide_keybinds()`: a primary
+zone without `window_drag`). The comment in uosc says so: "anything that disables
+dragging also implicitly disables cursor autohide". And uosc's mouse sections there
+carry no `allow-hide-cursor`, so mpv (`test_mouse_active()`) kept the cursor up too. A
+pointer parked on the bottom edge in fullscreen is on the timeline; one left on a button
+just clicked is on that button: the whole UI stayed for the rest of the film.
+
+**The fix** (a marked local change in `uosc/lib/cursor.lua`, a new uosc option
+`autohide_over_controls`, default 0 = uosc's way, 3000 in uosc.conf): on the UI itself the
+UI now hides after 3 s of a still pointer - longer than the 1 s over the video, so a
+tooltip can be read - and never while the left button is held there (a timeline or
+volume drag; mpv sends a release to the binding that got the press and releases all
+buttons when the window loses the focus, so "held" cannot stick) or while a menu is
+open. Once uosc has let go, its sections go off and mpv hides the cursor 1 s later. A
+click after that, without a move first, reaches input.conf (pause), as anywhere over a
+hidden UI. Tab keeps pinning: that is what it is for (AGENTS.md, Troubleshooting).
+
+**Checked**: `test-ui-hover.lua` grew 11 checks (the timeline and the volume slider stay
+past 1 s and go within the next 3 s; 4 s with the left button held keeps the UI, and
+after the release the rest time starts again); 22 pass, with the change reverted 3 are
+red, with the held-button guard dropped 2. The probe above again: everything goes within
+4 s except Tab; a right-click menu stays open 5 s under a still pointer. The test clip
+needs a sound track: without audio uosc draws no volume slider.
+
+## 2026-10-17: Space stops the autoplay countdown
+
+**The wish**: at an episode's end, Space (the easiest key) should stop FastStream's
+countdown to the next episode. **Before**: only the autoplay button / Ctrl+a stopped it,
+and that switched autoplay off for good (saved). Space at the end did nothing: with
+keep-open mpv stays paused on the last frame, and a second Space changes no property, so
+the extension could not see it.
+
+**Now**: input.conf's Space and `mbtn_left` send `script-message faststream-pause` along
+with `cycle pause`. FastStream's relay watch (host 15, no host change) maps it to a
+`pause` request; the extension cancels a running countdown, says "Autoplay: stopped (n:
+next episode)" and leaves autoplay on for the next end. With no countdown, or no helper,
+nothing more happens (faststream-episodes.lua has no banner for it). The countdown notice
+now reads "next episode in 5 s (n: now, Space: stop)". Tests: test-faststream-episodes.lua
+(the bindings, Space sends it and pauses, no banner without a helper); FastStream's
+backgroundMpv/MpvRelayWatch unit tests.

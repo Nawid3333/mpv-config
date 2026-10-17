@@ -121,7 +121,9 @@ replace the folder and drop them (a static check guards each): managed buttons t
 published; the timeline shows a second (real-time) remaining time only when it
 differs and hatches the buffer for streams only; a timeline click seeks by
 keyframe; `lib/intl.lua` reads the UI language from settings.json; `lib/cursor.lua` takes the
-pointer back over the window at the same pixel (another window covered it) for no move.
+pointer back over the window at the same pixel (another window covered it) for no move,
+and hides the UI with the pointer resting on it too (`autohide_over_controls`, 3 s; not
+while the left button is held or a menu is open).
 
 **FastStream contract** (the extension and helper live in `Nawid3333/FastStream`):
 the helper starts mpv with `--force-window=immediate` and appends URL-fragment
@@ -130,7 +132,8 @@ items to the stream URL - `fs-content=anime|movie`, `fs-id=<16 hex>` (resume key
 2026-10-14), `fs-page=<encoded page URL>`. Scripts read the LAST whole item of the fragment
 (after the first `#`, split on `&`), never a match anywhere in the URL. The helper
 sets `user-data/faststream/connected`, `.../autoplay` and `.../heartbeat` (every
-30 s; stale after 90 s), and hears `script-message faststream-next|previous|autoplay`.
+30 s; stale after 90 s), and hears `script-message faststream-next|previous|autoplay|pause` (pause: Space and a click on
+the video; FastStream's extension stops an end's autoplay countdown with it, autoplay stays on).
 mpv tells no observer when a user-data key is deleted. FastStream never sends
 YouTube; YouTube links pasted into mpv go through `ytdl_hook` and `yt-dlp.exe`.
 
@@ -236,6 +239,9 @@ next to `.luarc.json` and `lua-api/`; its single-file mode checks nothing).
 - **The UI shows by itself during a film**: with the cursor still hidden, that was Windows
   handing the pointer back after another window covered it (fixed, `lib/cursor.lua`). If
   the cursor shows too, the mouse itself reported a move: mpv shows the cursor on any move.
+- **The UI stays up and never goes**: Tab (`uosc/toggle-ui`) pins it until Tab again (the
+  cursor hides, the UI stays); a menu or the sync panel open keeps it by design. A pointer
+  resting on the bar hides it after 3 s (uosc.conf `autohide_over_controls`; uosc itself never).
 - **Normal, not a problem**: a low GPU load at 1x (the card clocks down); the
   duplicate AMD layer and `VK_LAYER_OBS_HOOK` warnings `vulkaninfo` prints.
 

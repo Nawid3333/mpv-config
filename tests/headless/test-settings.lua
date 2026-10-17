@@ -245,9 +245,11 @@ H.run(function()
 		mp.commandv('script-message-to', 'settings', 'adaptive-line', '5')
 		set('start_wait', '10')
 		set('start_wait', 'auto')
-		H.eq(
+		-- H.expect: on a slow runner the second message can still be on its way after
+		-- set()'s 0.15 s, and the value read was still the 10 s just chosen
+		H.expect(
 			'... chosen again while a file plays: 3 s until it measures',
-			prop('options/cache-pause-wait')(),
+			prop('options/cache-pause-wait'),
 			'3.000000'
 		)
 		H.load(H.media_path('plain/clip.mkv'))

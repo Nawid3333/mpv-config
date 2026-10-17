@@ -72,8 +72,11 @@ local cursor = {
 
 cursor.autohide_timer = mp.add_timeout(1, function() cursor:autohide() end)
 cursor.autohide_timer:kill()
+-- Local change: kept apart from the timer's timeout, which queue_autohide() sets per place.
+cursor.autohide_delay = 1
 mp.observe_property('cursor-autohide', 'number', function(_, val)
-	cursor.autohide_timer.timeout = (val or 1000) / 1000
+	cursor.autohide_delay = (val or 1000) / 1000
+	cursor.autohide_timer.timeout = cursor.autohide_delay
 end)
 
 cursor.distance_reset_timer = mp.add_timeout(0.2, function()
@@ -377,12 +380,28 @@ end
 
 function cursor:leave() self:move(math.huge, math.huge) end
 
+-- Local change (not upstream uosc): the UI also hides with the pointer resting on it.
+-- Upstream never hid it while the pointer was on anything clickable (it disables
+-- window dragging there, and that disabled autohide): a pointer parked on the bottom
+-- edge - the timeline - or left on a button just clicked kept the whole UI, and mpv's
+-- cursor with it, up for the rest of the film. There it now hides after
+-- `autohide_over_controls` ms of a still pointer (0: never, upstream's way), never
+-- while the left button is held (a timeline or volume drag) or a menu is open.
 function cursor:is_autohide_allowed()
 	return options.autohide and (not self.autohide_fs_only or state.fullscreen)
-		and not self.is_dragging_prevented
+		and not (self.is_dragging_prevented and options.autohide_over_controls <= 0)
+		and not self:is_primary_held()
 		and not Menu:is_open()
 end
 mp.observe_property('cursor-autohide-fs-only', 'bool', function(_, val) cursor.autohide_fs_only = val end)
+
+-- Local change: the left button went down on the UI and has not come up yet. mpv sends
+-- the release to the binding that got the press, also once that binding is disabled,
+-- and releases every button when the window loses the focus.
+function cursor:is_primary_held()
+	local down, up = self.last_events.primary_down, self.last_events.primary_up
+	return down ~= nil and (up == nil or up.time < down.time)
+end
 
 -- Cursor auto-hiding after period of inactivity.
 function cursor:autohide()
@@ -394,6 +413,10 @@ end
 
 function cursor:queue_autohide()
 	if self:is_autohide_allowed() then
+		-- Local change: longer on the UI itself, so a tooltip can be read
+		self.autohide_timer.timeout = self.is_dragging_prevented
+				and math.max(self.autohide_delay, options.autohide_over_controls / 1000)
+			or self.autohide_delay
 		self.autohide_timer:kill()
 		self.autohide_timer:resume()
 	end

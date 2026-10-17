@@ -82,6 +82,31 @@ H.run(function()
 	H.expect('Ctrl+a: the same', fs_card, 'Autoplay' .. why)
 	mp.commandv('script-message-to', 'notify', 'hide', 'faststream')
 	H.expect('(banner taken down)', fs_card, 'none')
+	-- Space and a click on the video also send faststream-pause (the countdown's stop key,
+	-- 2026-10-17); with no helper they only pause, no banner about FastStream
+	local pause_keys = {}
+	for _, b in ipairs(mp.get_property_native('input-bindings') or {}) do
+		if (b.key == 'SPACE' or b.key == 'MBTN_LEFT') and b.section == 'default' and not b.is_weak then
+			pause_keys[#pause_keys + 1] = b.key .. ': ' .. b.cmd
+		end
+	end
+	table.sort(pause_keys)
+	H.eq(
+		'Space and a click on the video: pause, and faststream-pause',
+		table.concat(pause_keys, ' | '),
+		'MBTN_LEFT: cycle pause; script-message faststream-pause | SPACE: cycle pause; script-message faststream-pause'
+	)
+	local paused = mp.get_property_native('pause')
+	H.key('SPACE')
+	H.expect('Space, no FastStream following: pauses as ever', function()
+		return mp.get_property_native('pause')
+	end, not paused)
+	H.sleep(0.3)
+	H.eq('... and says nothing about FastStream', fs_card(), 'none')
+	H.key('SPACE')
+	H.expect('(Space again: back)', function()
+		return mp.get_property_native('pause')
+	end, paused)
 
 	-- following this window, but the file is no FastStream stream
 	mp.set_property_native('user-data/faststream/connected', true)
@@ -107,7 +132,7 @@ H.run(function()
 	-- a click: uosc runs the button's command (execute_command: command_native on a
 	-- table), and each one reaches the helper as its message
 	local heard = {}
-	for _, name in ipairs({ 'faststream-previous', 'faststream-next', 'faststream-autoplay' }) do
+	for _, name in ipairs({ 'faststream-previous', 'faststream-next', 'faststream-autoplay', 'faststream-pause' }) do
 		mp.register_script_message(name, function()
 			heard[#heard + 1] = name:sub(12)
 		end)
@@ -128,6 +153,18 @@ H.run(function()
 	end, 'autoplay')
 	H.sleep(0.3)
 	H.eq('... and leaves the saying to FastStream, which follows', fs_card(), 'none')
+	heard = {}
+	paused = mp.get_property_native('pause')
+	H.key('SPACE')
+	H.expect('Space sends faststream-pause (the helper stops a countdown with it)', function()
+		return table.concat(heard, ' ')
+	end, 'pause')
+	H.eq('... and pauses', mp.get_property_native('pause'), not paused)
+	H.key('SPACE')
+	H.expect('(Space again: back)', function()
+		return mp.get_property_native('pause')
+	end, paused)
+	heard = {}
 
 	-- FastStream stops following: gone; the property removed counts as false too
 	mp.set_property_native('user-data/faststream/connected', false)
