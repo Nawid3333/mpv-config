@@ -8,6 +8,9 @@ local cursor = {
 	disablers = {}, -- List of ids. When not empty, the cursor handling is disabled.
 	distance = 0, -- Distance traveled during current move. Reset by `cursor.distance_reset_timer`.
 	last_hover = false, -- Stores `mouse.hover` boolean of the last mouse event for enter/leave detection.
+	-- Local change: `mouse.x`/`mouse.y` of the last mouse event, to tell a move from a bare hover change.
+	last_mouse_x = nil,
+	last_mouse_y = nil,
 	-- Event handlers that are only fired on zones defined during render loop.
 	---@type {event: string, hitbox: Hitbox; handler: CursorEventHandler}[]
 	zones = {},
@@ -433,10 +436,22 @@ function cursor:create_handler(event, shortcut, cb)
 end
 
 -- Movement
+-- Local change (not upstream uosc): a pointer that is over the window again at
+-- the very pixel where it was is no mouse move, and shows nothing. Windows
+-- takes the pointer from the window (WM_MOUSELEAVE) whenever another window
+-- covers it for a moment - a notification, an overlay, a popup - and gives it
+-- back with the next WM_MOUSEMOVE of the same position, which mpv turns into
+-- MOUSE_ENTER only (w32_common.c): `mouse-pos` changes its `hover` alone. Upstream
+-- took that for a move and showed the whole UI for cursor-autohide while the
+-- pointer had not moved and mpv kept the cursor hidden.
 local function handle_mouse_pos(_, mouse)
 	if not mouse or cursor.disabled then return end
+	local same_pixel = mouse.x == cursor.last_mouse_x and mouse.y == cursor.last_mouse_y
+	cursor.last_mouse_x, cursor.last_mouse_y = mouse.x, mouse.y
 	if cursor.last_hover and not mouse.hover then
 		cursor:leave()
+	elseif cursor.last_hover == false and mouse.hover and same_pixel then
+		-- back over the window without moving: nothing to show
 	elseif not (cursor.last_hover == false and mouse.hover == false) then -- filters out duplicate mouse out events
 		cursor:move(mouse.x, mouse.y)
 	end

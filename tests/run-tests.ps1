@@ -742,6 +742,9 @@ function Invoke-StaticCheck {
         $uoscMain.Contains("'user-data/uosc/bottom-ui'") -and $uoscMain.Contains('volume = volume_box')) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t 'uosc local change present: main.lua publishes user-data/uosc/ui-scale (notify, subtitle-sync, music-info)' (
         $uoscMain.Contains("'user-data/uosc/ui-scale'")) 're-apply it after a uosc update (AGENTS.md)'
+    $uoscCursor = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/lib/cursor.lua')
+    Test-Check $t 'uosc local change present: cursor.lua shows nothing for a pointer back over the window at the same pixel' (
+        $uoscCursor.Contains('cursor.last_hover == false and mouse.hover and same_pixel')) 're-apply it after a uosc update (AGENTS.md)'
     # the feature tour names the keys input.conf binds, with the same command (settings.lua's
     # Welcome menu, 2026-10-09)
     $welcomeLua = Get-Content -Raw (Join-Path $Cfg 'Scripts/settings.lua')
@@ -1734,6 +1737,8 @@ $HeadlessTests = @(
     }
     @{ Name = 'auto-start'; Phases = @(@{ Script = 'headless/test-auto-start.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'pause-flash'; Phases = @(@{ Script = 'headless/test-pause-flash.lua'; File = 'plain/clip.mkv' }) }
+    # an OSD surface: uosc lays out (and publishes user-data/uosc/bottom-ui) only with one
+    @{ Name = 'ui-hover'; Phases = @(@{ Script = 'headless/test-ui-hover.lua'; File = $RealOsdClip; Args = $RealOsd }) }
     @{ Name = 'source-info-idle'; Phases = @(@{ Script = 'headless/test-source-idle.lua'; File = $null }) }
     @{ Name = 'subtitles'; Phases = @(@{ Script = 'headless/test-subtitles.lua'; File = 'subs/movie.mkv' }) }
     @{ Name = 'subtitle-folder'; Phases = @(@{ Script = 'headless/test-subtitle-folder.lua'; File = 'subs-folder/movie.mkv' }) }

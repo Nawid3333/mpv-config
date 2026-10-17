@@ -401,3 +401,37 @@ no device loss, no dropped frames beside it, and phase 2 fresh. #104 was merged.
 - A worktree made with `GIT_LFS_SKIP_SMUDGE=1` has an LFS pointer for `7z\7zr.exe`, and
   `installer/install-mpv.ps1 -Root <worktree>` then finds no 7-Zip: copy the real one in.
 - Copy the live `portable_config/cache` into the worktree first (see 2026-10-03 above).
+
+## 2026-10-17 - the UI that showed by itself
+
+The owner: while watching, the UI sometimes flashed although he had neither pressed a
+key nor moved the mouse - "maybe it is too sensitive". Worked from the cloud: no access
+to his PC, so the mechanism was traced in the code and reproduced in a real mpv.
+
+**The cause.** mpv's Windows window (`video/out/w32_common.c`) tracks the pointer with
+`TrackMouseEvent`. When any other window covers the pointer for a moment - a
+notification, an overlay, a popup - Windows sends `WM_MOUSELEAVE`; mpv turns it into
+`MOUSE_LEAVE` (`mouse-pos`'s `hover` false). The next `WM_MOUSEMOVE` - Windows sends one
+whenever the window under the pointer changes, at the same position - finds tracking off
+and makes `MOUSE_ENTER`, while mpv drops the position itself as unchanged. So
+`mouse-pos` changes its `hover` alone, back to true. uosc 5.13's `lib/cursor.lua` took
+every change back to `hover` for a move and showed the whole UI (timeline, controls,
+volume) until cursor-autohide (1 s). mpv itself does not count `MOUSE_ENTER` as mouse
+activity (`MP_KEY_DEPENDS_ON_MOUSE_POS` is clicks and moves only), so the cursor stayed
+hidden: a UI flash with nothing moving. Unchanged in uosc's main branch.
+
+**Reproduced** in mpv 0.37 on Linux with this config and uosc (`--vo=sixel`, an OSD
+surface without a window): pointer moved, UI hidden by autohide, then `keypress
+MOUSE_LEAVE` + `keypress MOUSE_ENTER` (input.c's `feed_key`, the same branch the
+Windows events reach): `user-data/uosc/bottom-ui` visibility 0 -> 1 for a second.
+
+**The fix** (a marked local change in `uosc/lib/cursor.lua`, guarded by a static check):
+a `mouse-pos` whose `hover` turns true again at the pixel of the last event is no move;
+the UI stays as it is. A real move after it, a return at another place, a click, all
+show the UI as before. `tests/headless/test-ui-hover.lua` (11 checks): green with the
+fix; with upstream's cursor.lua 3 of them red.
+
+**Not fixed, cannot be told apart from here**: a mouse that reports a real move of a
+pixel or two (a high-DPI sensor and a bumped desk). Then the cursor appears with the UI -
+mpv shows it on any move. If the owner still sees flashes WITH the cursor, a small
+movement threshold for showing a hidden UI is the next step; it is not built blind.

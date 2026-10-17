@@ -120,7 +120,8 @@ replace the folder and drop them (a static check guards each): managed buttons t
 (right-click); `user-data/uosc/bottom-ui` and `user-data/uosc/ui-scale` are
 published; the timeline shows a second (real-time) remaining time only when it
 differs and hatches the buffer for streams only; a timeline click seeks by
-keyframe; `lib/intl.lua` reads the UI language from settings.json.
+keyframe; `lib/intl.lua` reads the UI language from settings.json; `lib/cursor.lua` takes the
+pointer back over the window at the same pixel (another window covered it) for no move.
 
 **FastStream contract** (the extension and helper live in `Nawid3333/FastStream`):
 the helper starts mpv with `--force-window=immediate` and appends URL-fragment
@@ -232,6 +233,9 @@ next to `.luarc.json` and `lua-api/`; its single-file mode checks nothing).
 - **A batch file that runs an update** must not read past it (cmd reads by byte
   offset; the update can replace the file): one parenthesized block and a label.
 - **Keys not working in a FastStream window**: `check-keys.bat` while it is open.
+- **The UI shows by itself during a film**: with the cursor still hidden, that was Windows
+  handing the pointer back after another window covered it (fixed, `lib/cursor.lua`). If
+  the cursor shows too, the mouse itself reported a move: mpv shows the cursor on any move.
 - **Normal, not a problem**: a low GPU load at 1x (the card clocks down); the
   duplicate AMD layer and `VK_LAYER_OBS_HOOK` warnings `vulkaninfo` prints.
 
