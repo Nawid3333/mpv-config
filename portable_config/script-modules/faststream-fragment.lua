@@ -48,7 +48,7 @@ end
 function M.items(path)
 	local items = {}
 	local hash = type(path) == 'string' and path:find('#', 1, true)
-	if hash then
+	if hash and path then
 		for item in (path:sub(hash + 1) .. '&'):gmatch('([^&]*)&') do
 			items[#items + 1] = item
 		end

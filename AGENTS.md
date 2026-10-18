@@ -105,7 +105,7 @@ Installer scripts are plain ASCII and run native programs through `Invoke-Native
 | `stream-buffer.lua` | per-file buffering of streams the FastStream way (RAM budget, then disk) |
 | `stream-resume.lua` | resume FastStream streams by `fs-id` (`~~state/stream-resume.json`, 7 days) |
 | `faststream-episodes.lua` | previous/next episode and autoplay buttons while the helper follows the window |
-| `faststream-quality.lua` | the qualities the web page offered (`fs-quality=` fragment item, FastStream host 12+): a button and menu that switch files from the same position; http(s) entries only |
+| `faststream-quality.lua` | the one Quality button and menu (uosc's own `stream-quality` is not in the bar): the page's files (`fs-quality=` fragment item, FastStream host 12+; loadfile from the same second, http(s) only), else the stream's own variants - mpv makes an HLS master's and YouTube's (ytdl_hook `all_formats`) editions, switched in place as a file-local `edition` (uosc's Editions button hides meanwhile), DASH's tracks (file-local `vid`); one row per height |
 | `source-info.lua` | the source button: stream URL, original URL, site page; copy/open |
 | `notify.lua` | the only drawer of messages: banners top right (speed: top left) |
 | `bottom-bar.lua` | the control bar's scrim; lifts subtitles above it |
@@ -231,6 +231,9 @@ next to `.luarc.json` and `lua-api/`; its single-file mode checks nothing).
   value; mpv logs one "Error parsing option" line. The headless `config-load` check
   fails on any warning while loading.
 - **Options after a `[profile]` header** belong to that profile: profiles go last.
+- **"client removed during hook handling"** (config-load, CI only): mpv's auto_profiles
+  registered its hooks and unloaded itself while one was pending. mpv.conf has
+  `load-auto-profiles=no`; a `profile-cond=` needs it back at `auto`.
 - **Changing any `sub-*`/`osd-*` option** empties libass's caches (the next frame
   re-renders every subtitle): write such options only when the value changes.
 - **A batch file that runs an update** must not read past it (cmd reads by byte

@@ -4,6 +4,7 @@
 -- entry loads nothing, and a switch loads the other entry with the same fragment, the
 -- position and the file's request headers - asserted through
 -- user-data/faststream-quality/last-load, since no second real file is behind it.
+-- Phase variants (below): the stream's own qualities, editions and tracks.
 --
 -- The stream names are made up here: a stem without '#' (the "URL" each entry names)
 -- plus the fragment the native host appends. They are no files on disk: an on_load hook
@@ -76,9 +77,112 @@ local function late_uosc()
 	end, true, nil, 5)
 end
 
+-- The rows' labels, highest first, as one string ("360p60,180p"), or nil without a list.
+local function labels()
+	local list = mp.get_property_native('user-data/faststream-quality/list')
+	if type(list) ~= 'table' then
+		return nil
+	end
+	local out = {}
+	for _, entry in ipairs(list) do
+		out[#out + 1] = entry.label
+	end
+	return table.concat(out, ',')
+end
+
+local function row_value(index)
+	local list = mp.get_property_native('user-data/faststream-quality/list') or {}
+	return list[index] and list[index].value
+end
+
+-- Plays from 5 s on, switches to row `index`, and checks that the picture changed size
+-- and the position stayed.
+local function switch_keeps_position(what, index, height)
+	mp.commandv('seek', '5', 'absolute+exact')
+	H.wait_until(function()
+		return (mp.get_property_number('time-pos') or 0) >= 5
+	end, 8)
+	activate(row_value(index))
+	H.expect(what .. ': the picture is the other size', function()
+		return mp.get_property_number('video-params/h')
+	end, height, nil, 8)
+	H.expect(what .. ': that row is the current one', function()
+		return mp.get_property_native('user-data/faststream-quality/current')
+	end, index, nil, 3)
+	-- an HLS variant starts over at 0, and the script seeks back once that restart is done
+	H.expect(what .. ': from the same position, not the start', function()
+		return (mp.get_property_number('time-pos') or 0) >= 4.5
+	end, true, nil, 5)
+	-- a seek of the user's after the switch is never taken back for the switch's restart
+	mp.commandv('seek', '1', 'absolute+exact')
+	H.sleep(1)
+	local after = mp.get_property_number('time-pos') or 99
+	H.check(what .. ': a seek after the switch stays', after < 4, ('time-pos %.2f'):format(after))
+end
+
+-- Phase variants: the stream's own qualities, no page list. media's variants/ holds one
+-- video in two sizes: an HLS master (lavf's variant editions), an EDL whose streams have a
+-- program_id each (ytdl_hook's YouTube formats), and v360.ts, added to a 180p clip as a
+-- second video track (variants mpv lists as tracks).
+local function variants()
+	H.check('the HLS master loads', H.load(H.media_path('variants/master.m3u8')))
+	H.expect('its variants are the qualities, highest first', labels, '360p60,180p', nil, 3)
+	H.eq('they come from its editions', mp.get_property_native('user-data/faststream-quality/source'), 'editions')
+	H.eq(
+		'the highest bitrate plays (hls-bitrate=max)',
+		mp.get_property_native('user-data/faststream-quality/current'),
+		1
+	)
+	H.expect('the button is shown', function()
+		return mp.get_property_native('user-data/faststream-quality/shown')
+	end, true, nil, 3)
+	H.eq(
+		'its badge is the playing height (360p60 is cut to it, not to 360p6)',
+		(mp.get_property_native('user-data/faststream-quality/button') or {}).badge,
+		'360p'
+	)
+	H.eq("uosc's Editions button hides", mp.get_property_native('user-data/faststream-quality/editions'), true)
+	switch_keeps_position('HLS', 2, 180)
+	H.expect('the badge follows the switch', function()
+		return (mp.get_property_native('user-data/faststream-quality/button') or {}).badge
+	end, '180p', nil, 3)
+
+	-- the switch was the one file's: the next starts at its own default edition (the first),
+	-- not at the index picked here
+	H.check('the EDL loads', H.load(H.media_path('variants/two.edl')))
+	H.expect("its streams' programs are the qualities", labels, '360p60,180p', nil, 3)
+	H.eq('they come from its editions', mp.get_property_native('user-data/faststream-quality/source'), 'editions')
+	H.eq('it starts at its own default, not the last pick', mp.get_property_number('current-edition'), 0)
+	switch_keeps_position('EDL', 2, 180)
+
+	-- variants as tracks: two video tracks of different sizes, no programs
+	H.check('a 180p clip loads', H.load(H.media_path('plain/clip.mkv')))
+	H.eq('one size is no choice', labels(), nil)
+	H.eq('the button is not shown', mp.get_property_native('user-data/faststream-quality/shown'), false)
+	H.eq("uosc's Editions button shows again", mp.get_property_native('user-data/faststream-quality/editions'), false)
+	mp.commandv('video-add', H.media_path('variants/v360.ts'), 'auto')
+	H.expect('a second size added: its tracks are the qualities', labels, '360p60,180p', nil, 3)
+	H.eq('they come from its tracks', mp.get_property_native('user-data/faststream-quality/source'), 'tracks')
+	H.eq("the clip's own track plays", mp.get_property_native('user-data/faststream-quality/current'), 2)
+	H.eq("uosc's Editions button stays", mp.get_property_native('user-data/faststream-quality/editions'), false)
+	switch_keeps_position('tracks', 1, 360)
+
+	-- the menu is the same one, and follows the switch while open
+	mp.commandv('script-message-to', 'faststream_quality', 'open-menu')
+	H.wait_until(function()
+		return menu_type() ~= nil
+	end, 3)
+	H.eq('open-menu opens the quality menu', menu_type(), 'faststream-quality')
+	close_menu()
+end
+
 H.run(function()
 	if os.getenv('MPV_TEST_PHASE') == 'late-uosc' then
 		late_uosc()
+		return
+	end
+	if os.getenv('MPV_TEST_PHASE') == 'variants' then
+		variants()
 		return
 	end
 	local clip = H.media_path('fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv')
@@ -125,6 +229,7 @@ H.run(function()
 	H.eq('entry 1 is the stream itself', list and list[1].url, prefix .. stem .. '_1080')
 	H.eq('entry 1 keeps its label', list and list[1].label, '1080p')
 	H.eq('the playing entry is the current one', mp.get_property_native('user-data/faststream-quality/current'), 1)
+	H.eq("the list is the page's", mp.get_property_native('user-data/faststream-quality/source'), 'page')
 	H.expect('the button is shown', function()
 		return mp.get_property_native('user-data/faststream-quality/shown')
 	end, true, nil, 3)

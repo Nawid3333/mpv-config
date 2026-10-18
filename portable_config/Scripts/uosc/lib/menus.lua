@@ -802,83 +802,25 @@ function get_keybinds_items()
 		}
 end
 
-local function get_stream_quality_items()
-	local tracks = mp.get_property_native('track-list') or {}
-	local current_height = mp.get_property_number('video-params/h', 0)
-	local by_height = {}
-
-	for _, track in ipairs(tracks) do
-		local height = tonumber(track['demux-h'])
-		if track.type == 'video' and not track.image and height and height > 0 then
-			local bitrate = tonumber(track['demux-bitrate']) or tonumber(track['hls-bitrate']) or 0
-			local existing = by_height[height]
-			-- Once a selected track claims a height, only another selected
-			-- track may replace it - a later higher-bitrate sibling at the
-			-- same height must not evict the selected one's id/flag, or the
-			-- menu would point "active" at the wrong track to switch to.
-			if not existing or track.selected or (not existing.selected and bitrate > existing.bitrate) then
-				by_height[height] = {
-					bitrate = bitrate,
-					id = track.id,
-					selected = track.selected == true,
-				}
-			end
-		end
-	end
-
-	local heights = {}
-	for height in pairs(by_height) do
-		heights[#heights + 1] = height
-	end
-	if #heights == 0 and current_height > 0 then
-		heights[1] = current_height
-		by_height[current_height] = { selected = true }
-	end
-	table.sort(heights, function(a, b) return a > b end)
-
-	local items = {}
-	for _, height in ipairs(heights) do
-		local track = by_height[height]
-		items[#items + 1] = {
-			title = height .. 'p',
-			value = track.id and ('track:' .. track.id)
-				or ('format:bestvideo[height<=?' .. height .. ']+bestaudio/best[height<=?' .. height .. ']'),
-			active = track.selected or height == current_height,
-		}
-	end
-
-	if #items == 0 then
-		items[1] = {
-			title = 'No source resolutions reported',
-			selectable = false,
-			align = 'center',
-			muted = true,
-		}
-	end
-	return items
-end
-
 function open_stream_quality_menu()
 	if Menu:is_open('stream-quality') then
 		Menu:close()
 		return
 	end
 
-	local items = get_stream_quality_items()
+	local ytdl_format = mp.get_property_native('ytdl-format')
+	local items = {}
 	---@type Menu
 	local menu
 
+	for _, height in ipairs(config.stream_quality_options) do
+		local format = 'bestvideo[height<=?' .. height .. ']+bestaudio/best[height<=?' .. height .. ']'
+		items[#items + 1] = { title = height .. 'p', value = format, active = format == ytdl_format }
+	end
+
 	menu = Menu:open({ type = 'stream-quality', title = t('Stream quality'), items = items }, function(event)
 		if event.type == 'activate' then
-			if event.value:find('track:', 1, true) == 1 then
-				mp.set_property('vid', event.value:sub(7))
-				if not event.alt then
-					menu:close()
-				end
-				return
-			end
-
-			mp.set_property('ytdl-format', event.value:sub(8))
+			mp.set_property('ytdl-format', event.value)
 
 			-- Reload the video to apply new format
 			-- This is taken from https://github.com/jgreco/mpv-youtube-quality

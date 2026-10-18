@@ -490,3 +490,51 @@ nothing more happens (faststream-episodes.lua has no banner for it). The countdo
 now reads "next episode in 5 s (n: now, Space: stop)". Tests: test-faststream-episodes.lua
 (the bindings, Space sends it and pauses, no banner without a helper); FastStream's
 backgroundMpv/MpvRelayWatch unit tests.
+
+## 2026-10-18: one Quality button
+
+**His question**: mpv had two stream quality buttons, one that worked and one that "is just
+there" - a mistake, or both needed?
+
+**What it was**: uosc's own `stream-quality` button had been in the bar since the setup
+began (2026-09-10), without uosc's `<stream>` condition, so on every file. On 2026-09-12 its
+menu was rewritten to list the file's video tracks by height instead of uosc's fixed
+ytdl-format list (unmarked, unguarded: a uosc update would have undone it). But this mpv
+build makes an HLS master's variants editions (`--flatten-editions=no`, mpv since
+2026-05-01) and shows only the playing one's tracks, and ytdl_hook's `all_formats` (its
+default) makes YouTube's formats editions too: that menu had one row nearly everywhere,
+and the rewrite had taken YouTube's size choice away. `faststream-quality.lua` (2026-10-13)
+then added the page's own files (FastStream's `fs-quality=`), with the same icon.
+
+**Now** (his pick, option C): one Quality button. The page's files when FastStream sent
+them, else the stream's own variants: editions (HLS, YouTube) switched as a file-local
+`edition` - `edition` itself would carry its index into the next file - or video tracks
+(DASH) as a file-local `vid`; one row per height and frame rate ("1080p60"; the badge
+then shows the height). An edition's size is read from the title mpv composes ("Bitrate:
+900 kbps (h264 640x360 60 fps)", yt-dlp's "134 - 640x360 (360p60) (h264)"); a Matroska
+film's editions (cuts) name no size and their tracks no program, so they stay editions.
+uosc's `stream-quality` left the bar and its menu is uosc's own code again; Editions hides
+while its editions are a stream's variants. Video > Quality in the right-click menu.
+
+**Measured** (headless, the pinned build, local fixtures): an HLS edition change restarts
+playback at 0 (mpv resets playback for formats whose timestamps may reset); `seeking` is
+true right after the set, and the script seeks back to the old position once that restart
+is done. The EDL's and the tracks' switches keep their place and send no restart, so the
+seek-back is armed only when `seeking` says one is coming. The test media's `variants/`
+(test-faststream-quality.lua, phase `variants`) covers all three kinds. glm reviewed it
+twice: the file-local `vid`, no pick while a file loads and the badge cut came from it
+(its "no picture on the next file" for a global `vid` was wrong: mpv resets a track
+option naming a missing track to auto).
+
+**The CI flake on its PR**: config-load failed once on CI ("client removed during hook
+handling"; main and two local runs passed). mpv prints it when a client it awaits for a
+hook is gone (`command.c`, `mp_hook_test_completion`). The quality script has no hooks;
+mpv's built-in auto_profiles registers four at start and `exit()`s on its first
+`profile-list` notification when no profile has a condition, so a hook sent in between
+(on_before_start_file, at once with `--frames=1`) went unanswered. No profile here has one:
+mpv.conf now has `load-auto-profiles=no`, and the static tier checks that no
+`profile-cond=` comes in beside it.
+
+**Build 20261018** (#110, merged the same evening on his word; mpv's changes were macOS-only
+and a Matroska DiscardPadding fix, libplacebo unchanged): the gpu tier, run from the updated
+live install with no mpv open, 1137 passed, 0 failed, no device loss.

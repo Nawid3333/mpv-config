@@ -648,6 +648,11 @@ function Invoke-StaticCheck {
     Test-Check $t "mpv.conf: no '#' inside a value (it starts a comment - use r/g/b/a colours)" ($hashBad.Count -eq 0) ($hashBad -join ' | ')
     Test-Check $t 'mpv.conf: vo=gpu-next set explicitly (global)' ($global['vo'] -eq 'gpu-next') "vo=$($global['vo'])"
     Test-Check $t 'mpv.conf: window-dragging=no (click never becomes a drag)' ($global['window-dragging'] -eq 'no')
+    # auto_profiles off (its load-and-unload raced the first hooks: config-load's CI flake),
+    # which only works while no profile has a condition
+    $conds = @($mpvConf | Where-Object { $_ -match '^\s*profile-cond\s*=' })
+    Test-Check $t 'mpv.conf: load-auto-profiles=no, and no profile-cond it would silently ignore' (
+        $global['load-auto-profiles'] -eq 'no' -and $conds.Count -eq 0) "load-auto-profiles=$($global['load-auto-profiles']); profile-cond lines: $($conds.Count)"
     # Snap Layouts and snap-on-drag need the system caption (WM_NCHITTEST ->
     # HTCAPTION/HTMAXBUTTON); with border=no mpv answers only edges and client area.
     Test-Check $t 'mpv.conf: native title bar (border=yes, title-bar not off)' (
@@ -730,6 +735,13 @@ function Invoke-StaticCheck {
     Test-Check $t 'uosc.conf: the episode buttons and their gap show only with user-data/faststream-episodes/shown' (
         $uoscConf -match "(?m)^controls=.*,$([regex]::Escape(($episodeShown + 'button:episode_prev,' + $episodeShown + 'button:episode_next,' +
             $episodeShown + 'button:autoplay,' + $episodeShown + 'gap,')))")
+    # one Quality button (faststream-quality.lua): uosc's own stream-quality button stays out
+    # (a second, dead one), and Editions hides while the editions are a stream's variants
+    $controlsLine = [regex]::Match($uoscConf, '(?m)^controls=(.*)$').Groups[1].Value
+    Test-Check $t 'uosc.conf: one Quality button (faststream_quality behind its flag, no stream-quality, Editions behind the editions flag)' (
+        $controlsLine.Contains('<user-data/faststream-quality/shown>button:faststream_quality,') -and
+        $controlsLine.Contains(',<!user-data/faststream-quality/editions>editions,') -and
+        @($controlsLine -split ',' | Where-Object { $_ -match 'stream-quality$' }).Count -eq 0) $controlsLine
     $localChanges = @{
         'elements/Button.lua'        = 'Local change'
         'elements/ManagedButton.lua' = 'Local change'
@@ -1338,12 +1350,13 @@ function Invoke-Mpv {
 }
 
 function Initialize-Clip {
-    param([string]$Exe, [string]$Path, [string]$Size, [int]$Seconds, [string]$Codec = 'libx264', [string]$PixFmt = 'yuv420p')
+    param([string]$Exe, [string]$Path, [string]$Size, [int]$Seconds, [string]$Codec = 'libx264', [string]$PixFmt = 'yuv420p', [int]$Rate = 24)
     if (Test-Path -LiteralPath $Path) { return }
     New-Item -ItemType Directory -Force (Split-Path -Parent $Path) | Out-Null
-    $tmp = Join-Path (Split-Path -Parent $Path) ('encoding-' + [guid]::NewGuid().ToString('N') + '.mkv')
-    $opts = $Codec -eq 'libx264' ? 'preset=ultrafast,g=24' : 'preset=ultrafast'
-    $r = Invoke-Mpv $Exe @('--no-config', '--really-quiet', "av://lavfi:testsrc2=size=${Size}:rate=24:duration=$Seconds,format=$PixFmt",
+    # the container follows $Path's extension (mpv picks the muxer by it: .mkv, .ts)
+    $tmp = Join-Path (Split-Path -Parent $Path) ('encoding-' + [guid]::NewGuid().ToString('N') + [IO.Path]::GetExtension($Path))
+    $opts = $Codec -eq 'libx264' ? "preset=ultrafast,g=$Rate" : 'preset=ultrafast'
+    $r = Invoke-Mpv $Exe @('--no-config', '--really-quiet', "av://lavfi:testsrc2=size=${Size}:rate=${Rate}:duration=$Seconds,format=$PixFmt",
         "--o=$tmp", "--ovc=$Codec", "--ovcopts=$opts") -TimeoutSeconds 300
     if ($r.ExitCode -ne 0 -or -not (Test-Path $tmp)) { throw "encoding $Path failed: $($r.StdErr)" }
     Move-Item -LiteralPath $tmp -Destination $Path -Force
@@ -1362,6 +1375,30 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
     Initialize-Clip $Exe (Join-Path $m 'second/clip2.mkv') 320x180 12
     Initialize-Clip $Exe (Join-Path $m 'long/long.mkv') 320x180 180
     Initialize-Clip $Exe (Join-Path $m 'subs/movie.mkv') 320x180 20
+    # faststream-quality.lua: one video in two sizes, as a stream's own qualities. two.edl
+    # makes them editions the way ytdl_hook makes YouTube's formats (one program_id each,
+    # titled like yt-dlp's format names), master.m3u8 an HLS master over MPEG-TS copies
+    # (lavf makes its variants editions), and the test adds v360.ts to another clip as a
+    # second video track (variants mpv lists as tracks). Loaded by their .edl/.m3u8 names,
+    # for which autoload.lua queues no neighbours.
+    $variants = Join-Path $m 'variants'
+    # 360p at 60 fps: its rows are named 360p60, its badge only fits 360p
+    foreach ($v in @(@{ Size = '320x180'; Rate = 24 }, @{ Size = '640x360'; Rate = 60 })) {
+        $size = $v.Size
+        $height = $size.Split('x')[1]
+        Initialize-Clip $Exe (Join-Path $variants "v$height.mkv") $size 20 -Rate $v.Rate
+        Initialize-Clip $Exe (Join-Path $variants "v$height.ts") $size 20 -Rate $v.Rate
+        [IO.File]::WriteAllText((Join-Path $variants "v$height.m3u8"), ("#EXTM3U`n#EXT-X-VERSION:3`n#EXT-X-TARGETDURATION:20`n" +
+                "#EXT-X-MEDIA-SEQUENCE:0`n#EXT-X-PLAYLIST-TYPE:VOD`n#EXTINF:20.0,`nv$height.ts`n#EXT-X-ENDLIST`n"))
+    }
+    [IO.File]::WriteAllText((Join-Path $variants 'master.m3u8'), ("#EXTM3U`n" +
+            "#EXT-X-STREAM-INF:BANDWIDTH=900000,RESOLUTION=640x360`nv360.m3u8`n" +
+            "#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=320x180`nv180.m3u8`n"))
+    $edl = "# mpv EDL v0`n"
+    foreach ($v in @(@{ Id = 0; Title = '134 - 640x360 (360p60)'; File = 'v360.mkv' }, @{ Id = 1; Title = '160 - 320x180 (180p)'; File = 'v180.mkv' })) {
+        $edl += "!new_stream`n!no_clip`n!track_meta,title=%$($v.Title.Length)%$($v.Title),program_id=$($v.Id)`n$($v.File)`n"
+    }
+    [IO.File]::WriteAllText((Join-Path $variants 'two.edl'), $edl)
     # video-info.lua: the common anime format (10-bit HEVC), whose depth the
     # banner names. mpv's own libx265 is a 10-bit build - but its encoding
     # profile must keep its vo=lavc: a --vo=null here fails the whole encode
@@ -1721,6 +1758,8 @@ $HeadlessTests = @(
     # test_local: its entries are local stems (no scheme), which only the tests take
     @{ Name = 'faststream-quality'; Phases = @(
             @{ Script = 'headless/test-faststream-quality.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=faststream_quality-test_local=yes') }
+            # the stream's own qualities: HLS and EDL editions, video tracks (media's variants/)
+            @{ Script = 'headless/test-faststream-quality.lua'; File = 'plain/clip.mkv'; Phase = 'variants' }
             # uosc started late: no scripts but the quality button's, uosc loaded after 2 s
             @{ Script = 'headless/test-faststream-quality.lua'; File = 'plain/clip.mkv'; Phase = 'late-uosc'; Args = @('--load-scripts=no', '--script=~~/Scripts/faststream-quality.lua', '--script-opts-append=faststream_quality-test_local=yes') })
     }

@@ -57,7 +57,7 @@ H.run(function()
 	})
 
 	-- a damaged file: kept beside, nothing read from it
-	local f = io.open(path, 'wb')
+	local f = assert(io.open(path, 'wb'))
 	f:write('{"a":')
 	f:close()
 	local data, stuck = statefile.read_json(path, name)

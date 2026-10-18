@@ -1,12 +1,12 @@
--- faststream-quality.lua - the qualities the FastStream web page offered for this
--- video, as a managed uosc button (its badge: the one playing) and a menu that
--- switches between them without losing the position.
+-- faststream-quality.lua - the one Quality button and menu: the qualities this video comes
+-- in, as a managed uosc button (its badge: the one playing) and a menu that switches
+-- between them without losing the position. The qualities come from one of two places.
 --
--- Some sites offer a video as several files, one per quality (360p, 720p, 1080p),
--- and their player loads one. FastStream sends mpv the one its quality setting asks
--- for, and the list: the native host appends it to the stream URL as a fragment item
--- (everything after the first '#', items separated by '&'; a fragment is never sent
--- to the server):
+-- 1. The FastStream web page's own list. Some sites offer a video as several files, one per
+-- quality (360p, 720p, 1080p), and their player loads one. FastStream sends mpv the one its
+-- quality setting asks for, and the list: the native host appends it to the stream URL as a
+-- fragment item (everything after the first '#', items separated by '&'; a fragment is never
+-- sent to the server):
 --
 --   https://cdn/x.mp4#fs-id=ab12&fs-quality=<percent-encoded JSON>
 --
@@ -28,23 +28,41 @@
 -- clips they name): entries without a scheme and Windows paths, whose drive letter
 -- reads as a one-letter scheme (D:\a\...).
 --
+-- 2. The stream itself, when it holds several qualities: an HLS master playlist's variants,
+-- YouTube's formats (ytdl_hook's all_formats, on by default), a DASH manifest's. mpv makes
+-- the first two editions, one per variant (--flatten-editions=no, its default), and lists
+-- only the playing one's tracks; setting `edition` swaps the tracks in place (an HLS variant
+-- starts over from the beginning, and the script seeks back). It is set as a file-local option: `edition` itself would stay for the next file,
+-- an index into its own editions (another quality, or another cut of a Matroska film). An
+-- edition's height is read from the title mpv composes for it ("Bitrate: 2.500 Mbps (h264
+-- 1280x720 25 fps)", YouTube's "137 - 1920x1080 (1080p) (h264 ...)"): an edition that names
+-- no size is no quality, and neither are a Matroska file's editions (cuts of a film), whose
+-- tracks belong to no program. Variants mpv lists as tracks (DASH, --flatten-editions=yes)
+-- switch with a file-local `vid`, for the same reason. One row per height and frame rate: the one playing, else the highest
+-- bitrate (HLS says it), else the first mpv lists (YouTube: yt-dlp's preferred format).
+--
+-- The page's list wins when a file has both (its entries may be HLS masters). uosc's own
+-- stream-quality button is not in the bar: its menu sets ytdl-format, which only a YouTube
+-- reload reads, and lists sizes the video may not have. uosc's Editions button hides while
+-- the editions are this menu's qualities (uosc.conf, user-data/faststream-quality/editions).
+--
 -- The button is managed: its look is pushed with script-message-to uosc set-button
 -- (as the episode buttons and source-info.lua's source button), and uosc.conf's
 -- controls= gates it with the disposition <user-data/faststream-quality/shown>, set
 -- true only after the first push reached uosc (an uninitialised managed button draws
--- as a question mark) and false once the file carries no valid list or nothing is
--- loaded.
+-- as a question mark) and false once the file offers no choice or nothing is loaded.
 --
 -- The menu is a uosc callback menu (source-info.lua's pattern): every event arrives
--- as JSON at our menu-callback, and "activate" carries the entry's url: uosc keeps a
--- callback menu open across a file change, and a place in the list then picked from
--- the next file's list (the next episode after autoplay).
--- input.conf's Video > Quality (FastStream) sends open-menu; a file without a list
--- opens nothing.
+-- as JSON at our menu-callback, and "activate" carries the row's value (the entry's url,
+-- edition:<id> or track:<id>). uosc keeps a callback menu open over a switch and a file
+-- change; an open menu is updated with each change, and a row a file's list does not have
+-- does nothing.
+-- input.conf's Video > Quality sends open-menu; a file without a choice opens nothing.
 --
--- For the tests: user-data/faststream-quality/list (the decoded entries or nothing),
--- .../current (1-based, or nothing), .../shown, .../button (what was last pushed) and
--- .../last-load (the url and options of the last switch).
+-- For the tests: user-data/faststream-quality/list (the entries or nothing), .../source
+-- (page, editions, tracks or nothing), .../current (1-based, or nothing), .../shown,
+-- .../editions, .../button (what was last pushed) and .../last-load (the url and options
+-- of the last file switch).
 
 local mp = require('mp')
 local msg = require('mp.msg')
@@ -61,14 +79,23 @@ options.read_options(opts, 'faststream_quality')
 
 -- the fragment item the FastStream host appends the qualities list under
 local QUALITY_MARKER = 'fs-quality='
+local MENU_TYPE = 'faststream-quality'
 
 local script_name = mp.get_script_name()
 
 local state = {
 	path = nil, -- the current file's path, nil while nothing is loaded
-	list = nil, -- the file's decoded qualities, nil without a valid list
+	list = nil, -- the entries offered, nil without a choice
+	source = nil, -- where the list came from: 'page', 'editions' or 'tracks'
 	current = nil, -- 1-based index of the playing entry, nil when none matches
 }
+
+-- The file's own qualities (editions or tracks), read once it has loaded. They stay
+-- between two files, as the page's list does (a relayout of the bar each time), until
+-- the next file has loaded or mpv is idle; a row picked in between does nothing.
+local loaded = false
+local variants = nil -- {source = 'editions' | 'tracks', list = {...}, current = index}
+local back_to = nil -- {time, path}: where an HLS switch's restart returns to (choose)
 
 -- ---- reading the fragment -------------------------------------------------------------
 
@@ -143,6 +170,7 @@ local function parse_entry(raw)
 	end
 	return {
 		url = raw.url,
+		value = raw.url,
 		height = height,
 		label = (type(raw.label) == 'string' and raw.label ~= '' and raw.label)
 			or (height > 0 and (height .. 'p') or '?'),
@@ -195,6 +223,148 @@ local function playing_index(path, entries)
 	return nil
 end
 
+-- ---- the stream's own qualities -------------------------------------------------------
+
+--- "720p", or "1080p60": a rate above 30 is named, as web players do.
+---@param height integer
+---@param fps number
+---@return string
+local function variant_label(height, fps)
+	local rate = math.floor(fps + 0.5)
+	return height .. 'p' .. (rate > 30 and tostring(rate) or '')
+end
+
+--- One row per label, the highest first: the variant playing, else the one with the
+--- highest bitrate, else the first listed. The rows and the playing one's index, or nil
+--- with fewer than two rows to choose from.
+---@param found table[] {label, height, fps, bitrate, playing, value, edition | track}
+---@return table|nil, integer|nil
+local function variant_rows(found)
+	local by_label, labels = {}, {}
+	for _, v in ipairs(found) do
+		local kept = by_label[v.label]
+		if not kept then
+			by_label[v.label] = v
+			labels[#labels + 1] = v.label
+		elseif not kept.playing and (v.playing or v.bitrate > kept.bitrate) then
+			by_label[v.label] = v
+		end
+	end
+	if #labels < 2 then
+		return nil, nil
+	end
+	local rows = {}
+	for _, label in ipairs(labels) do
+		rows[#rows + 1] = by_label[label]
+	end
+	-- labels are unique, so two rows of one height differ in their named rate
+	table.sort(rows, function(a, b)
+		if a.height ~= b.height then
+			return a.height > b.height
+		end
+		return a.fps > b.fps
+	end)
+	local current = nil
+	for i, row in ipairs(rows) do
+		if row.playing then
+			current = i
+		end
+		row.playing, row.bitrate, row.fps = nil, nil, nil -- only the menu's fields are published
+	end
+	return rows, current
+end
+
+--- The playing video track, or nil.
+---@param tracks table[]
+---@return table|nil
+local function playing_video(tracks)
+	for _, track in ipairs(tracks) do
+		if track.type == 'video' and track.selected then
+			return track
+		end
+	end
+	return nil
+end
+
+--- The editions as qualities: rows and the playing one, or nil.
+---@param tracks table[]
+---@return table|nil, integer|nil
+local function edition_variants(tracks)
+	local editions = mp.get_property_native('edition-list')
+	if type(editions) ~= 'table' or #editions < 2 then
+		return nil, nil
+	end
+	-- editions made from programs (HLS variants, YouTube's formats); a Matroska file's
+	-- editions are cuts of a film, and its tracks belong to no program
+	local video = playing_video(tracks)
+	local programs = video and video['program-ids']
+	if type(programs) ~= 'table' or #programs == 0 then
+		return nil, nil
+	end
+	local playing = mp.get_property_number('current-edition')
+	local found = {}
+	for _, edition in ipairs(editions) do
+		local title = type(edition.title) == 'string' and edition.title or ''
+		local height = tonumber(title:match('%d+x(%d+)'))
+		local id = tonumber(edition.id)
+		if height and height > 0 and id then
+			local metadata = type(edition.metadata) == 'table' and edition.metadata or {}
+			-- the codec's rate ("60 fps"), else yt-dlp's after the height ("(1080p60)"), which
+			-- mpv's EDL editions carry in their title
+			local fps = tonumber(title:match('([%d%.]+) fps'))
+				or tonumber(title:match('[^%d]' .. height .. 'p(%d+)'))
+				or 0
+			found[#found + 1] = {
+				label = variant_label(height, fps),
+				height = height,
+				fps = fps,
+				bitrate = tonumber(metadata.variant_bitrate) or 0,
+				playing = id == playing,
+				edition = id,
+				value = 'edition:' .. id,
+			}
+		end
+	end
+	return variant_rows(found)
+end
+
+--- The video tracks as qualities (variants mpv lists as tracks): rows and the playing
+--- one, or nil. Cover art and other pictures are no quality.
+---@param tracks table[]
+---@return table|nil, integer|nil
+local function track_variants(tracks)
+	local found = {}
+	for _, track in ipairs(tracks) do
+		local height = tonumber(track['demux-h'])
+		local id = tonumber(track.id)
+		if track.type == 'video' and not track.image and not track.albumart and height and height > 0 and id then
+			local fps = tonumber(track['demux-fps']) or 0
+			found[#found + 1] = {
+				label = variant_label(height, fps),
+				height = height,
+				fps = fps,
+				bitrate = tonumber(track['hls-bitrate']) or tonumber(track['demux-bitrate']) or 0,
+				playing = track.selected == true,
+				track = id,
+				value = 'track:' .. id,
+			}
+		end
+	end
+	return variant_rows(found)
+end
+
+-- Reads the loaded file's own qualities again.
+local function read_variants()
+	local tracks = mp.get_property_native('track-list') or {}
+	local list, current = edition_variants(tracks)
+	local source = 'editions'
+	if not list then
+		list, current = track_variants(tracks)
+		source = 'tracks'
+	end
+	variants = list and { source = source, list = list, current = current } or nil
+end
+
 -- ---- the button -----------------------------------------------------------------------
 
 local pushed_json = nil -- the button JSON uosc last got
@@ -218,6 +388,61 @@ local function push_button(data)
 		return true
 	end
 	return false
+end
+
+-- ---- the menu -------------------------------------------------------------------------
+
+--- The height as a hint beside the row, unless the label says it already.
+---@param entry table
+---@return string|nil
+local function hint_for(entry)
+	if entry.height > 0 and not entry.label:find(entry.height .. 'p', 1, true) then
+		return entry.height .. 'p'
+	end
+	return nil
+end
+
+--- Opens the menu, or with `update` refreshes it while it is open (the active row after
+--- a switch, the next file's list); a file without a choice closes it.
+---@param update boolean|nil
+local function open_menu(update)
+	if update and mp.get_property_native('user-data/uosc/menu/type') ~= MENU_TYPE then
+		return
+	end
+	if not state.list then
+		if update then
+			mp.commandv('script-message-to', 'uosc', 'close-menu', MENU_TYPE)
+		end
+		return -- no choice for this file: nothing to open
+	end
+	local items = {}
+	for i, entry in ipairs(state.list) do
+		items[#items + 1] = {
+			title = entry.label,
+			hint = hint_for(entry),
+			active = i == state.current,
+			value = entry.value, -- back as the activate event's value
+		}
+	end
+	local json, err = utils.format_json({
+		type = MENU_TYPE,
+		title = 'Quality',
+		items = items,
+		-- uosc's callback menu mode (menus.lua): the table is spliced into
+		-- "script-message-to <...callback...> <event json>", so every menu event
+		-- arrives at our 'menu-callback' instead of uosc running item values as
+		-- mpv commands.
+		callback = { script_name, 'menu-callback' },
+	})
+	if json then
+		if update then
+			mp.commandv('script-message-to', 'uosc', 'update-menu', json)
+		else
+			mp.commandv('script-message-to', 'uosc', 'open-menu', json)
+		end
+	else
+		msg.error('quality menu JSON: ' .. tostring(err))
+	end
 end
 
 -- A push uosc did not get (it had not started yet) is sent again every second until it
@@ -244,17 +469,24 @@ local function retry_until_delivered(delivered)
 	end
 end
 
--- Reads the list and the playing entry for the current path again, publishes both for
--- the tests, pushes the button and sets the disposition flag.
+local menu_shows = nil -- the list and current the open menu was last given, as JSON
+
+-- Picks the list for the current path (the page's, else the file's own), publishes it for
+-- the tests, pushes the button, sets the disposition flags and updates an open menu.
 function recompute()
-	local list, current = nil, nil
+	local list, current, source = nil, nil, nil
 	if state.path then
 		list = quality_list(state.path)
-		current = list and playing_index(state.path, list) or nil
+		if list then
+			current, source = playing_index(state.path, list), 'page'
+		elseif variants then
+			list, current, source = variants.list, variants.current, variants.source
+		end
 	end
-	state.list, state.current = list, current
+	state.list, state.current, state.source = list, current, source
 
 	mp.set_property_native('user-data/faststream-quality/list', state.list)
+	mp.set_property_native('user-data/faststream-quality/source', state.source)
 	mp.set_property_native('user-data/faststream-quality/current', state.current)
 
 	local data = {
@@ -264,58 +496,28 @@ function recompute()
 		menu_command = { 'script-message-to', mp.get_script_name(), 'open-menu' },
 		hide = list == nil,
 	}
-	if current then
-		-- uosc badges stay short; the labels are ("1080p"), a longer one is cut
-		data.badge = utf8_prefix(list[current].label, 5)
+	if list and current then
+		-- uosc badges stay short; the labels are ("1080p"), a longer one is cut. A
+		-- variant's frame rate does not fit beside its height ("720p60"): the height alone.
+		local entry = list[current]
+		local label = (not entry.url and #entry.label > 5) and (entry.height .. 'p') or entry.label
+		data.badge = utf8_prefix(label, 5)
 	end
 	mp.set_property_native('user-data/faststream-quality/button', data) -- for the tests
 	local sent = push_button(data)
 	-- nothing to show: no button to bring to a uosc that is not there
 	retry_until_delivered(sent or list == nil)
-	-- The flag uosc.conf's disposition reads: never true for a button uosc has not got,
-	-- which it would draw as a question mark.
-	mp.set_property_native('user-data/faststream-quality/shown', list ~= nil and sent)
-end
+	-- The flags uosc.conf's dispositions read: never true for a button uosc has not got,
+	-- which it would draw as a question mark. Always a boolean: mpv tells no observer
+	-- when a user-data key is deleted.
+	local shown = list ~= nil and sent
+	mp.set_property_native('user-data/faststream-quality/shown', shown)
+	mp.set_property_native('user-data/faststream-quality/editions', shown and source == 'editions')
 
--- ---- the menu -------------------------------------------------------------------------
-
---- The height as a hint beside the row, unless the label says it already.
----@param entry table
----@return string|nil
-local function hint_for(entry)
-	if entry.height > 0 and not entry.label:find(entry.height .. 'p', 1, true) then
-		return entry.height .. 'p'
-	end
-	return nil
-end
-
-local function open_menu()
-	if not state.list then
-		return -- no list for this file: nothing to open
-	end
-	local items = {}
-	for i, entry in ipairs(state.list) do
-		items[#items + 1] = {
-			title = entry.label,
-			hint = hint_for(entry),
-			active = i == state.current,
-			value = entry.url, -- back as the activate event's value
-		}
-	end
-	local json, err = utils.format_json({
-		type = 'faststream-quality',
-		title = 'Quality',
-		items = items,
-		-- uosc's callback menu mode (menus.lua): the table is spliced into
-		-- "script-message-to <...callback...> <event json>", so every menu event
-		-- arrives at our 'menu-callback' instead of uosc running item values as
-		-- mpv commands.
-		callback = { script_name, 'menu-callback' },
-	})
-	if json then
-		mp.commandv('script-message-to', 'uosc', 'open-menu', json)
-	else
-		msg.error('quality menu JSON: ' .. tostring(err))
+	local shows = utils.format_json({ state.list or false, state.current or false })
+	if shows ~= menu_shows then
+		menu_shows = shows
+		open_menu(true)
 	end
 end
 
@@ -325,25 +527,16 @@ end
 ---@param path string|nil
 ---@return string
 local function path_fragment(path)
-	local hash = path and path:find('#', 1, true)
+	if not path then
+		return ''
+	end
+	local hash = path:find('#', 1, true)
 	return hash and path:sub(hash) or ''
 end
 
---- Plays the entry with this url from where the video is. The playing entry does nothing,
---- and so does a url this file's list does not have (a row of the last file's menu).
----@param url string
-local function choose(url)
-	local index = nil
-	for i, entry in ipairs(state.list or {}) do
-		if entry.url == url then
-			index = i
-			break
-		end
-	end
-	local entry = index and state.list[index]
-	if not entry or index == state.current then
-		return
-	end
+--- Loads the page's file `entry` from where the video is.
+---@param entry table
+local function switch_file(entry)
 	-- the request headers and the title the stream came with (faststream-fragment.lua): the
 	-- FastStream host hands them over as per-file options of the one file, so a plain
 	-- `loadfile <url> replace` opened the next file without them, and a CDN that checks
@@ -385,6 +578,69 @@ local function choose(url)
 	})
 end
 
+--- Plays the row with this value. The playing one does nothing, and so does a value this
+--- file's list does not have (a row of the last file's menu), or any row while a file loads.
+---@param value string
+local function choose(value)
+	local list = state.list or {}
+	local index = nil
+	for i, entry in ipairs(list) do
+		if entry.value == value then
+			index = i
+			break
+		end
+	end
+	local entry = index and list[index]
+	-- while a file loads (a switch's own, the next episode) the position is not known yet:
+	-- a pick then would replace that load and start from the beginning
+	if not entry or index == state.current or not loaded then
+		return
+	end
+	if entry.url then
+		switch_file(entry)
+		return
+	end
+	-- file-local, as the edition: a track id is this file's own, and `vid` itself stays
+	-- for the next file with the same tracks (mpv's track-list fingerprint)
+	local time = mp.get_property_number('time-pos')
+	local switched
+	if entry.edition then
+		switched = mp.commandv('set', 'file-local-options/edition', tostring(entry.edition))
+	else
+		switched = mp.commandv('set', 'file-local-options/vid', tostring(entry.track))
+	end
+	if not switched then
+		msg.warn('could not switch to ' .. entry.label)
+		return
+	end
+	-- An HLS variant starts over from the beginning: for a format whose timestamps may
+	-- reset, mpv restarts playback on an edition change (measured: 6.5 s in, back at 0).
+	-- `seeking` right after the switch says that restart is pending; the EDL's and the
+	-- tracks' switches keep their place and send none, so a later restart (a seek of
+	-- the user's) is never taken for theirs.
+	if time and time >= 1 and mp.get_property_native('seeking') then
+		back_to = { time = time, path = state.path }
+	end
+end
+
+-- A seek while that restart is pending is the user's (the switch itself sends no seek
+-- event, measured): it wins, and the restart it ends is not the switch's.
+mp.register_event('seek', function()
+	back_to = nil
+end)
+
+-- The switch's restart is done: back to where the video was.
+mp.register_event('playback-restart', function()
+	local back = back_to
+	back_to = nil
+	if back and back.path == state.path then
+		local now = mp.get_property_number('time-pos')
+		if now and now < back.time - 1 then
+			mp.commandv('seek', tostring(back.time), 'absolute')
+		end
+	end
+end)
+
 -- With `callback` set, uosc sends every menu event here as JSON (see
 -- uosc/lib/menus.lua open_command_menu's callback path).
 mp.register_script_message('menu-callback', function(json)
@@ -397,7 +653,9 @@ mp.register_script_message('menu-callback', function(json)
 	end
 end)
 
-mp.register_script_message('open-menu', open_menu)
+mp.register_script_message('open-menu', function()
+	open_menu(false)
+end)
 
 -- ---- state per file -------------------------------------------------------------------
 
@@ -405,7 +663,14 @@ mp.register_script_message('open-menu', open_menu)
 -- is no change of `path`, and its observer stays silent.
 mp.register_event('file-loaded', function()
 	state.path = mp.get_property('path')
+	loaded = true
+	read_variants()
 	recompute()
+end)
+
+mp.register_event('end-file', function()
+	loaded = false
+	back_to = nil
 end)
 
 -- The fragment comes with `path`, known before the file loads: the button is ready as
@@ -417,6 +682,17 @@ mp.observe_property('path', 'string', function(_, path)
 	end
 end)
 
+-- A switch, and tracks or editions that come later: the badge and the menu follow.
+local function on_variants_change()
+	if loaded then
+		read_variants()
+		recompute()
+	end
+end
+mp.observe_property('track-list', 'native', on_variants_change)
+mp.observe_property('edition-list', 'native', on_variants_change)
+mp.observe_property('current-edition', 'native', on_variants_change)
+
 -- Between two files the last path stays (a quality switch, the next episode): its end
 -- hid the button and the next file showed it again, two pushes that each repaint uosc's
 -- whole UI and a relayout of the bar (faststream-episodes.lua keeps it the same way).
@@ -424,6 +700,7 @@ end)
 mp.observe_property('idle-active', 'bool', function(_, idle)
 	if idle then
 		state.path = nil
+		variants = nil
 		recompute()
 	end
 end)
