@@ -5,10 +5,17 @@ name: PowerShell lint
 # its file and line without failing it. The rules and their exclusions are in
 # PSScriptAnalyzerSettings.psd1; the files of shinchiro's mpv archive are skipped (below).
 
+# Runs for every change but a docs-only one (*.md, doc/), as the suite does.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "doc/**"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "doc/**"
   workflow_dispatch:
 
 permissions:

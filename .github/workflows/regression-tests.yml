@@ -2,8 +2,9 @@ name: Regression tests
 
 # Runs tests/run-tests.ps1 - the static checks plus the headless tier (mpv with
 # --vo=null --ao=null: every feature driven through mpv's own input commands,
-# no window, no GPU) - on every push and pull request, so a config or script
-# edit that breaks a feature turns the run red. See tests/README.md.
+# no window, no GPU) - on every push and pull request that changes more than
+# docs, so a config or script edit that breaks a feature turns the run red. See
+# tests/README.md.
 #
 # mpv's own files are not in git (pin only, 2026-10-03): the build
 # mpv-build.json pins is installed from shinchiro's public release by
@@ -29,8 +30,73 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A change to docs only (*.md, doc/) skips the suite: no test reads them, and the
+  # Windows run takes minutes. The run still ends green, so publish.yml (which waits
+  # for it on main) publishes the docs as before. Anything else - and a run by hand,
+  # a re-run, or a push with no passed run on main before it - runs the suite.
+  changes:
+    name: what changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # the runs of this workflow on main (below)
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: More than docs?
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          AFTER: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          range=''
+          if [ "$EVENT" = pull_request ]; then
+            # the whole pull request: a run a newer push cancelled is covered by this one
+            range="$BASE...$HEAD"
+          elif [ "$EVENT" = push ]; then
+            # From the newest commit whose run of this workflow passed, not the push's own
+            # "before": a newer push cancels a running suite (cancel-in-progress), and that
+            # commit was never tested - it stays in the range, and the suite runs for it. A run
+            # of that very commit (a re-run by hand) has no range: it is tested again.
+            last=$(gh run list --workflow regression-tests.yml --branch "$BRANCH" --event push --status success \
+              --limit 1 --json headSha --jq '.[0].headSha // ""' || true)
+            if [ -n "$last" ] && [ "$last" != "$AFTER" ] && git merge-base --is-ancestor "$last" "$AFTER" 2>/dev/null; then
+              range="$last..$AFTER"
+            fi
+          fi
+          # A diff that fails (a base commit no longer there) counts as code: only grep's
+          # "no line left" may be read as docs-only, never an error of git's.
+          if [ -z "$range" ] || ! files=$(git diff --name-only "$range"); then
+            code=true
+            echo "No range to compare ($EVENT${range:+, $range failed}): the suite runs." >> "$GITHUB_STEP_SUMMARY"
+          else
+            others=$(printf '%s\n' "$files" | grep -Ev '(\.md$)|(^doc/)|(^$)' || true)
+            if [ -n "$others" ]; then
+              code=true
+              { echo "Changed beyond docs: the suite runs."; echo '```'; echo "$others" | head -50; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            else
+              code=false
+              echo "Docs only (*.md, doc/): the suite is skipped." >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+
   headless:
     name: static + headless
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:

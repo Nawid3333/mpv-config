@@ -188,7 +188,8 @@ options or the pinned build. Manual probes: give the clip no siblings
 (`autoload.lua` queues them) and back up `speed.json` (remember-speed restores and
 rewrites it); judge upscaling on `test-media/`'s clean clips (gitignored), never on
 a soft low-bitrate film - one misled a Movie decision once. CI runs static + headless on every
-push. `tests/README.md` has the harness rules: `H.expect` for a value an action
+push that changes more than docs (`*.md`, `doc/`; such a run ends green at once), and the
+linters skip docs-only changes too. `tests/README.md` has the harness rules: `H.expect` for a value an action
 changes, `H.sleep` then `H.eq` for one that must not; a new feature gets a test, and
 a deliberate break of it must turn it red. Before a Lua change: `stylua --check .`
 (pinned version) and lua-language-server in directory mode (`--check .` in a copy
@@ -250,4 +251,5 @@ next to `.luarc.json` and `lua-api/`; its single-file mode checks nothing).
 
 ## Open items
 
-In `TODO.md` (open items and the owner's hand tests only; finished work goes to doc/history).
+None: the owner closed `TODO.md` on 2026-10-18 (what it still held: doc/history). A new open
+item or hand test starts a new `TODO.md`; finished work goes to doc/history.

@@ -538,3 +538,29 @@ mpv.conf now has `load-auto-profiles=no`, and the static tier checks that no
 **Build 20261018** (#110, merged the same evening on his word; mpv's changes were macOS-only
 and a Matroska DiscardPadding fix, libplacebo unchanged): the gpu tier, run from the updated
 live install with no mpv open, 1137 passed, 0 failed, no device loss.
+
+## 2026-10-18 (late): TODO.md closed, CI skips docs-only changes
+
+**TODO.md** was removed by the owner after the hand tests (commit "delete todo done"). What it
+still listed stays as it was: 16x plays silent (scaletempo2 mutes above 8x, `max-speed=8`);
+Movie upscaling judged by eye on his own 1080p films; real 4K output never measured; FastStream's
+helper as a release asset; and the three left on purpose (a live stream's one pointless seek on
+reopening, two windows from two streams within a second, stream-buffer's "window" mode never
+reported with disk buffering off). Its previous version: `doc/history/todo-until-2026-10-12.md`
+and git.
+
+**CI** (his wish: deleting a Markdown file ran every workflow). regression-tests.yml has a first
+job, "what changed" (ubuntu, seconds): a push or pull request that changes only `*.md` and
+`doc/` skips the Windows suite, and the run still ends green, so publish.yml - which waits for
+it on main - publishes the docs as before. A run by hand (mpv-auto-update dispatches one), or a
+push whose earlier commit is unknown, runs the suite, and so does a diff that fails (glm's
+double check: a `|| true` over the whole pipe had read a git error as docs-only). lint-lua.yml,
+powershell-lint.yml and mpv-auto-update.yml's push trigger ignore docs-only changes the same
+way (`paths-ignore`); lint-lua keeps running for every other change, as he asked on 2026-09-24.
+glm's recheck found the hole that remained: a newer push cancels a running suite
+(`cancel-in-progress`), so a docs push right after a code push compared only with that code
+commit, skipped, ended green - and publish.yml would have published the untested code. A push
+now compares with the newest commit whose run of this workflow passed (`gh run list --status
+success`, an ancestor of the push), so a cancelled commit stays in the range; a pull request
+compares its whole range anyway.
+Checked on the history: the TODO deletion and #105 come out docs-only, #111 not.

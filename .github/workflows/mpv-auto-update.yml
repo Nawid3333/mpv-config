@@ -76,8 +76,12 @@ name: mpv auto-update
   schedule:
     # 02:15 UTC daily. shinchiro's builds come out at about 00:30-01:00 UTC.
     - cron: "15 2 * * *"
+  # a docs-only push (*.md, doc/) changes nothing it looks at; the daily run stays
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "doc/**"
   workflow_dispatch: {}
   pull_request:
     paths:

@@ -9,12 +9,18 @@ name: Lua style
 # editor (stylua.targetReleaseVersion): an unpinned "latest" can start formatting
 # differently overnight and fail a push for no reason of ours. stylua-update.yml
 # moves both when StyLua releases, with the code reformatted, on a pull request.
-# Runs on every push (no path filter since 2026-09-24, at the user's request).
-
+# Runs for every change but a docs-only one (*.md, doc/), as the suite does - not
+# only for Lua files, at the owner's wish.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "doc/**"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "doc/**"
   workflow_dispatch: {}
 
 permissions:
