@@ -92,6 +92,7 @@ permissions:
   pull-requests: write # the pull request that offers a build
   issues: write # the failure issue
   actions: write # start regression-tests.yml on the branch
+  statuses: write # the pull request's "GPU tier (local)" check (gpu-flag.ps1)
 
 concurrency:
   group: mpv-auto-update
@@ -264,6 +265,35 @@ jobs:
           fi
           if [ "$tried" = 1 ]; then
             echo "Branch $branch exists: $latest failed its tests before, so it is not tried again."
+            exit 0
+          fi
+
+          # --- mpv's own CI on the build's commit -------------------------------
+          # shinchiro builds mpv's newest commit every day, whatever mpv's own CI said
+          # of it: a build of a commit that CI failed is not offered (one issue says so),
+          # and one it still tests, or GitHub cannot tell, waits for the next run (a
+          # "stale" check too: GitHub no longer vouches for it). A commit with no checks
+          # (a docs change) counts as passed. Every page of checks (--slurp joins them;
+          # it does not go with gh's own --jq).
+          upstream_sha=${asset##*-git-}
+          upstream_sha=${upstream_sha%.7z}
+          upstream_ci=$(gh api --paginate --slurp "repos/mpv-player/mpv/commits/$upstream_sha/check-runs?per_page=100" | jq -r '
+            [.[].check_runs[] | if .status != "completed" or .conclusion == "stale" then "pending" else .conclusion end]
+            | if length == 0 then "none"
+              elif any(.[]; . == "failure" or . == "timed_out" or . == "cancelled" or . == "startup_failure" or . == "action_required") then "failed"
+              elif any(.[]; . == "pending") then "pending"
+              else "passed" end') || upstream_ci=unknown
+          echo "mpv's own CI on $upstream_sha: $upstream_ci."
+          if [ "$upstream_ci" = pending ] || [ "$upstream_ci" = unknown ]; then
+            echo "$latest waits for the next run."
+            exit 0
+          fi
+          if [ "$upstream_ci" = failed ]; then
+            { printf '@%s shinchiro'"'"'s mpv %s is built from mpv commit %s, which mpv'"'"'s own CI failed: https://github.com/mpv-player/mpv/commit/%s\n\n' \
+                "$OWNER" "$latest" "$upstream_sha" "$upstream_sha"
+              printf 'It is not offered, and main keeps pinning %s. Each newer build is tried the day it comes out; one whose commit passed mpv'"'"'s CI and this suite is offered on a pull request, and closes this issue.\n' "$pinned"
+            } > "$RUNNER_TEMP/body.md"
+            report "upstream-failed $latest" "$latest: mpv's own CI failed on its commit" "$RUNNER_TEMP/body.md"
             exit 0
           fi
 
@@ -446,7 +476,8 @@ jobs:
               printf '@%s shinchiro'"'"'s mpv %s passed the regression suite (%s). **It waits for your merge.**\n\n' "$OWNER" "$latest" "$run_url"
               printf -- '- Release: https://github.com/%s/releases/tag/%s\n' "$UPSTREAM" "$latest"
               printf -- '- The change: `mpv-build.json` pins %s instead of %s, and nothing else.\n' "$latest" "$pinned"
-              printf -- '- What the suite does NOT cover: it runs static + headless on a runner with no GPU (`--vo=null`), so hardware decoding (Vulkan, d3d11va) and the renderer are untested. The build reaches your PC when you merge this and run `updater.bat`.\n\n'
+              printf -- '- mpv'"'"'s own CI on its commit %s: %s.\n' "$upstream_sha" "$upstream_ci"
+              printf -- '- What the suite does NOT cover: it runs static + headless on a runner with no GPU (`--vo=null`), so hardware decoding (Vulkan, d3d11va) and the renderer are untested. When mpv'"'"'s video output, libplacebo or FFmpeg'"'"'s D3D11 decoding changed, the title starts with `[GPU: ...]`, a comment lists what, and the check **GPU tier (local)** waits for `pwsh tests\\try-gpu.ps1 -Pr <this pull request>` on your PC (no mpv open). The build reaches your PC when you merge this and run `updater.bat`.\n\n'
               printf 'This pull request keeps up: a newer build that passes moves here, and the title says which. Closing it skips this build; the next one that passes opens a new pull request.\n'
             } > "$RUNNER_TEMP/pr.md"
             if [ -n "$pr" ]; then
@@ -467,6 +498,16 @@ jobs:
               fi
               pr=${url##*/}
               echo "Opened #$pr for $latest."
+            fi
+            # What of the new build the suite could not test (no GPU): the title, a
+            # comment and the pending check "GPU tier (local)" (.github/scripts/gpu-flag.ps1).
+            # A pull request this token opens starts no gpu-flag.yml run, so it is called here.
+            # Failed, it must not leave the pull request looking checked: the GPU check
+            # waits then, as for a build that changed the GPU pipeline.
+            if ! pwsh .github/scripts/gpu-flag.ps1 -Pr "$pr"; then
+              echo "::warning::gpu-flag.ps1 failed on #$pr: the GPU check is set to pending instead."
+              gh api -X POST "repos/$GH_REPO/statuses/$commit" -f state=pending -f 'context=GPU tier (local)' \
+                -f "description=Not classified (gpu-flag.ps1 failed): pwsh tests\\try-gpu.ps1 -Pr $pr on the PC" > /dev/null || true
             fi
             # Failed builds' branches stay until a build passes; every mpv/*
             # branch can go once one has.

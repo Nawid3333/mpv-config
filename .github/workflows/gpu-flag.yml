@@ -1,0 +1,39 @@
+name: GPU flag
+
+# CI's runners have no GPU: the shaders, the renderer and decoder options, and an mpv build
+# whose upstream changes reach video output are tested only by the gpu tier on the owner's
+# PC. This marks a pull request that changes such a thing - "[GPU: <areas>]" in its title,
+# the label gpu, one comment that lists what, and the commit status "GPU tier (local)",
+# pending until tests/try-gpu.ps1 has run the gpu tier against that commit - and clears
+# all of it from one that does not (.github/scripts/gpu-flag.ps1). A pull request this
+# repository's own token opens (mpv-auto-update.yml's) starts no run here: that workflow
+# calls the script itself.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write # the title
+  issues: write # the label and the comment
+  statuses: write # "GPU tier (local)"
+
+concurrency:
+  group: gpu-flag-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  flag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Flag what CI cannot test on a GPU
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: pwsh .github/scripts/gpu-flag.ps1 -Pr "$PR"

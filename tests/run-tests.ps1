@@ -983,6 +983,55 @@ function Invoke-StaticCheck {
             'rebuild it with the command in mpv-single.cs (with /resource:mpv-single.cs) and commit both'
     }
 
+    # -- what a pull request changes that CI cannot test on a GPU (gpu-flag.ps1) ----------
+    # Its title gets "[GPU: <areas>]" and its check "GPU tier (local)" waits for the gpu
+    # tier on the PC; a change outside the GPU pipeline must stay unflagged, or the flag
+    # means nothing. The 20261018 -> 20261020 build is a real case: vulkan and hwdec_vulkan
+    # in mpv, a new libplacebo, FFmpeg without D3D11 changes.
+    . (Join-Path $RepoRoot '.github/scripts/gpu-flag.ps1')
+    $file = { param($name, $patch) [pscustomobject]@{ filename = $name; patch = $patch } }
+    $old = [pscustomobject]@{ git = '01e2533f31'; libplacebo = 'v7.376.0 (a)'; ffmpeg = 'N-127617-g94cba3150' }
+    $new = [pscustomobject]@{ git = '6a262d11f6'; libplacebo = 'v7.377.0 (b)'; ffmpeg = 'N-127734-g38ac3a923' }
+    $flagCases = @(
+        @{ Name = 'a shader'; Files = @(& $file 'portable_config/shaders/Anime4K_Clamp_Highlights.glsl' ''); Want = '[GPU: shaders]' }
+        @{ Name = 'gpu-toggles.lua, once'; Files = @(& $file 'portable_config/Scripts/gpu-toggles.lua' "@@`n+mp.set_property('glsl-shaders', x)"); Want = '[GPU: gpu-toggles]' }
+        @{ Name = "mpv.conf's hwdec"; Files = @(& $file 'portable_config/mpv.conf' "@@`n-hwdec=d3d11va-copy,no`n+hwdec=auto"); Want = '[GPU: mpv.conf]' }
+        @{ Name = "mpv.conf's OSD font size"; Files = @(& $file 'portable_config/mpv.conf' "@@`n-osd-font-size=30`n+osd-font-size=32"); Want = '' }
+        @{ Name = 'a script that sets target-peak'; Files = @(& $file 'portable_config/Scripts/settings.lua' "@@`n+`tmp.set_property('target-peak', peak)"); Want = '[GPU: scripts]' }
+        @{ Name = 'hwdec in a Lua comment'; Files = @(& $file 'portable_config/Scripts/settings.lua' "@@`n+`t-- set 'hwdec' elsewhere"); Want = '' }
+        @{ Name = 'docs'; Files = @(& $file 'README.md' "@@`n+hwdec=auto"); Want = '' }
+        @{ Name = 'the 20261020 build'; Files = @(& $file 'mpv-build.json' ''); Old = $old; New = $new
+            Mpv = @('player/lua.c', 'video/out/hwdec/hwdec_vulkan.c', 'video/out/vulkan/context.c'); Ffmpeg = @('libavformat/hls.c')
+            Want = '[GPU: vulkan, hwdec, libplacebo]'
+        }
+        @{ Name = 'a build with nothing for the GPU'; Files = @(& $file 'mpv-build.json' ''); Old = $old
+            New = [pscustomobject]@{ git = 'aaaaaaaaaa'; libplacebo = $old.libplacebo; ffmpeg = 'N-1-gbbbbbbb' }
+            Mpv = @('player/command.c'); Ffmpeg = @('libavformat/hls.c'); Want = ''
+        }
+        @{ Name = "a build whose mpv changes GitHub cannot list"; Files = @(& $file 'mpv-build.json' ''); Old = $old; New = $new
+            Mpv = $null; Ffmpeg = @(); Want = '[GPU: mpv, libplacebo]'
+        }
+        @{ Name = 'gpu-toggles.lua renamed'; Files = @([pscustomobject]@{ filename = 'portable_config/Scripts/toggles.lua'
+                    previous_filename = 'portable_config/Scripts/gpu-toggles.lua'; status = 'renamed'; patch = $null
+                }); Want = '[GPU: gpu-toggles]'
+        }
+        @{ Name = 'a file list GitHub cut short'; Files = @(& $file 'README.md' "@@`n+x"); Unread = @('GitHub listed 3000 of its 4000 files')
+            Want = '[GPU: unknown]'
+        }
+        @{ Name = 'an mpv.conf diff too large to show'; Files = @([pscustomobject]@{ filename = 'portable_config/mpv.conf'; status = 'modified'; patch = $null })
+            Want = '[GPU: unknown]'
+        }
+        @{ Name = "FFmpeg's D3D11 decoding"; Files = @(& $file 'mpv-build.json' ''); Old = $old
+            New = [pscustomobject]@{ git = $old.git; libplacebo = $old.libplacebo; ffmpeg = 'N-2-gcccccccc' }
+            Mpv = @(); Ffmpeg = @('libavcodec/d3d11va.c'); Want = '[GPU: FFmpeg d3d11va]'
+        }
+    )
+    $flagBad = @(foreach ($c in $flagCases) {
+            $got = Get-GpuTag (Get-GpuReason -Files $c.Files -OldBuild $c['Old'] -NewBuild $c['New'] -MpvFiles $c['Mpv'] -FfmpegFiles $c['Ffmpeg'] -Unread $c['Unread'])
+            if ($got -ne $c.Want) { "$($c.Name): got '$got', want '$($c.Want)'" }
+        })
+    Test-Check $t "gpu-flag.ps1 flags what CI cannot test on a GPU, and nothing else ($($flagCases.Count) cases)" ($flagBad.Count -eq 0) ($flagBad -join '; ')
+
     # -- commit guard (.githooks), tried in a throwaway repo ----------------------------
     # 2026-09-27: an mpv update was committed on a feature branch and a pull deleted
     # mpv.exe; since 2026-10-03 the files are not in git at all and the guard keeps

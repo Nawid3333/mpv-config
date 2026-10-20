@@ -80,6 +80,8 @@ makes a folder match it; `updater.bat` (= `installer/update.ps1`) does `git pull
 refreshes a FastStream helper the one-click install set up.
 `.github/workflows/mpv-auto-update.yml` offers each new build that passes the suite
 as ONE rolling pull request (`mpv-update`); CI has no GPU, so the owner merges it.
+shinchiro builds mpv's newest commit daily: a build of a commit mpv's own CI failed is
+never offered (one that it still tests waits a day).
 mpv's own files and `yt-dlp.exe` are gitignored; the pre-commit hook refuses them.
 
 **One-click install** for other PCs (`install.bat` / `installer/setup.ps1`): into
@@ -200,7 +202,11 @@ no window, never touches the live config - it runs copies in
 `%TEMP%\mpv-regression`); `-Tier static` (no mpv); `-Tier gpu` (real renderer
 fullscreen, only with no mpv open and the owner's go-ahead; it stops at the first
 lost GPU device) - due for any change to shaders, gpu-toggles, renderer/hwdec
-options or the pinned build. Manual probes: give the clip no siblings
+options or the pinned build. Such a pull request (and an mpv build whose video output,
+libplacebo or FFmpeg D3D11 decoding changed) gets `[GPU: <areas>]` in its title, the
+label gpu, a comment saying what, and the check "GPU tier (local)", pending until
+`pwsh tests	ry-gpu.ps1 -Pr <n>` (no mpv open) has run the gpu tier on its commit and
+build in a folder of its own (`gpu-flag.yml`, `.github/scripts/gpu-flag.ps1`). Manual probes: give the clip no siblings
 (`autoload.lua` queues them) and back up `speed.json` (remember-speed restores and
 rewrites it); judge upscaling on `test-media/`'s clean clips (gitignored), never on
 a soft low-bitrate film - one misled a Movie decision once. CI runs static + headless on every

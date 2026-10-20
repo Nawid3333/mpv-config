@@ -637,3 +637,29 @@ schedule after 60 quiet days (public repositories only); the shader installer an
 readable with this login's token scope) and a mirror of the pinned build against shinchiro
 pruning it after about 30 releases (only matters if updates go unmerged for a month; the
 failure issue warns).
+
+## 2026-10-20 (evening): no mpv build merged untested on the GPU
+
+The owner asked how a problematic mpv build is kept from being merged: shinchiro builds
+mpv's newest commit every day, not releases. What the suite covers (static + headless on
+CI, ~1100 checks against the exact binary: options, scripts, playback, streams, IPC) and
+what it cannot (no GPU: Vulkan, d3d11va, the shader chains) stayed as they were; two guards
+came beside them, at his choice ("upstream CI + GPU check first", over automatic GPU runs on
+his PC - unattended GPU runs are what crashed Windows on 2026-10-12).
+
+- **mpv's own CI**: the build's commit is in its asset name, and mpv tests every commit on
+  GitHub (51 check runs on 6a262d11f6, the 20261020 build: 46 passed, 5 skipped). A build of
+  a commit with a failed check is not offered; one still being tested waits a day.
+- **The GPU flag** (`gpu-flag.yml`, `.github/scripts/gpu-flag.ps1`; his wish: "info in the
+  pull request's title when something in the GPU pipeline changed"): a pull request that
+  changes shaders, gpu-toggles, the shader cache, renderer/hwdec options in mpv.conf or in a
+  script's quoted option names, or an mpv build whose upstream diff reaches video output
+  (vulkan, gpu-next, d3d11, hwdec, the window, frame timing), libplacebo, or FFmpeg's D3D11
+  decoding, gets `[GPU: <areas>]` in its title, the label gpu, a comment listing why, and the
+  pending check "GPU tier (local)". `tests/try-gpu.ps1 -Pr <n>` installs the pull request's
+  commit and pinned build into %TEMP% (a worktree; the live folder untouched), runs the gpu
+  tier there and sets the check; a lost device marks the commit so it is not run again
+  without -Force. The 20261018 -> 20261020 update would have read `[GPU: vulkan, hwdec,
+  libplacebo]` (hwdec_vulkan.c and vulkan/context.c changed upstream; FFmpeg's 117 commits
+  had none in D3D11 decoding). The bot's pull requests start no pull_request workflow, so
+  mpv-auto-update.yml calls the script itself.
