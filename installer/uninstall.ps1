@@ -5,7 +5,8 @@
 .DESCRIPTION
     uninstall.bat (Start menu: Uninstall mpv) runs this (2026-10-09):
 
-      1. the "Open with" entries (mpv --unregister), if they are this mpv's -
+      1. the "Open with" entries (mpv-single-unregister.ps1, then
+         mpv --unregister), if they are this mpv's -
          every mpv shares them, and another one registered keeps them;
       2. the Start menu folder "mpv", if its shortcut starts this mpv;
       3. the FastStream helper, if the setup installed it for this mpv
@@ -89,6 +90,12 @@ try {
             Write-Host "The Open with entries belong to another mpv ($registered): left as they are."
         }
         elseif ($registered -and (Test-Path -LiteralPath (Join-Path $Root 'mpv.com'))) {
+            # first what setup.ps1's mpv-single-register.ps1 added ('mpv (single instance)')
+            $single = Join-Path $Root 'mpv-single-unregister.ps1'
+            if (Test-Path -LiteralPath $single) {
+                $r = Invoke-Native (Get-Process -Id $PID).Path @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $single)
+                if ($r.Code -ne 0) { Write-Host "mpv-single-unregister.ps1 failed: $($r.Out | Select-Object -Last 2)" -ForegroundColor Yellow }
+            }
             $r = Invoke-Native (Join-Path $Root 'mpv.com') @('--no-config', '--unregister')
             if ($r.Code -eq 0) { Write-Host '"Open with" entries removed.' }
             else { Write-Host "mpv --unregister failed (exit $($r.Code)): $($r.Out | Select-Object -Last 2)" -ForegroundColor Yellow }

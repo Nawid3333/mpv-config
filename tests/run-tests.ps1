@@ -123,7 +123,7 @@ function Invoke-OneClickCheck([string]$t) {
     $installer = Join-Path $RepoRoot 'installer'
     # every script Windows PowerShell 5.1 runs: it reads a UTF-8 file without a BOM
     # as ANSI, so one non-ASCII character in a string comes out garbled
-    $nonAscii = @(Get-ChildItem (Join-Path $installer '*.ps1'), (Join-Path $RepoRoot '*.bat') | Where-Object {
+    $nonAscii = @(Get-ChildItem (Join-Path $installer '*.ps1'), (Join-Path $RepoRoot 'mpv-single-*.ps1'), (Join-Path $RepoRoot '*.bat') | Where-Object {
             @([IO.File]::ReadAllBytes($_.FullName) | Where-Object { $_ -gt 127 }).Count
         } | ForEach-Object Name)
     Test-Check $t 'installer scripts and .bat files are plain ASCII (Windows PowerShell 5.1, cmd)' ($nonAscii.Count -eq 0) ($nonAscii -join ', ')
@@ -964,6 +964,7 @@ function Invoke-StaticCheck {
     }
 
     Invoke-OneClickCheck $t
+    Invoke-RegisterCheck $t
 
     # -- commit guard (.githooks), tried in a throwaway repo ----------------------------
     # 2026-09-27: an mpv update was committed on a feature branch and a pull deleted
@@ -1203,13 +1204,18 @@ function Invoke-StaticCheck {
 }
 
 # ---------------------------------------------------------------------------
-# mpv-single.exe (the "Open with" launcher), built from mpv-single.cs: files
-# opened at once - Explorer starts one launcher per selected file, within a few
-# milliseconds - go into ONE mpv, all of them in its playlist; a file opened
-# later replaces them, as before. Until 2026-10-10 three files at once were
-# three mpv players. mpv runs with vo=null/ao=null and quits at its playlist's
-# end; the launcher's pipe name is the real one, so nothing runs while another
-# mpv does.
+# mpv-single.exe (what Explorer starts for mpv's file types), built from
+# mpv-single.cs, with single-instance.lua: files opened at once - Explorer
+# starts one launcher per selected file, within a few milliseconds - go into
+# ONE mpv (in mpv's GUI mode), all of them in its playlist; a file opened later
+# replaces them in that mpv, never in one that plays a stream; the banner's way
+# out (accept) puts the old files back and plays the new one on in a second mpv,
+# from where it got to; Ctrl opens a new mpv; with only a stream playing a local
+# file gets its own mpv; an mpv without the script (on the one pipe name older
+# launchers used) still gets the file. mpv runs with vo=null/ao=null, so no
+# window: which window is in front (the launcher's choice among several local
+# ones) is not covered. The players' pipes have a prefix of their own
+# (MPV_SINGLE_PIPE_PREFIX): a file the owner opens meanwhile never lands in one.
 # ---------------------------------------------------------------------------
 function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
     $t = 'mpv-single'
@@ -1218,10 +1224,10 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
     $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
     if (-not (Test-Path -LiteralPath $csc)) { Add-Result $t 'mpv-single.exe' 'SKIP' 'no .NET Framework csc.exe to build it'; return }
     $running = @(Get-Process mpv, mpv-single -ErrorAction SilentlyContinue)
-    if ($running.Count) { Add-Result $t 'mpv-single.exe' 'SKIP' "an mpv runs (pid $($running.Id -join ', ')): the launcher's pipe name is shared"; return }
+    if ($running.Count) { Add-Result $t 'mpv-single.exe' 'SKIP' "an mpv runs (pid $($running.Id -join ', ')): the owner may be watching"; return }
     $dir = Join-Path $WorkDir 'mpv-single'
     Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item -ItemType Directory -Force (Join-Path $dir 'portable_config'), (Join-Path $dir 'media') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $dir 'portable_config'), (Join-Path $dir 'media'), (Join-Path $dir 'other') | Out-Null
     $built = & $csc /nologo /target:winexe "/out:$(Join-Path $dir 'mpv-single.exe')" (Join-Path $RepoRoot 'mpv-single.cs') 2>&1
     if (-not (Test-Path -LiteralPath (Join-Path $dir 'mpv-single.exe'))) { Add-Result $t 'mpv-single.cs builds' 'FAIL' ($built -join ' '); return }
     # mpv.com too, which the launcher starts: the pinned build's folder, not the test root
@@ -1230,27 +1236,39 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
     foreach ($f in 'mpv.exe', 'mpv.com', 'd3dcompiler_43.dll') {
         if (Test-Path -LiteralPath (Join-Path $bin $f)) { Copy-Item -LiteralPath (Join-Path $bin $f) $dir }
     }
-    # each file stops at 0:06, and mpv quits when its playlist is done
-    Set-Content -LiteralPath (Join-Path $dir 'portable_config/mpv.conf') "vo=null`nao=null`nkeep-open=no`nidle=no`nload-scripts=no`nend=6"
-    foreach ($n in 'a', 'b', 'c', 'd') { Copy-Item -LiteralPath (Join-Path $Media 'plain/clip.mkv') (Join-Path $dir "media/$n.mkv") }
+    # mpv players that are not the launcher's: another folder's mpv.exe
+    Copy-Item -LiteralPath (Join-Path $dir 'mpv.exe') (Join-Path $dir 'other/mpv.exe')
+    # a file plays on (a slow runner would reach the next one between two checks), and the
+    # banner's offer outlasts the checks
+    Copy-Item -LiteralPath (Join-Path $Cfg 'Scripts/single-instance.lua') (Join-Path $dir 'portable_config/single-instance.lua')
+    Set-Content -LiteralPath (Join-Path $dir 'portable_config/mpv.conf') (
+        "vo=null`nao=null`nkeep-open=no`nidle=no`nload-scripts=no`nscript=~~/single-instance.lua`n" +
+        "script-opts=single_instance-banner_seconds=60`nloop-file=inf")
+    foreach ($n in 'a', 'b', 'c', 'd', 'e', 'f', 'g') { Copy-Item -LiteralPath (Join-Path $Media 'plain/clip.mkv') (Join-Path $dir "media/$n.mkv") }
     $launcher = Join-Path $dir 'mpv-single.exe'
+    $open = { param([string]$Name) Start-Process -FilePath $launcher -ArgumentList ('"' + (Join-Path $dir "media/$Name.mkv") + '"') }
     $players = { @(Get-Process mpv -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq (Join-Path $dir 'mpv.exe') }) }
     $launchersDone = {
         $clock = [Diagnostics.Stopwatch]::StartNew()
         while ($clock.ElapsedMilliseconds -lt 20000 -and
             @(Get-Process mpv-single -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $launcher }).Count) { Start-Sleep -Milliseconds 100 }
     }
-    # a property of the mpv behind the launcher's pipe
-    $ask = {
-        param([string]$Name)
-        $pipe = $null
+    $waitFor = {
+        param([scriptblock]$Done, [int]$Ms = 5000)
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        while (-not (& $Done) -and $clock.ElapsedMilliseconds -lt $Ms) { Start-Sleep -Milliseconds 200 }
+    }
+    # one command to the mpv behind a pipe; its reply's data
+    $call = {
+        param([string]$Pipe, [string]$Command)
+        $client = $null
         try {
-            $pipe = [IO.Pipes.NamedPipeClientStream]::new('.', 'mpv-single', [IO.Pipes.PipeDirection]::InOut)
-            $pipe.Connect(3000)
-            $writer = [IO.StreamWriter]::new($pipe)
+            $client = [IO.Pipes.NamedPipeClientStream]::new('.', $Pipe, [IO.Pipes.PipeDirection]::InOut)
+            $client.Connect(3000)
+            $writer = [IO.StreamWriter]::new($client)
             $writer.AutoFlush = $true
-            $reader = [IO.StreamReader]::new($pipe)
-            $writer.WriteLine('{"command":["get_property","' + $Name + '"],"request_id":41}')
+            $reader = [IO.StreamReader]::new($client)
+            $writer.WriteLine('{"command":' + $Command + ',"request_id":41}')
             for ($i = 0; $i -lt 50; $i++) {
                 $line = $reader.ReadLineAsync()
                 if (-not $line.Wait(3000)) { return $null }
@@ -1259,51 +1277,221 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
             return $null
         }
         catch { return $null }
-        finally { if ($pipe) { $pipe.Dispose() } }
+        finally { if ($client) { $client.Dispose() } }
     }
-    $other = $null
+    $ask = { param([string]$Pipe, [string]$Name) & $call $Pipe ('["get_property","' + $Name + '"]') }
+    # the pipe of the mpv with this process id
+    $pipeOf = {
+        param([int]$ProcessId)
+        foreach ($p in [IO.Directory]::GetFiles('\\.\pipe\') -replace '^.*\\' -like "$prefix*") {
+            if ((& $ask $p 'pid') -eq $ProcessId) { return $p }
+        }
+    }
+    $prefix = 'mpv-regression-single'
+    $stream = $other = $bare = $null
     try {
-        foreach ($n in 'a', 'b', 'c') { Start-Process -FilePath $launcher -ArgumentList ('"' + (Join-Path $dir "media/$n.mkv") + '"') }
+        $env:MPV_SINGLE_PIPE_PREFIX = $prefix
+        foreach ($n in 'a', 'b', 'c') { & $open $n }
         & $launchersDone
         # the old launcher ended at once: its mpv players start a moment later
         Start-Sleep -Milliseconds 1500
-        $count = @(& $players).Count
-        $playlist = & $ask 'playlist-count'
-        Test-Check $t 'three files opened at once go into one mpv' ($count -eq 1) "$count mpv players"
+        $first = @(& $players)
+        $main = if ($first.Count -eq 1) { & $pipeOf $first[0].Id }
+        $playlist = if ($main) { & $ask $main 'playlist-count' }
+        Test-Check $t 'three files opened at once go into one mpv' ($first.Count -eq 1 -and $main) "$($first.Count) mpv players, pipe $main"
         Test-Check $t '... all three in its playlist' ($playlist -eq 3) "playlist-count $playlist"
-        # A second mpv (FastStream's, one opened with Ctrl held) runs too: the window raised
-        # after the hand-off is the one of the mpv behind the pipe (2026-10-12; it was the
-        # first process named mpv with a window). MPV_SINGLE_RAISE_LOG makes the launcher
-        # write the process id it would raise, and raise nothing on this desktop.
-        New-Item -ItemType Directory -Force (Join-Path $dir 'other') | Out-Null
-        Copy-Item -LiteralPath (Join-Path $dir 'mpv.exe') (Join-Path $dir 'other/mpv.exe')
+        # as mpv.exe started from Explorer: a window at once, also for a song with no picture
+        $mode = if ($main) { & $ask $main 'player-operation-mode' }
+        Test-Check $t "... in mpv's GUI mode (pseudo-gui), not mpv.com's console mode" ($mode -eq 'pseudo-gui') "player-operation-mode $mode"
+
+        # Beside it: an mpv that plays a stream on a pipe of the launcher's kind, and a second
+        # mpv with no pipe (FastStream's, say). The file goes to neither; the window raised
+        # after the hand-off is the one of the mpv behind the pipe (it was the first process
+        # named mpv with a window). MPV_SINGLE_RAISE_LOG makes the launcher write the process id
+        # it would raise, and raise nothing on this desktop.
+        $streamPipe = "$prefix-stream"
+        $stream = Start-Process -FilePath (Join-Path $dir 'other/mpv.exe') -PassThru -WindowStyle Hidden -ArgumentList '--no-config',
+        '--idle=yes', '--vo=null', '--ao=null', "--input-ipc-server=\\.\pipe\$streamPipe", 'av://lavfi:testsrc=duration=600'
         $other = Start-Process -FilePath (Join-Path $dir 'other/mpv.exe') -ArgumentList '--no-config', '--idle=yes', '--vo=null', '--ao=null' -PassThru -WindowStyle Hidden
+        & $waitFor { (& $ask $streamPipe 'path') -like 'av://*' }
         $raiseLog = Join-Path $dir 'raised.txt'
+        # the burst's first file: whichever launcher got the gate first
+        $was = & $ask $main 'filename'
         $env:MPV_SINGLE_RAISE_LOG = $raiseLog
-        try { Start-Process -FilePath $launcher -ArgumentList ('"' + (Join-Path $dir 'media/d.mkv') + '"') }
+        try { & $open 'd' }
         finally { Remove-Item Env:MPV_SINGLE_RAISE_LOG -ErrorAction SilentlyContinue }
         & $launchersDone
         # The launcher has handed it over; a slow machine's mpv may take a moment to swap.
-        $clock = [Diagnostics.Stopwatch]::StartNew()
-        do {
-            $count = @(& $players).Count
-            $playlist = & $ask 'playlist-count'
-            $file = & $ask 'filename'
-            if ($playlist -eq 1 -and $file -eq 'd.mkv') { break }
-            Start-Sleep -Milliseconds 200
-        } while ($clock.ElapsedMilliseconds -lt 5000)
+        & $waitFor { (& $ask $main 'playlist-count') -eq 1 -and (& $ask $main 'filename') -eq 'd.mkv' }
+        $count = @(& $players).Count
+        $playlist = & $ask $main 'playlist-count'
+        $file = & $ask $main 'filename'
         Test-Check $t '... a file opened later replaces them, in the same mpv' (
             $count -eq 1 -and $playlist -eq 1 -and $file -eq 'd.mkv') "$count mpv players, playlist-count $playlist, playing $file"
-        $served = & $ask 'pid'
+        $streamPath = & $ask $streamPipe 'path'
+        Test-Check $t '... not in the mpv that plays a stream' ($streamPath -like 'av://*') "the stream mpv plays $streamPath"
+        $served = & $ask $main 'pid'
         $raised = if (Test-Path -LiteralPath $raiseLog) { (Get-Content -LiteralPath $raiseLog -Raw).Trim() } else { 'nothing' }
-        Test-Check $t '... and the window raised is that mpv''s, not the other one''s' (
-            $null -ne $served -and $raised -eq [string]$served) "raised $raised, the pipe's mpv $served, the other mpv $($other.Id)"
+        Test-Check $t '... and the window raised is that mpv''s, not another one''s' (
+            $null -ne $served -and $raised -eq [string]$served) "raised $raised, the pipe's mpv $served, the others $($stream.Id), $($other.Id)"
+        $offered = & $ask $main 'user-data/single-instance'
+        Test-Check $t '... and its banner offers the old files back' ($was -and "$($offered.offer.old)" -like "*$was") "was playing $was; $($offered | ConvertTo-Json -Compress)"
+
+        # the banner clicked: a second mpv plays the new file on, the first the old ones
+        $played = & $ask $main 'time-pos'
+        $null = & $call $main '["script-message-to","single_instance","accept"]'
+        & $waitFor { @(& $players).Count -eq 2 } 10000
+        & $launchersDone
+        $second = @(& $players | Where-Object { $_.Id -ne $served })
+        $secondPipe = if ($second.Count -eq 1) { & $pipeOf $second[0].Id }
+        $file = if ($secondPipe) { & $ask $secondPipe 'filename' }
+        # its start, not its time-pos: the launcher waits for a window that vo=null never
+        # opens, and the file plays on meanwhile
+        $start = if ($secondPipe) { & $ask $secondPipe 'file-local-options/start' }
+        $at = if ("$start" -match '[\d.]+') { [double]$Matches[0] } else { $null }
+        Test-Check $t 'the banner''s click: the new file goes on in a second mpv' ($second.Count -eq 1 -and $file -eq 'd.mkv') "$($second.Count) new mpv players, playing $file"
+        Test-Check $t '... from where it got to' ($null -ne $at -and $null -ne $played -and $at -ge $played - 0.1 -and $at -le $played + 1.5) "start $start, was at $played"
+        & $waitFor { (& $ask $main 'filename') -eq $was }
+        $file = & $ask $main 'filename'
+        $playlist = & $ask $main 'playlist-count'
+        Test-Check $t '... and the old files come back in the first' ($file -eq $was -and $playlist -eq 3) "playing $file (was $was), playlist-count $playlist"
+
+        # Ctrl held (MPV_SINGLE_CTRL: no key press is sent): a new mpv, the others untouched
+        $env:MPV_SINGLE_CTRL = '1'
+        try { & $open 'e' }
+        finally { Remove-Item Env:MPV_SINGLE_CTRL -ErrorAction SilentlyContinue }
+        & $launchersDone
+        & $waitFor { @(& $players).Count -eq 3 }
+        $count = @(& $players).Count
+        $file = & $ask $main 'filename'
+        Test-Check $t 'a file opened with Ctrl held gets a new mpv' ($count -eq 3 -and $file -eq $was) "$count mpv players, the first plays $file"
+
+        # only a stream plays: a local file gets an mpv of its own
+        & $players | Stop-Process -Force -ErrorAction SilentlyContinue
+        & $waitFor { @(& $players).Count -eq 0 }
+        & $open 'f'
+        & $launchersDone
+        & $waitFor { @(& $players).Count -eq 1 }
+        $count = @(& $players).Count
+        $streamPath = & $ask $streamPipe 'path'
+        Test-Check $t 'with only a stream playing, a local file gets its own mpv' (
+            $count -eq 1 -and $streamPath -like 'av://*') "$count mpv players, the stream mpv plays $streamPath"
+
+        # an mpv without single-instance.lua, on the pipe name older launchers gave every mpv
+        & $players | Stop-Process -Force -ErrorAction SilentlyContinue
+        $stream | Stop-Process -Force -ErrorAction SilentlyContinue
+        & $waitFor { @(& $players).Count -eq 0 }
+        $bare = Start-Process -FilePath (Join-Path $dir 'other/mpv.exe') -PassThru -WindowStyle Hidden -ArgumentList '--no-config',
+        '--idle=yes', '--vo=null', '--ao=null', "--input-ipc-server=\\.\pipe\$prefix", ('"' + (Join-Path $dir 'media/a.mkv') + '"')
+        & $waitFor { (& $ask $prefix 'filename') -eq 'a.mkv' }
+        & $open 'g'
+        & $launchersDone
+        & $waitFor { (& $ask $prefix 'filename') -eq 'g.mkv' }
+        $file = & $ask $prefix 'filename'
+        $count = @(& $players).Count
+        Test-Check $t 'an mpv without single-instance.lua (an older launcher''s) still gets the file' (
+            $file -eq 'g.mkv' -and $count -eq 0) "it plays $file; $count new mpv players"
     }
     finally {
-        if ($other) { $other | Stop-Process -Force -ErrorAction SilentlyContinue }
-        $left = & $players
-        $left | Wait-Process -Timeout 30 -ErrorAction SilentlyContinue
+        Remove-Item Env:MPV_SINGLE_PIPE_PREFIX -ErrorAction SilentlyContinue
+        foreach ($p in $stream, $other, $bare) { if ($p) { $p | Stop-Process -Force -ErrorAction SilentlyContinue } }
         & $players | Stop-Process -Force -ErrorAction SilentlyContinue
+        Get-Process mpv-single -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $launcher } | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# ---------------------------------------------------------------------------
+# mpv-single-register.ps1 / -unregister.ps1, on stand-in roots under
+# HKCU:\Software\mpv-config-tests (never the real file types), in Windows
+# PowerShell 5.1 as the .bat files run them: mpv's own entries of this folder's
+# mpv open through mpv-single.exe - a PC-wide one (mpv-install.bat) gets the
+# user's command over it, the user's own (mpv --register) is replaced - while a
+# disc handler and another mpv's entry stay; a second run changes nothing;
+# unregister puts back exactly what was there.
+# ---------------------------------------------------------------------------
+function Invoke-RegisterCheck([string]$t) {
+    $base = 'HKCU:\Software\mpv-config-tests\single'
+    $merged = "$base\merged" # what Windows reads: the PC's entries with the user's over them
+    $user = "$base\user" # the user's own (HKCU\Software\Classes)
+    $dir = Join-Path $WorkDir 'register'
+    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
+    $null = New-Item -ItemType Directory -Force $dir
+    foreach ($f in 'mpv-single-register.ps1', 'mpv-single-unregister.ps1') { Copy-Item -LiteralPath (Join-Path $RepoRoot $f) $dir }
+    Set-Content -LiteralPath (Join-Path $dir 'mpv-single.exe') '' # register only checks that it is there
+    $mpv = Join-Path $dir 'mpv.exe'
+    $launcher = '"' + (Join-Path $dir 'mpv-single.exe') + '" "%1"'
+    $pcCommand = "`"$mpv`"  -- `"%L`"" # mpv-install.bat's, its two spaces included
+    $userCommand = "`"$mpv`" -- `"%L`"" # mpv --register's
+    $set = {
+        param([string]$Root, [string]$Name, [string]$Verb, [string]$Command)
+        $key = "$Root\$Name\shell\$Verb\command"
+        $null = New-Item -Path $key -Force
+        Set-ItemProperty -LiteralPath $key -Name '(default)' -Value $Command
+    }
+    $get = {
+        param([string]$Root, [string]$Name, [string]$Verb, [string]$Value = '')
+        $key = Get-Item -LiteralPath "$Root\$Name\shell\$Verb\command" -ErrorAction SilentlyContinue
+        if ($key -and $key.GetValueNames() -contains $Value) { "$($key.GetValue($Value))" }
+    }
+    $ps51 = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object Source
+    $shell = $ps51 ? $ps51 : (Get-Process -Id $PID).Path
+    $run = {
+        param([string]$Script, [string[]]$More)
+        $out = & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $dir $Script) -ClassesRoot $user @More 2>&1 | Out-String
+        @{ Code = $LASTEXITCODE; Out = $out.Trim() }
+    }
+    Remove-Item -LiteralPath $base -Recurse -Force -ErrorAction SilentlyContinue
+    try {
+        foreach ($verb in 'play', 'open') { & $set $merged 'io.mpv.mp3' $verb $pcCommand }
+        & $set $merged 'Applications\mpv.exe' 'play' $pcCommand
+        & $set $merged 'io.mpv.dvd' 'play' "`"$mpv`" dvd:// --dvd-device=`"%L`""
+        & $set $merged 'io.mpv.mkv' 'play' "`"C:\Other mpv\mpv.exe`" -- `"%L`""
+        foreach ($root in $merged, $user) { & $set $root 'io.mpv.file' 'open' $userCommand }
+        foreach ($root in $merged, $user) { & $set $root 'io.mpv.wav' 'open' $userCommand }
+
+        $r = & $run 'mpv-single-register.ps1' @('-MergedRoot', $merged, '-Quiet')
+        Test-Check $t 'mpv-single-register.ps1 runs' ($r.Code -eq 0) $r.Out
+        Test-Check $t "... a PC-wide mpv file type opens through mpv-single.exe, both verbs (the user's command over it)" (
+            (& $get $user 'io.mpv.mp3' 'play') -eq $launcher -and (& $get $user 'io.mpv.mp3' 'open') -eq $launcher -and
+            (& $get $user 'io.mpv.mp3' 'play' 'mpv-single-was') -eq '') "play: $(& $get $user 'io.mpv.mp3' 'play')"
+        Test-Check $t '... so does Open with > mpv' ((& $get $user 'Applications\mpv.exe' 'play') -eq $launcher) "$(& $get $user 'Applications\mpv.exe' 'play')"
+        Test-Check $t "... and the user's own (mpv --register), its command kept for the way back" (
+            (& $get $user 'io.mpv.file' 'open') -eq $launcher -and (& $get $user 'io.mpv.file' 'open' 'mpv-single-was') -eq $userCommand) `
+            "$(& $get $user 'io.mpv.file' 'open') / was $(& $get $user 'io.mpv.file' 'open' 'mpv-single-was')"
+        Test-Check $t "... a disc handler and another mpv's file type stay as they are" (
+            -not (Test-Path -LiteralPath "$user\io.mpv.dvd") -and -not (Test-Path -LiteralPath "$user\io.mpv.mkv")) ''
+        Test-Check $t "... and 'mpv (single instance)' is in Open with" (
+            (Get-ItemProperty -LiteralPath "$user\.mp3\OpenWithProgids" -Name 'mpv-single.File' -ErrorAction SilentlyContinue) -and
+            (& $get $user 'mpv-single.File' 'open') -eq $launcher) ''
+
+        # the user's commands as Windows would read them now, then a second run
+        & $set $merged 'io.mpv.file' 'open' $launcher
+        $r = & $run 'mpv-single-register.ps1' @('-MergedRoot', $merged, '-Quiet')
+        Test-Check $t '... run again, it keeps the commands it kept the first time' (
+            $r.Code -eq 0 -and (& $get $user 'io.mpv.file' 'open' 'mpv-single-was') -eq $userCommand -and
+            (& $get $user 'io.mpv.mp3' 'play' 'mpv-single-was') -eq '') $r.Out
+
+        # another mpv registered since (mpv --register from its own folder): its command, our note
+        $otherCommand = "`"C:\Other mpv\mpv.exe`" -- `"%L`""
+        Set-ItemProperty -LiteralPath "$user\io.mpv.wav\shell\open\command" -Name '(default)' -Value $otherCommand
+
+        $r = & $run 'mpv-single-unregister.ps1' @()
+        Test-Check $t 'mpv-single-unregister.ps1 runs' ($r.Code -eq 0) $r.Out
+        Test-Check $t "... leaves an entry another mpv registered since as that mpv's, only its note gone" (
+            (& $get $user 'io.mpv.wav' 'open') -eq $otherCommand -and $null -eq (& $get $user 'io.mpv.wav' 'open' 'mpv-single-was')) `
+            "$(& $get $user 'io.mpv.wav' 'open') / was $(& $get $user 'io.mpv.wav' 'open' 'mpv-single-was')"
+        Test-Check $t '... the commands over the PC-wide entries are gone' (
+            -not (Test-Path -LiteralPath "$user\io.mpv.mp3") -and -not (Test-Path -LiteralPath "$user\Applications\mpv.exe")) ''
+        Test-Check $t "... the user's own entry has its command back" (
+            (& $get $user 'io.mpv.file' 'open') -eq $userCommand -and $null -eq (& $get $user 'io.mpv.file' 'open' 'mpv-single-was')) `
+            "$(& $get $user 'io.mpv.file' 'open')"
+        Test-Check $t "... and 'mpv (single instance)' is gone" (
+            -not (Test-Path -LiteralPath "$user\mpv-single.File") -and
+            -not (Get-ItemProperty -LiteralPath "$user\.mp3\OpenWithProgids" -Name 'mpv-single.File' -ErrorAction SilentlyContinue)) ''
+    }
+    finally {
+        Remove-Item -LiteralPath 'HKCU:\Software\mpv-config-tests' -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -1752,6 +1940,12 @@ $HeadlessTests = @(
     @{ Name = 'mouse'; Phases = @(@{ Script = 'headless/test-mouse.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'notify'; Phases = @(@{ Script = 'headless/test-notify.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'notify-render'; Phases = @(@{ Script = 'headless/test-notify-render.lua'; File = $RealOsdClip; Args = $RealOsd }) }
+    # an OSD surface for the banner's box (the click's target); 2 frames a second, so sixel
+    # writes little while the clips play
+    @{ Name = 'single-instance'; Phases = @(@{ Script = 'headless/test-single-instance.lua'; File = 'plain/clip.mkv'
+            Args = $RealOsd + @('--vf=fps=2', '--script-opts-append=single_instance-banner_seconds=2')
+        })
+    }
     @{ Name = 'bottom-bar'; Phases = @(@{ Script = 'headless/test-bottom-bar.lua'; File = 'subs/movie.mkv' }) }
     @{ Name = 'video-info'; Phases = @(@{ Script = 'headless/test-video-info.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'source-info'; Phases = @(@{ Script = 'headless/test-source-info.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=source_info-launch=no') }) }

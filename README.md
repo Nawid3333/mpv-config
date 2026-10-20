@@ -84,6 +84,18 @@ suite checks every feature.
 - The last speed is remembered across restarts, separately for videos and
   songs.
 
+**One window for your files**
+- A video or song you open from Explorer while mpv plays a local file goes
+  into that window instead of a second one, like Windows Media Player. With
+  several mpv windows open, the one you used last gets it. Files you select
+  and open together become one playlist.
+- A window playing a stream (from FastStream, a web link) is left alone: a
+  local file then gets a window of its own.
+- For a few seconds a banner top right offers **Play this in a new window**:
+  one click puts the old file back, at the same second, and the new one
+  plays on in a second window. Hold `Ctrl` while opening a file to get a new
+  window straight away.
+
 **Streams from the browser**
 - Works with a [FastStream fork](https://github.com/Nawid3333/FastStream) for
   Firefox that hands browser videos to mpv. See
@@ -133,7 +145,8 @@ install Git or Node.js either. The setup:
    copy of Node.js (the runtime the helper is written for). Then it opens the
    signed FastStream add-on in Firefox: click **Add**;
 4. adds mpv to the **Open with** list you get when you right-click a video or
-   audio file (your default player is not changed), and a Start menu folder
+   audio file (your default player is not changed), so that a file you open
+   while mpv plays one goes into that window, and a Start menu folder
    **mpv** with *mpv*, *Update mpv* and *Uninstall mpv*.
 
 When it is done, **restart Firefox** and switch FastStream's MPV mode on (see
@@ -172,8 +185,9 @@ cd "C:\Program Files\mpv"
 # 2. Install mpv itself (the pinned build) and yt-dlp. Run this again later to update:
 .\updater.bat
 
-# 3. Optional: file associations
+# 3. Optional: file associations, then one mpv window for the files you open
 .\mpv-register.bat
+.\mpv-single-register.bat
 ```
 
 Play any video. The first time, a small banner top right shows the shaders

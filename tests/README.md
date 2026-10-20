@@ -131,16 +131,32 @@ move in the same instant makes that first step the origin (traced 2026-09-27:
 1/5 of every drag went missing); `test-subtitle-sync.lua`'s `drag()` waits
 50 ms after the press, as a hand does.
 
+A baseline is read only once the player has settled: `path` changes before the
+other scripts' `file-loaded` handlers run (auto-start.lua clears an inherited
+pause there), so a test that read `pause` right after a hand-off saw the old
+file's pause - `H.expect` the value it builds on first. mpv reports a local path
+with `\` on Windows: compare paths normalized (`test-single-instance.lua`'s `norm`).
+
 Not covered (needs a real window and pointer, or lives outside this repo): what
 uosc draws (layout, the two remaining times, badges on screen), the sync panel's
 look (checked by screenshot in a hidden window when it was built), thumbfast
 previews, the FastStream extension/native host, file associations, the
 installers' downloads.
 
-`mpv-single.exe` (the "Open with" launcher) is checked in the headless tier, built from
-`mpv-single.cs` with .NET Framework's `csc.exe` into its own folder, mpv with `vo=null`/`ao=null`:
-three files opened at once go into one mpv and its playlist, a file opened later replaces them.
-It is skipped while any mpv runs (the launcher's pipe name is shared) and where `mpv.com` is missing.
+`mpv-single.exe` (what Explorer starts for mpv's file types) is checked in the headless tier,
+built from `mpv-single.cs` with .NET Framework's `csc.exe` into its own folder, with
+`single-instance.lua`, mpv with `vo=null`/`ao=null`: three files opened at once go into one mpv
+(in mpv's GUI mode) and its playlist; a file opened later replaces them in that mpv, not in one
+that plays a stream; the banner's way out plays it on in a second mpv from where it got to and
+puts the old files back; Ctrl opens a new mpv (`MPV_SINGLE_CTRL`: no key press is sent); with
+only a stream playing a local file gets its own mpv; an mpv without the script (on the old pipe
+name) still gets the file. Its players' pipes have their own prefix (`MPV_SINGLE_PIPE_PREFIX`),
+so a file opened from Explorer meanwhile never lands in one. Not covered: which of several
+windows is in front (no window under `vo=null`). It is skipped while any mpv runs (the owner
+may be watching) and where `mpv.com` is missing. `test-single-instance.lua` covers the banner
+itself on a real OSD surface (its box, a click and a double click on it, the old playlist back
+at its second, a burst's file not queued twice); the static tier runs
+`mpv-single-register.ps1`/`-unregister.ps1` on stand-in registry keys.
 
 ## Adding a test
 

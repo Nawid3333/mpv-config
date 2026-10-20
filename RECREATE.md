@@ -101,8 +101,11 @@ git config user.email "<id>+<login>@users.noreply.github.com"
 # 4) GLSL shaders (the 12 downloadable files the presets use; adaptive-sharpen is in the repo):
 powershell -ExecutionPolicy Bypass -File installer\install-shaders.ps1
 
-# 5) File associations / App Paths (optional, admin not required):
+# 5) File associations / App Paths (optional, admin not required), then point mpv's file
+#    types at mpv-single.exe (one window for the files you open; run it again after
+#    every mpv-register.bat or installer\mpv-install.bat, which write mpv.exe back):
 .\mpv-register.bat
+.\mpv-single-register.bat
 
 # 6) Optional - mpv does this by itself in the background. Pre-compile now (~8 s, nothing on screen):
 pwsh -File installer\warm-shader-cache.ps1

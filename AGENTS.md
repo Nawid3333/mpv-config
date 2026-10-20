@@ -89,6 +89,16 @@ mpv's own files and `yt-dlp.exe` are gitignored; the pre-commit hook refuses the
 Installer scripts are plain ASCII and run native programs through `Invoke-Native`
 (Windows PowerShell 5.1 turns a redirected stderr line into a terminating error).
 
+**Opening files** (`mpv-single.exe`, built from `mpv-single.cs` - rebuild and commit both,
+the command is in its header; it is LFS): `mpv-single-register.bat` points mpv's own file
+types (`io.mpv.*`, `mpv.File`, `Applications\mpv.exe`, this folder's mpv only) at it with a
+per-user command over them, the old one kept in `mpv-single-was` for the unregister;
+`mpv-register.bat`/`mpv-install.bat` write mpv.exe back, so run it again after them (the
+one-click setup runs it). A local file goes to the front-most mpv window that plays a local
+file or nothing - each mpv the launcher starts has its own pipe `mpv-single-<id>` - never to
+a stream's window; `single-instance.lua` takes it and offers the banner. Ctrl held, or
+`--new-window`: a new mpv; files opened together: one playlist.
+
 **Scripts** (each publishes its state as `user-data/<name>` for the tests):
 
 | Script | Job |
@@ -112,6 +122,7 @@ Installer scripts are plain ASCII and run native programs through `Invoke-Native
 | `video-info.lua`, `music-info.lua` | resolution banner; song title and details panel |
 | `subtitle-sync.lua` | `t`: the sync timeline (audio loudness + subtitle lines, drag to shift) |
 | `subtitle-toggle.lua`, `title-bar.lua` | `c` smart subtitles; black Windows title bar (DWM) |
+| `single-instance.lua` | takes mpv-single.exe's hand-off (`open replace\|append`); after a replace mid-file the banner "Play this in a new window" (8 s; click: the old playlist back at its second, the new file on in a new window) |
 | `uosc/`, `thumbfast.lua`, `autoload.lua` | vendored (uosc 5.13.0, current) |
 
 **uosc local changes**, marked `Local change` in its code, re-applied after every uosc
@@ -175,6 +186,10 @@ at startup was rejected as a visible race.
   black on a slow line. The fixed choices stay in the menu.
 - **The shader warm-up stays**, slimmed (measured 2026-10-05).
 - **Builds are offered, never auto-installed**: the owner merges the mpv-update PR.
+- **Opened files: local with local** (the owner, 2026-10-20): a file from Explorer replaces
+  what plays in the mpv window used last that plays a local file or nothing; a stream's
+  window (FastStream, any URL) is never taken over. The second window is the banner's click
+  or Ctrl - no ask-every-time dialog.
 - `q` is a speed key; quit is Ctrl+w / Ctrl+c (mpv's), Q quits and saves.
 
 ## Testing

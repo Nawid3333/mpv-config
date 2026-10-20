@@ -22,8 +22,9 @@
          the FastStream add-on opened in Firefox for one click
          (installer\install-faststream.ps1; skip with -NoFastStream);
       5. "Open with" entries for video and audio files (mpv --register, for
-         this Windows user only; skip with -NoFileTypes) - unless another mpv
-         is registered already, which keeps them - and a Start menu
+         this Windows user only; skip with -NoFileTypes) that open a file in
+         the mpv window already open (mpv-single-register.ps1) - unless another
+         mpv is registered already, which keeps them - and a Start menu
          folder "mpv" with mpv, "Update mpv" and "Uninstall mpv"
          (skip with -NoShortcuts).
 
@@ -230,7 +231,15 @@ function Invoke-MpvSetup {
     elseif (-not $NoFileTypes -and (Test-Path -LiteralPath (Join-Path $dir 'mpv.com'))) {
         Step '"Open with" entries for video and audio files'
         $r = Invoke-Native (Join-Path $dir 'mpv.com') @('--no-config', '--register')
-        if ($r.Code -eq 0) { Write-Host 'mpv is offered for video and audio files (Open with). Your default player is not changed.' -ForegroundColor Green }
+        if ($r.Code -eq 0) {
+            Write-Host 'mpv is offered for video and audio files (Open with). Your default player is not changed.' -ForegroundColor Green
+            # mpv's file types then start mpv-single.exe: a file opened while mpv plays a
+            # local file plays in that window, not in a second one
+            if ((Invoke-Child (Join-Path $dir 'mpv-single-register.ps1') @('-Quiet')) -eq 0) {
+                Write-Host 'A file you open while mpv plays one goes into that window (Ctrl held: a new window).' -ForegroundColor Green
+            }
+            else { Write-Host 'mpv-single-register.ps1 failed - every file opens its own mpv window.' -ForegroundColor Yellow }
+        }
         else { Write-Host "mpv --register failed (exit $($r.Code)): $($r.Out | Select-Object -Last 2) - mpv itself works." -ForegroundColor Yellow }
     }
     if (-not $NoShortcuts) {

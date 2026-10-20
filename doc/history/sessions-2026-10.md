@@ -564,3 +564,52 @@ now compares with the newest commit whose run of this workflow passed (`gh run l
 success`, an ancestor of the push), so a cancelled commit stays in the range; a pull request
 compares its whole range anyway.
 Checked on the history: the TODO deletion and #105 come out docs-only, #111 not.
+
+## 2026-10-20: one window for the files opened from Explorer
+
+**Report:** a song opened from Explorer while another played opened a second mpv window.
+**Cause:** the defaults the owner had picked (`.mp3`, `.wav`, `.mkv`, `.mp4`, `.avi`) are
+mpv's own file types from `installer/mpv-install.bat` (`io.mpv.<ext>` for the whole PC;
+Windows 11 names the choice in `UserChoiceLatest`), whose `play` and `open` verbs start
+`mpv.exe` itself. `mpv-single.exe` was only a separate "Open with" entry (`mpv-single.File`)
+that never was the default.
+
+**His decisions:** an opened file replaces what plays, as in Windows Media Player; the second
+window is a corner banner offered after the replace, and Ctrl (no ask-every-time dialog);
+with several windows, the one used last; and local with local - a window playing a stream
+(FastStream's, HLS, YouTube, any URL) never gets a local file, which then gets its own window.
+
+**What changed:** `mpv-single-register.ps1` gives mpv's own file types (`io.mpv.*`,
+`mpv.File`, `Applications\mpv.exe`, this folder's mpv only) a per-user command that starts the
+launcher, the old one kept in `mpv-single-was` for the unregister; the one-click setup runs it
+after `mpv --register`, its uninstall undoes it. The launcher gives every mpv it starts its own
+pipe and hands a file to the front-most one that plays a local file or nothing (`path` over
+IPC), through `single-instance.lua`, which snapshots the old playlist and shows the banner;
+a click puts it back (same second, pause kept via auto-start's keep-pause) and starts
+`mpv-single.exe --new-window --start=<s>` for the new file. Measured before relying on it: a
+per-user command over a PC-wide ProgId (`io.mpv.ay`, then removed) resolved through
+AssocQueryString to the user's command for both verbs, while the PC's default verb, type name
+and icon still applied.
+
+**Found on the way:** WIN32_FIND_DATA declared with `long` times is padded, so every pipe name
+read from `\.\pipe\` was shifted and no window was ever found (the burst check passed only
+because a burst uses the remembered pipe); mpv reports a local path with `\` (the script and
+the test compare paths normalized); a test read `pause` before auto-start's `file-loaded`
+handler had run (tests/README now says to wait for the settled value).
+
+**Reviews**, glm-5.3-flash and, at the owner's request, a Claude subagent, each checked against
+the code and the other. Fixed: a Ctrl open within a second of a plain one joined its playlist;
+a launcher whose gate wait timed out (a 15-file burst takes its last one about 11 s) ran
+unlocked - now 60 s, then a window of its own; the launcher started mpv.com, whose mpv is not
+in GUI mode (pseudo-gui) - a song without a picture would have had no window at all; a double
+click on the banner also toggled pause and fullscreen; the unregister restored over a command
+another mpv registered since; files of a burst came twice into the playlist after autoload.lua
+had queued their folder (also before this change); the test players' pipes now have a prefix
+of their own (`MPV_SINGLE_PIPE_PREFIX`), so a file opened meanwhile never lands in one; a start
+check that could not fail; a Ctrl check (`MPV_SINGLE_CTRL`). Refuted: `WaitForPipeDrain`
+throwing on an asynchronous pipe (the check of an mpv without the script passed with no extra
+player); per-user keys hiding the PC's values (measured above). Left: a window that was not
+started by the launcher (the Start menu's mpv, mpv.exe directly) gets no files - put to the
+owner. Each new check went red with its fix taken out (GUI mode, start position, double click,
+the duplicate). Not covered by the suite: which of several windows is in front (no window under
+`vo=null`): checked by hand after the merge.
