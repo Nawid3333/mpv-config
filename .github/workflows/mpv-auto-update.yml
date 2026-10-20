@@ -478,6 +478,14 @@ jobs:
             if [ -n "$issue" ]; then
               gh issue close "$issue" --repo "$GH_REPO" --comment "shinchiro's $latest passed the suite ($run_url): #$pr offers it, for you to merge. Closing."
             fi
+          elif [ "$conclusion" != failure ]; then
+            # No test result: the run waited in the runner queue past the wait above, was
+            # cancelled, or never started. Its branch would read as "failed its tests" and
+            # the build would never be tried again: deleted, the next run tries it anew,
+            # and this run fails, so the workflow-failure issue below says what happened.
+            authgit push -q origin --delete "$branch" || true
+            echo "The suite on $branch ended '$conclusion', not in a test result ($run_url): the next run tries $latest again." >&2
+            exit 1
           else
             main_ci=$(gh run list --repo "$GH_REPO" --workflow regression-tests.yml --branch main --event push --limit 1 \
               --json conclusion,url --jq '.[0] | "\(if .conclusion == "" then "still running" else .conclusion end), \(.url)"' || echo 'unknown')

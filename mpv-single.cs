@@ -39,8 +39,9 @@
 // opened from Explorer meanwhile never sees (nor they the owner's mpv);
 // MPV_SINGLE_CTRL=1 stands for Ctrl held (no key press can be sent).
 //
-// Rebuild after editing:
-//   C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:winexe /out:mpv-single.exe mpv-single.cs
+// Rebuild after editing, and commit both (the exe carries this file as a resource, and the
+// static tier checks it is this very text):
+//   C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe /nologo /target:winexe /resource:mpv-single.cs /out:mpv-single.exe mpv-single.cs
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;

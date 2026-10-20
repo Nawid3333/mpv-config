@@ -966,6 +966,23 @@ function Invoke-StaticCheck {
     Invoke-OneClickCheck $t
     Invoke-RegisterCheck $t
 
+    # -- mpv-single.exe is built from the mpv-single.cs next to it ---------------------
+    # Both are committed, the exe through Git LFS, where no diff shows what it was built
+    # from: an exe built before the last edit of the source would go unnoticed. It carries
+    # its source as a resource (stored as it is), so this is the same text. A checkout
+    # without Git LFS (CI) holds a pointer instead.
+    $singleExe = Join-Path $RepoRoot 'mpv-single.exe'
+    $singleBytes = [IO.File]::ReadAllBytes($singleExe)
+    if ($singleBytes.Length -lt 1024) {
+        Add-Result $t 'mpv-single.exe holds the mpv-single.cs it was built from' 'SKIP' 'a Git LFS pointer in this checkout'
+    }
+    else {
+        $source = [IO.File]::ReadAllBytes((Join-Path $RepoRoot 'mpv-single.cs'))
+        $found = [Text.Encoding]::Latin1.GetString($singleBytes).Contains([Text.Encoding]::Latin1.GetString($source))
+        Test-Check $t 'mpv-single.exe holds the mpv-single.cs it was built from' $found `
+            'rebuild it with the command in mpv-single.cs (with /resource:mpv-single.cs) and commit both'
+    }
+
     # -- commit guard (.githooks), tried in a throwaway repo ----------------------------
     # 2026-09-27: an mpv update was committed on a feature branch and a pull deleted
     # mpv.exe; since 2026-10-03 the files are not in git at all and the guard keeps

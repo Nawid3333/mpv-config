@@ -613,3 +613,27 @@ started by the launcher (the Start menu's mpv, mpv.exe directly) gets no files -
 owner. Each new check went red with its fix taken out (GUI mode, start position, double click,
 the duplicate). Not covered by the suite: which of several windows is in front (no window under
 `vo=null`): checked by hand after the merge.
+
+## 2026-10-20 (later): a flaky HLS check was a real race; reviews of CI
+
+**faststream-quality "HLS: a seek after the switch stays"** failed once on CI (time-pos 6.04
+for a seek to 1). Reproduced on purpose: while an HLS variant switch's restart is pending,
+mpv starts a seek only once the restart is done - after the script's `playback-restart`, whose
+seek back to the old position then replaced it. So a user seeking within the second after a
+quality switch lost the seek. The script now seeks back 0.1 s later, and only when no seek came
+meanwhile; it publishes `user-data/faststream-quality/returning` while its way back is to come,
+which the test waits for (time-pos still shows the old position during the restart, so the
+old wait passed too early). A new check seeks during the restart: with the old seek back it
+fails as CI did (time-pos 6.10), with the fix it passes.
+
+**glm-5.3-flash reviewed the CI and update flow** (checked against the code): a build whose
+suite run ended without a test result (queued past the wait, cancelled) kept its `mpv/<tag>`
+branch, which reads as "failed its tests", so it was never tried again - now the branch goes,
+the next run retries, and the workflow-failure issue says what happened. `mpv-single.exe` now
+carries its source (`/resource:mpv-single.cs`), and the static tier checks that it is the
+committed `mpv-single.cs` (a pointer on CI, so locally). Refuted: GitHub disabling the daily
+schedule after 60 quiet days (public repositories only); the shader installer and `//!` rules
+(the static tier checks both). Left: the Actions minutes of this private repository (not
+readable with this login's token scope) and a mirror of the pinned build against shinchiro
+pruning it after about 30 releases (only matters if updates go unmerged for a month; the
+failure issue warns).

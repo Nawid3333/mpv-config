@@ -90,7 +90,8 @@ Installer scripts are plain ASCII and run native programs through `Invoke-Native
 (Windows PowerShell 5.1 turns a redirected stderr line into a terminating error).
 
 **Opening files** (`mpv-single.exe`, built from `mpv-single.cs` - rebuild and commit both,
-the command is in its header; it is LFS): `mpv-single-register.bat` points mpv's own file
+the command is in its header; it is LFS and carries its source, which the static tier
+compares): `mpv-single-register.bat` points mpv's own file
 types (`io.mpv.*`, `mpv.File`, `Applications\mpv.exe`, this folder's mpv only) at it with a
 per-user command over them, the old one kept in `mpv-single-was` for the unregister;
 `mpv-register.bat`/`mpv-install.bat` write mpv.exe back, so run it again after them (the

@@ -109,15 +109,44 @@ local function switch_keeps_position(what, index, height)
 	H.expect(what .. ': that row is the current one', function()
 		return mp.get_property_native('user-data/faststream-quality/current')
 	end, index, nil, 3)
-	-- an HLS variant starts over at 0, and the script seeks back once that restart is done
+	-- An HLS variant starts over at 0, and the script seeks back once that restart is done.
+	-- Until then time-pos can still be the old one: the way back must be over first, or
+	-- the seek below lands inside the restart.
 	H.expect(what .. ': from the same position, not the start', function()
-		return (mp.get_property_number('time-pos') or 0) >= 4.5
-	end, true, nil, 5)
+		return not mp.get_property_native('user-data/faststream-quality/returning')
+			and not mp.get_property_native('seeking')
+			and (mp.get_property_number('time-pos') or 0) >= 4.5
+	end, true, nil, 8)
 	-- a seek of the user's after the switch is never taken back for the switch's restart
 	mp.commandv('seek', '1', 'absolute+exact')
 	H.sleep(1)
 	local after = mp.get_property_number('time-pos') or 99
 	H.check(what .. ': a seek after the switch stays', after < 4, ('time-pos %.2f'):format(after))
+end
+
+-- An HLS switch, and the user seeks while its restart is still pending: mpv starts that
+-- seek only once the restart is done, after the script's playback-restart, and the
+-- script's way back must not replace it.
+local function seek_during_restart_stays(what, index)
+	mp.commandv('seek', '5', 'absolute+exact')
+	H.wait_until(function()
+		return (mp.get_property_number('time-pos') or 0) >= 5
+	end, 8)
+	activate(row_value(index))
+	H.check(
+		what .. ': the switch has its way back to go',
+		H.wait_until(function()
+			return mp.get_property_native('user-data/faststream-quality/returning') == true
+		end, 5)
+	)
+	mp.commandv('seek', '1', 'absolute+exact')
+	H.wait_until(function()
+		return not mp.get_property_native('user-data/faststream-quality/returning')
+			and not mp.get_property_native('seeking')
+	end, 8)
+	H.sleep(1)
+	local after = mp.get_property_number('time-pos') or 99
+	H.check(what .. ': a seek during the switch stays', after < 4, ('time-pos %.2f'):format(after))
 end
 
 -- Phase variants: the stream's own qualities, no page list. media's variants/ holds one
@@ -146,6 +175,8 @@ local function variants()
 	H.expect('the badge follows the switch', function()
 		return (mp.get_property_native('user-data/faststream-quality/button') or {}).badge
 	end, '180p', nil, 3)
+	seek_during_restart_stays('HLS', 1)
+	switch_keeps_position('HLS, back to 180p', 2, 180)
 
 	-- the switch was the one file's: the next starts at its own default edition (the first),
 	-- not at the index picked here

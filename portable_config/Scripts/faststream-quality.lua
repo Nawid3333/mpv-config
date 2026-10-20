@@ -61,8 +61,8 @@
 --
 -- For the tests: user-data/faststream-quality/list (the entries or nothing), .../source
 -- (page, editions, tracks or nothing), .../current (1-based, or nothing), .../shown,
--- .../editions, .../button (what was last pushed) and .../last-load (the url and options
--- of the last file switch).
+-- .../editions, .../button (what was last pushed), .../last-load (the url and options
+-- of the last file switch) and .../returning (an HLS switch's way back is still to come).
 
 local mp = require('mp')
 local msg = require('mp.msg')
@@ -96,6 +96,12 @@ local state = {
 local loaded = false
 local variants = nil -- {source = 'editions' | 'tracks', list = {...}, current = index}
 local back_to = nil -- {time, path}: where an HLS switch's restart returns to (choose)
+local back_wait = nil -- the timer of that way back, once the restart is done
+local seeks = 0 -- seek events so far: a newer one than the restart's means the user seeked
+
+local function publish_returning()
+	mp.set_property_native('user-data/faststream-quality/returning', back_to ~= nil or back_wait ~= nil)
+end
 
 -- ---- reading the fragment -------------------------------------------------------------
 
@@ -620,6 +626,7 @@ local function choose(value)
 	-- the user's) is never taken for theirs.
 	if time and time >= 1 and mp.get_property_native('seeking') then
 		back_to = { time = time, path = state.path }
+		publish_returning()
 	end
 end
 
@@ -627,18 +634,33 @@ end
 -- event, measured): it wins, and the restart it ends is not the switch's.
 mp.register_event('seek', function()
 	back_to = nil
+	seeks = seeks + 1
+	publish_returning()
 end)
 
--- The switch's restart is done: back to where the video was.
+-- The switch's restart is done: back to where the video was. Not at once: a seek the
+-- user made while the restart was pending only starts now, its event after this one,
+-- and the seek back would replace it. So a moment later, and only when no seek came
+-- meanwhile.
 mp.register_event('playback-restart', function()
 	local back = back_to
 	back_to = nil
-	if back and back.path == state.path then
-		local now = mp.get_property_number('time-pos')
-		if now and now < back.time - 1 then
-			mp.commandv('seek', tostring(back.time), 'absolute')
-		end
+	if not back or back.path ~= state.path then
+		publish_returning()
+		return
 	end
+	local before = seeks
+	back_wait = mp.add_timeout(0.1, function()
+		back_wait = nil
+		if seeks == before and not back_to and not mp.get_property_native('seeking') and back.path == state.path then
+			local now = mp.get_property_number('time-pos')
+			if now and now < back.time - 1 then
+				mp.commandv('seek', tostring(back.time), 'absolute')
+			end
+		end
+		publish_returning()
+	end)
+	publish_returning()
 end)
 
 -- With `callback` set, uosc sends every menu event here as JSON (see
@@ -671,6 +693,11 @@ end)
 mp.register_event('end-file', function()
 	loaded = false
 	back_to = nil
+	if back_wait then
+		back_wait:kill()
+		back_wait = nil
+	end
+	publish_returning()
 end)
 
 -- The fragment comes with `path`, known before the file loads: the button is ready as
