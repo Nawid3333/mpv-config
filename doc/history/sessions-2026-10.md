@@ -663,3 +663,17 @@ his PC - unattended GPU runs are what crashed Windows on 2026-10-12).
   libplacebo]` (hwdec_vulkan.c and vulkan/context.c changed upstream; FFmpeg's 117 commits
   had none in D3D11 decoding). The bot's pull requests start no pull_request workflow, so
   mpv-auto-update.yml calls the script itself.
+
+## 2026-10-20 (night): the final checks on the PC
+
+**GPU tier** on #116 with mpv 20261020 (tests/try-gpu.ps1's first run): 1234 passed, no
+device loss; every chain decoded with d3d11va-copy and rendered with no dropped, late or
+mistimed frames at 1x and 3x. The one failure, "shader cache is warm", was the script's own:
+a fresh folder has an empty cache, so try-gpu.ps1 now warms it first (rerun: 0 compiles).
+
+**Single window with real windows** (the suite has none): a file went to the front-most mpv,
+and Ctrl opened a new one - but with the front one minimized, the next file still went there:
+a minimized window keeps its place in the z-order. The launcher now takes the front-most
+window that is not minimized, a minimized one only when all are. The same check showed the
+banner drawn from x=-57 in a 320x180 clip's window: notify.lua's cards were never narrower
+than their text; they now fit the window (test-notify-narrow.lua, red without the fix).

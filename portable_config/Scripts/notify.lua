@@ -342,22 +342,24 @@ local function wrap(str, size, room)
 end
 
 ---@param card table
+---@param limit number the widest it may be, real pixels: MAX_WIDTH, or less in a narrow window
 ---@return number width, number height real pixels
-local function card_size(card)
+local function card_size(card, limit)
 	local height = card.progress and px(HEIGHT_PROGRESS) or card.detail ~= '' and px(HEIGHT_DETAIL) or px(HEIGHT_TITLE)
 	if card.progress then
 		card.lines = { card.detail }
-		return px(PROGRESS_WIDTH), height
+		return math.min(px(PROGRESS_WIDTH), limit), height
 	end
-	if not card.width or card.width_scale ~= scale then
+	if not card.width or card.width_scale ~= scale or card.width_limit ~= limit then
 		local detail_size = px(DETAIL_SIZE * FONT_SCALE)
-		card.lines = wrap(card.detail, detail_size, px(MAX_WIDTH) - icon_width(card) - 2 * px(PAD_X))
+		-- a few words wide at least, however narrow the window
+		card.lines = wrap(card.detail, detail_size, math.max(limit - icon_width(card) - 2 * px(PAD_X), px(60)))
 		local text = text_width(card.title, px(TITLE_SIZE * FONT_SCALE))
 		for _, line in ipairs(card.lines) do
 			text = math.max(text, text_width(line, detail_size))
 		end
-		card.width = math.min(px(MAX_WIDTH), math.ceil(text) + icon_width(card) + 2 * px(PAD_X))
-		card.width_scale = scale
+		card.width = math.min(limit, math.ceil(text) + icon_width(card) + 2 * px(PAD_X))
+		card.width_scale, card.width_limit = scale, limit
 	end
 	return card.width, height + (#card.lines - 1) * px(DETAIL_LINE)
 end
@@ -406,10 +408,17 @@ draw = function()
 	-- The canvas is the display's own size: real-pixel drawing, like uosc's.
 	canvas.res_x, canvas.res_y = known and w or 1280, known and h or 720
 	local top, right, left, gap, pad_x = px(TOP), px(RIGHT), px(LEFT), px(GAP), px(PAD_X)
+	-- A window narrower than a card (a small video) would put its left part off screen,
+	-- the banner a click goes to (single-instance.lua) included: the card fits the window,
+	-- its detail wrapped narrower, and a title too long is cut at the padding.
+	local limit = px(MAX_WIDTH)
+	if known then
+		limit = math.max(math.min(limit, w - left - right), 4 * pad_x)
+	end
 	local events = {}
 	local y_right, y_left = top, top
 	for _, card in ipairs(cards) do
-		local bw, bh = card_size(card)
+		local bw, bh = card_size(card, limit)
 		local x0 = card.left and left or w - right - bw
 		local y = card.left and y_left or y_right
 		local icon_w = icon_width(card)

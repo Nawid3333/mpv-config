@@ -69,6 +69,11 @@ static class MpvSingle
     [DllImport("user32.dll")]
     static extern bool IsIconic(IntPtr hWnd);
 
+    [DllImport("dwmapi.dll")]
+    static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int size);
+
+    const int DWMWA_CLOAKED = 14;
+
     [DllImport("user32.dll")]
     static extern bool IsWindowVisible(IntPtr hWnd);
 
@@ -299,7 +304,11 @@ static class MpvSingle
     }
 
     // The pipe of the window to play a local file in: the front-most mpv window
-    // (the one used last) that plays a local file or nothing; null for none.
+    // (the one used last) that plays a local file or nothing, and is not minimized -
+    // a minimized window keeps its place in the z-order, but it was put away; null
+    // for none. Only when every one is minimized does the front-most of them get it
+    // (RaiseRunningInstance restores it), and one on another virtual desktop only
+    // when no window is on this one.
     static string FindTarget()
     {
         var local = new Dictionary<uint, string>();
@@ -317,17 +326,38 @@ static class MpvSingle
         if (local.Count == 0)
             return null;
         string front = null;
+        string minimized = null;
+        string elsewhere = null;
         // EnumWindows walks the top-level windows front to back
         EnumWindows((h, _) =>
         {
             uint pid;
+            string pipe;
+            int cloaked;
             if (!IsWindowVisible(h))
                 return true;
             GetWindowThreadProcessId(h, out pid);
-            return !local.TryGetValue(pid, out front);
+            if (!local.TryGetValue(pid, out pipe))
+                return true;
+            // "visible" also on another virtual desktop, where Windows cloaks it: a file
+            // sent there plays where nobody sees it
+            if (DwmGetWindowAttribute(h, DWMWA_CLOAKED, out cloaked, 4) == 0 && cloaked != 0)
+            {
+                if (elsewhere == null)
+                    elsewhere = pipe;
+                return true;
+            }
+            if (!IsIconic(h))
+            {
+                front = pipe;
+                return false;
+            }
+            if (minimized == null)
+                minimized = pipe;
+            return true;
         }, IntPtr.Zero);
         // none shows a window (an mpv starting, a null video output): any of them
-        return front ?? windowless;
+        return front ?? minimized ?? elsewhere ?? windowless;
     }
 
     // A URL is a stream (HLS, YouTube, av://, ...); a path, file:// or nothing

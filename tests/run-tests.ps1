@@ -2006,6 +2006,11 @@ $HeadlessTests = @(
     @{ Name = 'mouse'; Phases = @(@{ Script = 'headless/test-mouse.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'notify'; Phases = @(@{ Script = 'headless/test-notify.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'notify-render'; Phases = @(@{ Script = 'headless/test-notify-render.lua'; File = $RealOsdClip; Args = $RealOsd }) }
+    # a window narrower than a banner: the same surface, 320 pixels wide
+    @{ Name = 'notify-narrow'; Phases = @(@{ Script = 'headless/test-notify-narrow.lua'; File = $RealOsdClip
+            Args = $RealOsd + @('--vo-sixel-cols=40', '--vo-sixel-rows=5', '--vo-sixel-width=320', '--vo-sixel-height=300')
+        })
+    }
     # an OSD surface for the banner's box (the click's target); 2 frames a second, so sixel
     # writes little while the clips play
     @{ Name = 'single-instance'; Phases = @(@{ Script = 'headless/test-single-instance.lua'; File = 'plain/clip.mkv'

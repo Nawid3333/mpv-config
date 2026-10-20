@@ -97,7 +97,7 @@ compares): `mpv-single-register.bat` points mpv's own file
 types (`io.mpv.*`, `mpv.File`, `Applications\mpv.exe`, this folder's mpv only) at it with a
 per-user command over them, the old one kept in `mpv-single-was` for the unregister;
 `mpv-register.bat`/`mpv-install.bat` write mpv.exe back, so run it again after them (the
-one-click setup runs it). A local file goes to the front-most mpv window that plays a local
+one-click setup runs it). A local file goes to the front-most mpv window (not a minimized one) that plays a local
 file or nothing - each mpv the launcher starts has its own pipe `mpv-single-<id>` - never to
 a stream's window; `single-instance.lua` takes it and offers the banner. Ctrl held, or
 `--new-window`: a new mpv; files opened together: one playlist.
