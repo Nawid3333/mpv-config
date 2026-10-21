@@ -1,20 +1,7 @@
-# Privacy checks (2026-10-03), shared by the static tier (tests/run-tests.ps1) and the
-# publish job (.github/scripts/publish.ps1): this private workspace is published to the
-# public Nawid3333/mpv-config, and nothing personal may go with it.
-# A finding is reported as file:line or a path, never the text: CI logs are read by
-# more people than the files.
-
-# The pathspecs that keep a path out of the public copy: .publishignore (one git
-# pathspec glob per line, e.g. notes/**; # starts a comment) and the file itself.
-function Get-PublishExclude([string]$Root) {
-    $list = @(':(exclude).publishignore')
-    $file = Join-Path $Root '.publishignore'
-    if (Test-Path -LiteralPath $file) {
-        $list += @(Get-Content -LiteralPath $file | ForEach-Object { $_.Trim() } |
-                Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { ":(exclude,glob)$_" })
-    }
-    $list
-}
+# Privacy checks (2026-10-03), shared by the static tier (tests/run-tests.ps1) and CI's
+# privacy job (.github/workflows/regression-tests.yml): this repository is public, and
+# nothing personal may be in it. The hooks in .githooks check each commit and push.
+# A finding is reported as file:line or a path, never the text: a CI log would repeat it.
 
 # A commit identity that names no one: a GitHub noreply address whose name is its
 # login (<id>+<login>@users.noreply.github.com), or Claude <noreply@anthropic.com>.
@@ -24,26 +11,11 @@ function Test-PublicIdentity([string]$Name, [string]$Email) {
     return $false
 }
 
-# A line of text (a commit subject) that may go public: no user folder path, private
-# claude.ai link, e-mail address or private word.
-function Test-PublicText([string]$Text, [string[]]$Words = @()) {
-    if ($Text -match '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z]{2,}') {
-        return $false
-    }
-    foreach ($w in $Words) {
-        $w = $w.Trim()
-        if ($w -and -not $w.StartsWith('#') -and $Text.IndexOf($w, [StringComparison]::OrdinalIgnoreCase) -ge 0) { return $false }
-    }
-    return $true
-}
-
-# Every check over the files that are published: an ordered map check -> findings
-# (file:line or path). -Index searches the index instead of the work tree (the publish
-# job scans what it is about to commit). -Words: the private words (real name, user
-# name, PC name ...) - the clone's .git/info/private-words, or the PRIVATE_WORDS secret.
+# Every check over the tracked files: an ordered map check -> findings (file:line or
+# path). -Words: the private words (real name, user name, PC name ...) - the clone's
+# .git/info/private-words, or the PRIVATE_WORDS secret.
 function Get-PrivacyFinding {
-    param([string]$Root, [string[]]$Words = @(), [string[]]$Exclude = @(), [switch]$Index)
-    $cached = $Index ? @('--cached') : @()
+    param([string]$Root, [string[]]$Words = @())
     # git grep -n prints path:line:text - keep path:line (always arrays: Count under StrictMode)
     $at = { param($lines) , @($lines | Where-Object { $_ } | ForEach-Object { ($_ -split ':', 3)[0..1] -join ':' }) }
     # A git that could not run (no repository, a locked index) printed nothing, which read
@@ -54,25 +26,25 @@ function Get-PrivacyFinding {
         param([string[]]$GitArgs, [int]$NoMatch = -1)
         $out = @(& git -C $repo @GitArgs)
         if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne $NoMatch) {
-            throw "git $($GitArgs[0]) failed (exit $LASTEXITCODE): the privacy check cannot tell what would be published"
+            throw "git $($GitArgs[0]) failed (exit $LASTEXITCODE): the privacy check cannot tell what the repository holds"
         }
         , $out
     }
     $r = [ordered]@{}
     # (& $git ...) is the array itself: inside @() it became one element, the array
-    $r['no tracked file is one .gitignore excludes'] = & $git (@('ls-files', '-ci', '--exclude-standard', '--', '.') + $Exclude)
+    $r['no tracked file is one .gitignore excludes'] = & $git @('ls-files', '-ci', '--exclude-standard', '--', '.')
     # -i: Windows paths are written in any case; mpv's own manual has its example path
     # in lower case (users\USERNAME), like its e-mail addresses below
-    $r['no user folder path (C:\Users\<name>) or private claude.ai link'] = & $at (& $git (@('grep') + $cached + @(
-                '-I', '-n', '-i', '-E', '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/', '--', '.', ':(exclude)doc/manual.txt') + $Exclude) 1)
-    $r['no e-mail address but noreply ones'] = & $at @((& $git (@('grep') + $cached + @(
-                    '-I', '-n', '-o', '-E', '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}', '--', '.', ':(exclude)doc/manual.txt') + $Exclude) 1) |
+    $r['no user folder path (C:\Users\<name>) or private claude.ai link'] = & $at (& $git @(
+            'grep', '-I', '-n', '-i', '-E', '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/', '--', '.', ':(exclude)doc/manual.txt') 1)
+    $r['no e-mail address but noreply ones'] = & $at @((& $git @(
+                'grep', '-I', '-n', '-o', '-E', '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}', '--', '.', ':(exclude)doc/manual.txt') 1) |
             Where-Object { $_ -notmatch '(noreply@anthropic\.com|noreply@github\.com|@users\.noreply\.github\.com|@example\.(com|org))$' })
     $Words = @($Words | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
     if ($Words.Count) {
         $e = @($Words | ForEach-Object { '-e'; $_ })
-        $r["none of the $($Words.Count) private words"] = & $at (& $git (@('grep') + $cached + @('-I', '-n', '-i', '-F') + $e + @('--', '.') + $Exclude) 1)
-        $r['no file name holds a private word'] = @((& $git (@('ls-files', '--', '.') + $Exclude)) | Where-Object {
+        $r["none of the $($Words.Count) private words"] = & $at (& $git (@('grep', '-I', '-n', '-i', '-F') + $e + @('--', '.')) 1)
+        $r['no file name holds a private word'] = @((& $git @('ls-files', '--', '.')) | Where-Object {
                 $path = $_
                 @($Words | Where-Object { $path.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count
             })

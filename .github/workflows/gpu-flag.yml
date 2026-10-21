@@ -25,6 +25,8 @@ concurrency:
 
 jobs:
   flag:
+    # A fork's pull request runs with a read-only token, which can set none of it
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

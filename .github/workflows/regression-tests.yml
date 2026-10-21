@@ -4,7 +4,8 @@ name: Regression tests
 # --vo=null --ao=null: every feature driven through mpv's own input commands,
 # no window, no GPU) - on every push and pull request that changes more than
 # docs, so a config or script edit that breaks a feature turns the run red. See
-# tests/README.md.
+# tests/README.md. The privacy check (tests/lib/privacy.ps1) runs on every one,
+# docs included: the repository is public.
 #
 # mpv's own files are not in git (pin only, 2026-10-03): the build
 # mpv-build.json pins is installed from shinchiro's public release by
@@ -33,10 +34,44 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Docs are where a name or a path slips in most easily, so this runs even when the
+  # suite is skipped. The hooks (.githooks) stop such a commit before it is pushed; this
+  # catches one pushed without them, before it reaches main. The PRIVATE_WORDS secret is
+  # the list in the owner's .git/info/private-words; a fork's pull request gets no
+  # secrets and is checked without the words.
+  privacy:
+    name: nothing personal
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Every tracked file (tests/lib/privacy.ps1)
+        shell: pwsh
+        env:
+          PRIVATE_WORDS: ${{ secrets.PRIVATE_WORDS }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tests/lib/privacy.ps1
+          if (-not $env:PRIVATE_WORDS) {
+            Write-Output '::warning title=No PRIVATE_WORDS::The secret is not set for this run (a fork''s pull request gets none): the private words are not checked.'
+          }
+          $found = 0
+          # file:line only, never the text: this log is public
+          foreach ($kv in (Get-PrivacyFinding -Root . -Words ("$env:PRIVATE_WORDS" -split '\r?\n')).GetEnumerator()) {
+            if ($kv.Value.Count) {
+              $found++
+              Write-Output "::error title=Privacy::$($kv.Key) - found in: $($kv.Value -join ', ')"
+            }
+            else { Write-Output "ok: $($kv.Key)" }
+          }
+          exit $found
+
   # A change to docs only (*.md, doc/) skips the suite: no test reads them, and the
-  # Windows run takes minutes. The run still ends green, so publish.yml (which waits
-  # for it on main) publishes the docs as before. Anything else - and a run by hand,
-  # a re-run, or a push with no passed run on main before it - runs the suite.
+  # Windows run takes minutes. The run still ends green. Anything else - and a run by
+  # hand, a re-run, or a push with no passed run on main before it - runs the suite.
   changes:
     name: what changed
     runs-on: ubuntu-latest

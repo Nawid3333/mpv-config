@@ -36,20 +36,21 @@ Keep it short: a new fact goes here in one line, its story into doc/history.
   Ctrl+Shift once switched the owner's keyboard layout.
 - **No system-wide Windows changes** for an mpv wish (a global title-bar size was
   reverted for affecting every app).
-- **Public copy.** This repository (`Nawid3333/mpv`) is private;
-  `.github/workflows/publish.yml` publishes its tracked files minus `.publishignore`
-  to the public `Nawid3333/mpv-config` as one commit. Nothing personal may be in a
-  tracked file: no `C:\Users\<name>` or private drive paths (write `%LOCALAPPDATA%`
-  or `~~state`), no real names or e-mail addresses, no titles of what he watches
-  (test fixtures use made-up names), no private claude.ai links. `.githooks`
-  (switched on per clone: `git config core.hooksPath .githooks`) refuses such
-  lines, a non-noreply identity and the words in `.git/info/private-words` (the
-  same list as the workspace's `PRIVATE_WORDS` secret, which publish.ps1 checks:
-  update both). Every file that records viewing (watch_later/, watch_history.jsonl,
-  stream-resume.json, screenshots, yt-dlp cookies, root `*.txt` notes) is
-  gitignored: a new kind of state file goes into `.gitignore` AND the static
-  tier's sample list. mpv-config only receives (Actions off): a pull request or
-  web edit there is overwritten by the next publish - port it here.
+- **Public repository.** This repository (`Nawid3333/mpv-config`) is public, and so
+  is all of it: every tracked file, commit message, branch name, pull request, issue,
+  comment and Actions log (the private `Nawid3333/mpv` it was published from until
+  2026-10-21 is archived). Nothing personal may be in any of them: no `C:\Users\<name>`
+  or private drive paths (write `%LOCALAPPDATA%` or `~~state`), no real names or
+  e-mail addresses, no titles of what he watches (test fixtures use made-up names), no
+  private claude.ai links. `.githooks` (switched on per clone: `git config
+  core.hooksPath .githooks`) refuses such lines, a non-noreply identity and the words
+  in `.git/info/private-words` at each commit, and at each push every commit going
+  out, messages included; CI's privacy job checks every tracked file on every push
+  with the same list as the `PRIVATE_WORDS` secret (update both). Nothing checks a
+  pull request's or issue's title, text and comments: write them the same way. Every
+  file that records viewing (watch_later/, watch_history.jsonl, stream-resume.json,
+  screenshots, yt-dlp cookies, root `*.txt` notes) is gitignored: a new kind of state
+  file goes into `.gitignore` AND the static tier's sample list.
 - **Helpers.** Side work (reviews, drafts, second opinions) goes to Ollama's
   `glm-5.3-flash:cloud` only (the owner's global instructions); no Claude
   subagents unless he asks. Check every answer against the code.
@@ -212,7 +213,7 @@ with none of that says so in a comment: the owner merges it on green (2026-10-21
 rewrites it); judge upscaling on `test-media/`'s clean clips (gitignored), never on
 a soft low-bitrate film - one misled a Movie decision once. CI runs static + headless on every
 push that changes more than docs (`*.md`, `doc/`; such a run ends green at once), and the
-linters skip docs-only changes too. `tests/README.md` has the harness rules: `H.expect` for a value an action
+linters skip docs-only changes too; its privacy job runs on every push. `tests/README.md` has the harness rules: `H.expect` for a value an action
 changes, `H.sleep` then `H.eq` for one that must not; a new feature gets a test, and
 a deliberate break of it must turn it red. Before a Lua change: `stylua --check .`
 (pinned version) and lua-language-server in directory mode (`--check .` in a copy

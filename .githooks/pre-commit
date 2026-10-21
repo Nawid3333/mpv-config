@@ -19,10 +19,14 @@
 #       a private claude.ai session/artifact, nor any word listed in the
 #       clone's own .git/info/private-words (one per line: real name, user
 #       name, PC name, private paths) - that file is never committed.
+#    The rules live in privacy.sh, which the push guard (pre-push) shares: it
+#    checks every commit a push sends, its message too.
 #
 # Until 2026-10-03 rule 1 was three rules for the binaries that WERE committed
 # (no deleting them, updates on main only, mpv-build.json refreshed to the
 # committed mpv.exe) - see doc/history/sessions-2026-09.md and -10.md.
+
+. "$(dirname "$0")/privacy.sh"
 
 if git rev-parse --verify -q HEAD >/dev/null; then
 	against=HEAD
@@ -59,21 +63,6 @@ if [ -n "$added" ]; then
 fi
 
 # -- 2a ------------------------------------------------------------------------
-# $1 = what git var prints: "Name <email> time zone"
-public_ident() {
-	name=${1%% <*}
-	email=${1#*<}
-	email=${email%%>*}
-	case $email in
-	noreply@anthropic.com) [ "$name" = Claude ] ;;
-	*@users.noreply.github.com)
-		login=${email%@users.noreply.github.com}
-		login=${login#*+}
-		[ "$name" = "$login" ]
-		;;
-	*) false ;;
-	esac
-}
 for who in AUTHOR COMMITTER; do
 	ident=$(git var "GIT_${who}_IDENT") || exit 1
 	if ! public_ident "$ident"; then
@@ -97,21 +86,18 @@ fi
 # -- 2c ------------------------------------------------------------------------
 lines=$(git diff --cached --no-color --no-ext-diff -U0 "$against" | sed -n '/^+++ /d; s/^+//p')
 # -i: Windows paths are written in any case (c:\users\... too)
-hits=$(printf '%s\n' "$lines" | grep -n -i -E '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/' | head -5)
+hits=$(printf '%s\n' "$lines" | grep -n -i -E "$private_path_re" | head -5)
 if [ -n "$hits" ]; then
 	refuse "an added line holds a user folder path or a private claude.ai link:" \
 		"$hits" \
 		"Write %LOCALAPPDATA%, ~~state or a placeholder like C:\\Users\\<name>."
 fi
-words=$(git rev-parse --git-path info/private-words)
-if [ -s "$words" ]; then
-	list=$(tr -d '\r' <"$words" | grep -v -e '^[[:space:]]*$' -e '^#')
+list=$(private_words)
+if [ -n "$list" ]; then
 	names=$(git diff --cached --name-only --no-renames --diff-filter=AMT "$against")
-	if [ -n "$list" ]; then
-		hits=$(printf '%s\n%s\n' "$names" "$lines" | grep -n -i -F -e "$list" | head -5)
-		if [ -n "$hits" ]; then
-			refuse "an added line or file name holds a word from $words:" "$hits"
-		fi
+	hits=$(printf '%s\n%s\n' "$names" "$lines" | grep -n -i -F -e "$list" | head -5)
+	if [ -n "$hits" ]; then
+		refuse "an added line or file name holds a word from .git/info/private-words:" "$hits"
 	fi
 fi
 exit 0

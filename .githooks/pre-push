@@ -1,3 +1,100 @@
 #!/bin/sh
+# Push guard. Active per clone: git config core.hooksPath .githooks
+# (RECREATE.md). It also runs git-lfs's own pre-push, which uploads the LFS
+# objects - so a deliberate exception is two steps:
+#   git lfs push origin <branch>; git push --no-verify
+#
+# The repository is public, its history included: every commit a push would add
+# to the remote is checked before anything leaves this clone - also those the
+# commit guard (pre-commit) never saw: made with --no-verify, in a clone without
+# these hooks, or by a tool. The same rules (privacy.sh), on each commit, not
+# only the last - one commit that adds a word and the next that removes it still
+# publish it:
+#   - author and committer are public identities (GitHub's own commits, a merge
+#     made on the website: committer GitHub <noreply@github.com>);
+#   - no message, added line or file name holds a user folder path, a private
+#     claude.ai link or a word from .git/info/private-words, and no message an
+#     e-mail address but a noreply one;
+#   - no file .gitignore excludes is added.
+# A finding names the commit and the rule, never the text.
+
 command -v git-lfs >/dev/null 2>&1 || { printf >&2 "\n%s\n\n" "This repository is configured for Git LFS but 'git-lfs' was not found on your path. If you no longer wish to use Git LFS, remove this hook by deleting the 'pre-push' file in the hooks directory (set by 'core.hookspath'; usually '.git/hooks')."; exit 2; }
-git lfs pre-push "$@"
+
+. "$(dirname "$0")/privacy.sh"
+
+remote=$1
+url=$2
+# one line per ref: <local ref> <local sha> <remote ref> <remote sha>
+refs=$(cat)
+list=$(private_words)
+email_re='[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
+noreply_re='(noreply@anthropic\.com|noreply@github\.com|@users\.noreply\.github\.com|@example\.(com|org))$'
+zero=0000000000000000000000000000000000000000
+found=''
+
+note() {
+	found="$found
+  $short: $1"
+}
+
+check_commit() {
+	short=$(git rev-parse --short "$1")
+	public_ident "$(git log -1 --format='%an <%ae>' "$1")" || note 'the author is not a public identity'
+	committer=$(git log -1 --format='%cn <%ce>' "$1")
+	[ "$committer" = 'GitHub <noreply@github.com>' ] || public_ident "$committer" ||
+		note 'the committer is not a public identity'
+	msg=$(git log -1 --format=%B "$1")
+	# a merge: what it adds to its first parent (the other side's commits are checked too)
+	names=$(git diff-tree -r -m --first-parent --root --no-commit-id --name-only --no-renames --diff-filter=AMT "$1")
+	lines=$(git diff-tree -p -m --first-parent --root --no-commit-id --no-color --no-ext-diff -U0 "$1" |
+		sed -n '/^+++ /d; s/^+//p')
+	if printf '%s\n' "$msg" | grep -q -i -E "$private_path_re"; then
+		note 'its message holds a user folder path or a private claude.ai link'
+	fi
+	if printf '%s\n' "$msg" | grep -o -E "$email_re" | grep -q -v -i -E "$noreply_re"; then
+		note 'its message holds an e-mail address (only noreply ones may be named)'
+	fi
+	if printf '%s\n' "$lines" | grep -q -i -E "$private_path_re"; then
+		note 'an added line holds a user folder path or a private claude.ai link'
+	fi
+	if [ -n "$names" ] && [ -n "$(printf '%s\n' "$names" | git check-ignore --no-index --stdin)" ]; then
+		note 'it adds a file .gitignore keeps out of git (private or generated)'
+	fi
+	if [ -n "$list" ]; then
+		if printf '%s\n' "$msg" | grep -q -i -F -e "$list"; then
+			note 'its message holds a word from .git/info/private-words'
+		fi
+		if printf '%s\n%s\n' "$names" "$lines" | grep -q -i -F -e "$list"; then
+			note 'an added line or file name holds a word from .git/info/private-words'
+		fi
+	fi
+}
+
+while read -r _ lsha _ rsha; do
+	# nothing to send: a deletion (or an empty line)
+	if [ -z "$lsha" ] || [ "$lsha" = "$zero" ]; then
+		continue
+	fi
+	# what the remote lacks: past its old tip when this clone has that commit, else
+	# (a new branch, or a tip not fetched) past everything known from this remote
+	if [ "$rsha" != "$zero" ] && git cat-file -e "$rsha^{commit}" 2>/dev/null; then
+		commits=$(git rev-list "$lsha" "^$rsha")
+	else
+		commits=$(git rev-list "$lsha" --not --remotes="$remote")
+	fi
+	for c in $commits; do
+		check_commit "$c"
+	done
+done <<EOF
+$refs
+EOF
+
+if [ -n "$found" ]; then
+	{
+		echo "Push refused: the repository is public, and these commits would publish something personal:$found"
+		echo "Change them (git commit --amend, git rebase -i) and push again."
+	} >&2
+	exit 1
+fi
+
+printf '%s\n' "$refs" | sed '/^$/d' | git lfs pre-push "$remote" "$url"

@@ -74,7 +74,6 @@ re-created by the scripts in `installer/`.
 #    under Program Files that takes an admin prompt, and mpv then needs write access
 #    for its state and shader cache in portable_config\:
 git clone https://github.com/Nawid3333/mpv-config.git "C:\Program Files\mpv"
-#    (the owner clones the private workspace, github.com/Nawid3333/mpv, instead: AGENTS.md "Public copy")
 icacls "C:\Program Files\mpv" /grant "$($env:USERNAME):(OI)(CI)M"
 #    C:\Program Files\mpv\
 #      mpv.exe, mpv.com, d3dcompiler_43.dll   <- the player (step 2 installs it; not in git)
@@ -83,15 +82,17 @@ icacls "C:\Program Files\mpv" /grant "$($env:USERNAME):(OI)(CI)M"
 # 2) mpv itself and yt-dlp: the build mpv-build.json pins, downloaded and checked
 #    (also what you run later to update - it pulls the repo first):
 .\updater.bat
-#    Then switch on the commit guard (once per clone; it also carries git-lfs's hooks):
+#    Then switch on the commit and push guards (once per clone; they also carry git-lfs's
+#    hooks):
 git config core.hooksPath .githooks
 #    The repository is public: commit under your GitHub login and its noreply address
-#    (GitHub > Settings > Emails), whatever git's global user.name says - the guard refuses
+#    (GitHub > Settings > Emails), whatever git's global user.name says - the guards refuse
 #    anything else:
 git config user.name "<login>"
 git config user.email "<id>+<login>@users.noreply.github.com"
-#    Optional: words that must never be committed (real name, user name, PC name), one per
-#    line, in this clone's .git/info/private-words (never committed).
+#    Optional: words that must never be committed or pushed (real name, user name, PC name),
+#    one per line, in this clone's .git/info/private-words (never committed; the owner keeps
+#    the same list as the repository's PRIVATE_WORDS secret, for CI's privacy job).
 
 # 3) uosc + thumbfast (UI): committed, with local changes - nothing to do in a clone.
 #    install-uosc.ps1 is for a folder without them (it fetches upstream's copies,

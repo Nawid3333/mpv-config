@@ -423,11 +423,10 @@ the rules for changing them and the decisions not to undo.
 [`doc/history/`](doc/history/) has the detailed notes behind them: what was
 measured, what was tried and rejected, and why.
 
-This repository is a published copy of a private workspace. It is updated
-automatically after each change passes the tests, and every update is checked
-for personal data first. Commit hashes and pull request numbers in the notes
-refer to that workspace. Issues are welcome; a pull request here is applied in
-the workspace by hand, because the next update would overwrite a merge.
+This repository is where the setup is developed: every change comes as a pull
+request that has passed the tests. Until 2026-10-21 it was a published copy of
+a private workspace, and commit hashes and pull request numbers in the notes
+up to that day refer to the workspace. Issues and pull requests are welcome.
 
 ## License
 

@@ -461,7 +461,7 @@ jobs:
 
           # --- passed: offered on the one pull request, for the owner to merge ----
           # Nothing lands on main here: his merge is a push to main, which runs
-          # the suite there and, green, publish.yml - as for any other change.
+          # the suite there - as for any other change.
           if [ "$conclusion" = success ]; then
             # From here on a failure (GitHub answering an error for a moment) deletes the
             # build's branch, as the dispatch's failures above do: left there, it reads as

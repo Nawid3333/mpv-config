@@ -720,3 +720,28 @@ came minutes apart, and on 2026-10-21 when a delayed push run met one started by
 then showed the commit with a red X, which reads as a failure. Now only a pull request's newer
 push cancels its older run; every other run has a group of its own (`github.run_id`) and runs
 to its end.
+
+## 2026-10-21: mpv-config is the only repository
+
+Until now the work happened in a private workspace (`Nawid3333/mpv`), and a workflow
+published its tracked files to this repository as one commit per change, after checking
+them for personal data. The owner asked whether to make the workspace public instead of
+keeping two. Not that: its history holds commits with his private words and his Windows
+user path, plus 122 pull requests and issues and their Actions logs. He chose to keep this
+repository, whose history was clean and whose URL the installers, the updaters already
+installed on other PCs and FastStream's docs use, as the only one, and to archive the
+workspace.
+
+What changed with it: the publish workflow, its script and `.publishignore` are gone, and
+Dependabot and the stylua update (until now workspace-only, since the next publish would
+have overwritten their pull requests here) run here. As the history is public now too, a
+**push guard** (`.githooks/pre-push`, sharing its rules with the commit guard through
+`.githooks/privacy.sh`) checks every commit a push sends before anything leaves the clone:
+identities, messages, added lines, file names, forced-in ignored files - each commit, not
+just the last, since a word one commit adds and the next removes is still published. It also
+covers commits the commit guard never saw (`--no-verify`, a clone without the hooks). CI's
+new **privacy job** runs `tests/lib/privacy.ps1` over every tracked file on every push, docs
+included (the suite itself skips docs-only changes), with the `PRIVATE_WORDS` secret. The
+GPU flag skips a fork's pull request, whose token cannot set the label or status. Pull
+request and issue texts are public and checked by nothing: AGENTS.md says so. Pull request
+numbers in these notes up to this entry are the workspace's.
