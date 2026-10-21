@@ -104,8 +104,10 @@ function Write-Section([string]$Title) {
 # ---------------------------------------------------------------------------
 # the one-click install (2026-10-09), offline: installer/setup.ps1, sync-config.ps1,
 # install-faststream.ps1 and uninstall.ps1 against stand-ins for GitHub's ZIP, the
-# Git LFS objects, FastStream's release and nodejs.org. Run as install.bat and
-# updater.bat run them: in Windows PowerShell 5.1 when it is there.
+# Git LFS objects, FastStream's release and nodejs.org. Run in Windows PowerShell 5.1
+# when it is there, as install.bat runs them: the stricter of the two shells they must
+# work in (updater.bat prefers pwsh when it is installed; update.ps1 is run under pwsh
+# below).
 # ---------------------------------------------------------------------------
 # A process named mpv, running from $Dir: a copy of ping (no mpv starts). Stop it with
 # Close-StandInMpv.
@@ -410,6 +412,20 @@ New-Item -ItemType Directory -Force $InstallDir | Out-Null
         Write-TestTree $ours @{ 'installed-by-mpv-config.json' = $marker; 'config.json' = '{}' }
         $r = Invoke-Script uninstall.ps1 @('-Root', $sr, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', $ours)
         Test-Check $t 'uninstall.ps1 removes the FastStream helper the setup installed for this mpv' ($r.Code -eq 0 -and -not (Test-Path $ours)) $r.Out
+        # Firefox keeps the helper's node.exe running: a running program cannot be deleted, and
+        # the uninstall broke off with the folder half gone (a copy of ping stands in for node)
+        $busy = Join-Path $ob 'helper-busy'
+        Write-TestTree $busy @{ 'installed-by-mpv-config.json' = $marker; 'config.json' = '{}' }
+        New-Item -ItemType Directory -Force (Join-Path $busy 'node') | Out-Null
+        Copy-Item -LiteralPath (Join-Path $env:WINDIR 'System32\PING.EXE') (Join-Path $busy 'node\node.exe') -Force
+        $node = Start-Process -FilePath (Join-Path $busy 'node\node.exe') -ArgumentList '-n', '60', '127.0.0.1' -WindowStyle Hidden -PassThru
+        try {
+            $r = Invoke-Script uninstall.ps1 @('-Root', $sr, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', $busy)
+            Test-Check $t '... also while its node.exe runs (it is stopped first)' ($r.Code -eq 0 -and -not (Test-Path $busy) -and $node.HasExited) $r.Out
+        }
+        finally {
+            Stop-Process -Id $node.Id -Force -ErrorAction SilentlyContinue
+        }
         $r = Invoke-Script uninstall.ps1 @('-Root', $sr, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', $hd)
         Test-Check $t '... but not one set up for another mpv folder' ($r.Code -eq 0 -and (Test-Path (Join-Path $hd 'config.json'))) $r.Out
         $r = Invoke-Script uninstall.ps1 @('-Root', $srSpace, '-Yes', '-KeepFolder', '-NoFileTypes', '-HelperDir', $hdu)
@@ -794,6 +810,8 @@ function Invoke-StaticCheck {
     $uoscTimeline = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/elements/Timeline.lua')
     Test-Check $t 'uosc local change present: Timeline.lua shows the amber time only when it differs (speed is not 1x)' (
         $uoscTimeline.Contains('state.realtime_remaining_human ~= state.content_remaining_human')) 're-apply it after a uosc update (AGENTS.md)'
+    Test-Check $t 'uosc local change present: Timeline.lua leaves the end time to destination_time=total (the pair is for the remaining times)' (
+        $uoscTimeline.Contains("options.destination_time ~= 'total'")) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t 'uosc local change present: Timeline.lua seeks a click by keyframe (instant), not exact' (
         $uoscTimeline.Contains("mp.commandv('seek', self:get_time_at_x(cursor.x), 'absolute+keyframes')")) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t "uosc.conf: font_scale matches the scripts' FONT_SCALE (Segoe UI's line box)" (
@@ -926,6 +944,12 @@ function Invoke-StaticCheck {
         $named = @((Get-PrivacyFinding -Root $pr -Words @('Jane Example'))['no file name holds a private word'])
         Test-Check $t '... a reported path holds no private word (*** in its place)' (
             $named.Count -eq 1 -and $named[0] -eq 'by ***.txt') ($named -join ', ')
+        # what tests/try-gpu.ps1 posts to a pull request's status and comment (public)
+        $raw = "log: $env:TEMP\mpv-try-gpu\work\logs\gpu-1.log on $env:COMPUTERNAME by $env:USERNAME, see D:" + '\Users\' + 'jane\notes, by Jane Example'
+        $public = ConvertTo-PublicText $raw @('# a comment', 'Jane Example')
+        Test-Check $t "privacy: what try-gpu.ps1 posts names no user folder, no user or PC name and no private word" (
+            $public -match '%TEMP%\\mpv-try-gpu\\work' -and $public -match 'D:\\Users\\<name>\\notes' -and $public -notmatch '(?i)jane' -and
+            -not $public.Contains($env:COMPUTERNAME) -and -not $public.Contains($env:USERNAME)) $public
     }
     finally {
         Remove-Item $pr -Recurse -Force -ErrorAction SilentlyContinue
@@ -1212,6 +1236,9 @@ function Invoke-StaticCheck {
             'a user folder path'               = 'C:' + '\Users\' + 'someone\Videos'
             'a user folder path in lower case' = 'c:' + '\users\' + 'someone\videos'
             'a private claude.ai link'         = 'https://claude.ai/' + 'code/session_0123'
+            'a private claude.ai artifact link'  = 'https://claude.ai/' + 'artifacts/0123'
+            # a name that starts with a letter beyond ASCII (an E with acute accent)
+            'a user folder path with a non-ASCII name' = 'C:' + '\Users\' + [char]0x00C9 + 'mile\Videos'
         }
         foreach ($kv in $leaks.GetEnumerator()) {
             Write-GuardFile 'notes.md' "see $($kv.Value)"
@@ -1680,11 +1707,16 @@ function Initialize-TestRoot {
         Copy-Item $item.FullName $exe -Force
     }
     # fresh config copy every run; no caches, no state (nor the shader capture
-    # log and learned cases an older config left behind: they hold real viewing)
+    # log and learned cases an older config left behind, the watch history, or a damaged
+    # state file kept aside: they hold real viewing)
     $dst = Join-Path $root 'portable_config'
-    & robocopy $Cfg $dst /MIR /XD cache watch_later /XF speed.json stream-resume.json shader-misses.log shader-cases.json settings.json upscale.json welcome.json '*.tmp' /NFL /NDL /NJH /NJS /NP | Out-Null
+    & robocopy $Cfg $dst /MIR /XD cache watch_later /XF speed.json stream-resume.json shader-misses.log shader-cases.json settings.json upscale.json welcome.json watch_history.jsonl '*.corrupt-*' '*.tmp' /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
     $global:LASTEXITCODE = 0
+    # /MIR leaves an excluded file alone: one copied by an older run goes here
+    Get-ChildItem -LiteralPath $dst -File -Force -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -eq 'watch_history.jsonl' -or $_.Name -like '*.corrupt-*' } |
+        Remove-Item -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force (Join-Path $WorkDir 'logs') | Out-Null
     return $exe
 }

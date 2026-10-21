@@ -464,8 +464,9 @@ function Timeline:render()
 		-- far right (white) = video left at 1x, amber = real time left at the
 		-- current speed. The amber one only while it says something else: at 1x
 		-- both read the same, and two identical times looked like a glitch
-		-- (2026-10-02 design pass).
-		if state.realtime_remaining_human and state.content_remaining_human then
+		-- (2026-10-02 design pass). destination_time=total still shows the total:
+		-- the pair stood in for it too, and the option did nothing.
+		if options.destination_time ~= 'total' and state.realtime_remaining_human and state.content_remaining_human then
 			local x = bbx - spacing
 			draw_timeline_timestamp(x, fcy, 6, state.content_remaining_human, time_opts)
 			if state.realtime_remaining_human ~= state.content_remaining_human then

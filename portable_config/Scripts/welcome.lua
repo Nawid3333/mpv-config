@@ -22,6 +22,8 @@ local opts = {
 }
 options.read_options(opts, 'welcome')
 
+local statefile = dofile(mp.command_native({ 'expand-path', '~~/script-modules/state-file.lua' }))
+
 local FILE = utils.join_path(mp.command_native({ 'expand-path', '~~state/' }), 'welcome.json')
 
 local function open_welcome()
@@ -35,13 +37,11 @@ local function seen()
 	return utils.file_info(FILE) ~= nil
 end
 
+-- Whole or not at all (state-file.lua), as the other state files.
 local function remember()
-	local f = io.open(FILE, 'w')
-	if f then
-		f:write(utils.format_json({ shown = os.date('%Y-%m-%d') }) or '{}')
-		f:close()
-	else
-		msg.warn('cannot write ' .. FILE)
+	local ok, err = statefile.write(FILE, utils.format_json({ shown = os.date('%Y-%m-%d') }) or '{}')
+	if not ok then
+		msg.warn(err)
 	end
 end
 

@@ -389,6 +389,20 @@ local function load_subs()
 	sub_job = job
 end
 
+-- The tool closed, or the file ended, while ffmpeg still reads the track: it reads the whole
+-- file (minutes for a big one), for lines nobody waits for any more. Stopped, and the track
+-- read again when the tool opens next.
+local function stop_sub_job()
+	if not sub_job then
+		return
+	end
+	mp.abort_async_command(sub_job)
+	sub_job = nil
+	if subs.status == 'loading' then
+		subs = { status = 'none', cues = { longest = 0 }, version = subs.version + 1 }
+	end
+end
+
 -- 'live' mode, every half second while the tool is open
 local function collect_live()
 	if subs.status ~= 'live' or mp.get_time() - last_collect < 0.5 then
@@ -1261,6 +1275,7 @@ local function close(revert, quiet)
 		return
 	end
 	active = false
+	stop_sub_job()
 	-- a time-row drag pauses playback; the release normally unpauses, but the
 	-- panel can close first (Esc, Enter, t, the file's end) - unpause here
 	if drag and drag.moved and drag.row == 'time' and not drag.was_paused then
@@ -1375,6 +1390,7 @@ mp.observe_property('user-data/uosc/bottom-ui', 'native', function(_, value)
 end)
 mp.register_event('end-file', function()
 	close(false, true)
+	stop_sub_job()
 	reset_audio(nil)
 	subs = { status = 'none', cues = { longest = 0 }, version = subs.version + 1 }
 	seen, sub_cache = {}, {}

@@ -133,8 +133,21 @@ try {
             if ($registered -and $registered.StartsWith($HelperDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
                 Remove-Item -LiteralPath $key -Recurse -Force
             }
-            Remove-Item -LiteralPath $HelperDir -Recurse -Force
-            Write-Host 'FastStream helper removed. The FastStream add-on stays in Firefox (about:addons removes it).'
+            # Firefox keeps the helper's node.exe running while the add-on talks to it, and a
+            # running program cannot be deleted: only a process started from this folder ends.
+            $inside = $HelperDir.TrimEnd('\') + '\'
+            foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue)) {
+                if ($p.ExecutablePath -and $p.ExecutablePath.StartsWith($inside, [StringComparison]::OrdinalIgnoreCase)) {
+                    Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+                }
+            }
+            try {
+                Remove-Item -LiteralPath $HelperDir -Recurse -Force
+                Write-Host 'FastStream helper removed. The FastStream add-on stays in Firefox (about:addons removes it).'
+            }
+            catch {
+                Write-Host "The FastStream helper could not be removed completely ($($_.Exception.Message)). Close Firefox and run uninstall.bat again." -ForegroundColor Yellow
+            }
         }
     }
 
