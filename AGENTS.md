@@ -157,7 +157,8 @@ sets `user-data/faststream/connected`, `.../autoplay` and `.../heartbeat` (every
 30 s; stale after 90 s), and hears `script-message faststream-next|previous|autoplay|pause` (pause: Space and a click on
 the video; FastStream's extension stops an end's autoplay countdown with it, autoplay stays on).
 mpv tells no observer when a user-data key is deleted. FastStream never sends
-YouTube; YouTube links pasted into mpv go through `ytdl_hook` and `yt-dlp.exe`.
+YouTube; YouTube links pasted into mpv go through `ytdl_hook` and `yt-dlp.exe`, which
+solves YouTube's challenges with Node.js (mpv.conf `ytdl-raw-options`; Deno is not needed).
 
 **Upscaling.** Auto applies a chain to FastStream content only (`fs-content=`);
 local files stay off unless Anime or Movie is picked. Anime = Anime4K C+A (Fast:
