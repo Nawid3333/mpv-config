@@ -169,6 +169,17 @@ H.run(function()
 	local lines = field('wrap-test', 'lines')() or {}
 	H.check('a long detail wraps onto 2-3 lines', #lines >= 2 and #lines <= 3, tostring(#lines))
 	H.eq('... every word kept, in order', table.concat(lines, ' '), long)
+	-- with a progress bar the detail is one line on a fixed width; the same card without
+	-- it again kept that one line, cut at its edge
+	local function line_count()
+		return #(field('wrap-test', 'lines')() or {})
+	end
+	show('wrap-test', 'Upscaling off here', long, '0', '0.5')
+	H.expect('... with a progress bar, one line', line_count, 1)
+	show('wrap-test', 'Upscaling off here', long, '0')
+	H.expect('... without it again, wrapped again', function()
+		return line_count() >= 2
+	end, true)
 	local before = offset()
 	show('wrap-short', 'Short', 'one line', '0')
 	H.wait_until(function()

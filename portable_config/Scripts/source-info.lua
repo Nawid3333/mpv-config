@@ -360,13 +360,18 @@ local function handle_activate(value)
 		copy(payload)
 	elseif verb == 'open' then
 		-- named arguments: loadfile's options come after its index (mpv 0.38+)
-		mp.command_native({
+		local loaded, err = mp.command_native({
 			name = 'loadfile',
 			url = payload,
 			flags = 'replace',
 			index = -1,
 			options = reopen_options(),
 		})
+		-- a refused loadfile (an option mpv does not take) only says so here (checklist 3)
+		if loaded == nil then
+			msg.warn('could not open ' .. payload .. ': ' .. tostring(err))
+			mp.commandv('script-message-to', 'notify', 'show', 'source-copy', 'Not opened', tostring(err), '4')
+		end
 	elseif verb == 'browse' then
 		browser_open(payload)
 	elseif verb == 'show' then

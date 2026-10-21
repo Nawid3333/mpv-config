@@ -575,13 +575,26 @@ local function switch_file(entry)
 	end
 	mp.set_property_native('user-data/faststream-quality/last-load', { url = url, options = file_options })
 	-- named arguments: loadfile's options come after its index (mpv 0.38+)
-	mp.command_native({
+	local loaded, err = mp.command_native({
 		name = 'loadfile',
 		url = url,
 		flags = 'replace',
 		index = -1,
 		options = file_options,
 	})
+	-- a refused loadfile (an option mpv does not take) only says so here (checklist 3)
+	if loaded == nil then
+		msg.warn('could not open ' .. url .. ': ' .. tostring(err))
+		mp.commandv(
+			'script-message-to',
+			'notify',
+			'show',
+			'faststream-quality',
+			'Quality not switched',
+			tostring(err),
+			'4'
+		)
+	end
 end
 
 --- Plays the row with this value. The playing one does nothing, and so does a value this

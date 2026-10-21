@@ -166,8 +166,9 @@ Anime4K's low-end template). Movie by the real display scale: SSimSuperRes below
 2x, FSRCNNX + SSimSuperRes from 2x; both with CfL chroma and adaptive-sharpen on
 the OUTPUT hook (Auto strength = scale - 1, 0.5-1.5). Quality Auto times the high
 chain once per screen and source size (`vo-passes`) and drops to Fast, then off,
-over half a frame. `user-data/gpu-toggles/applied` counts actions - the warm-up
-waits on it, so automatic re-applies must not go through `entry()`. A change to the
+over half a frame. `user-data/gpu-toggles/applied` counts actions (keys, messages, and
+each file's `file-loaded` re-evaluation, which the warm-up counts in) - the warm-up waits
+on it, so no other automatic re-apply may go through `entry()`. A change to the
 warm-up's matrix or shipped cases needs a `WARMUP_VERSION` bump in fingerprint.lua
 (that is what triggers a full warm-up). Accepted: a chain's first use in a process
 can make 0-4 frames late (its files parsed on the render thread); preloading chains

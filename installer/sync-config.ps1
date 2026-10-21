@@ -163,9 +163,18 @@ try {
     }
     if ($Commit -notmatch '^[0-9a-f]{40}$') { throw "not a commit: '$Commit'" }
     $short = $Commit.Substring(0, 7)
+    # The same commit again puts back only what this install wrote and is gone (an antivirus,
+    # a cleanup): "run it again to repair" (setup.ps1). A file there but changed is yours, as
+    # at every update; the next commit sets it aside.
+    $repair = $false
     if ($oldCommit -eq $Commit) {
-        Write-Host "The config is up to date ($short)." -ForegroundColor Green
-        exit 0
+        $gone = @($old.Keys | Where-Object { -not (Test-Path -LiteralPath (Join-Path $Root $_) -PathType Leaf) })
+        if ($gone.Count -eq 0) {
+            Write-Host "The config is up to date ($short)." -ForegroundColor Green
+            exit 0
+        }
+        Write-Host "The config is up to date ($short), but $($gone.Count) of its files are gone: putting them back." -ForegroundColor Yellow
+        $repair = $true
     }
 
     Assert-MpvNotRunning $Root
@@ -234,6 +243,7 @@ try {
             $target = Join-Path $Root $rel
             $cur = Get-Sha256 $target
             if ($cur -eq $new[$rel]) { continue }
+            if ($repair -and $null -ne $cur) { continue }
             # yours: changed since the last install, or never installed by it
             if ($null -ne $cur -and (-not $old.ContainsKey($rel) -or $old[$rel] -ne $cur)) {
                 Copy-Item -LiteralPath $target -Destination "$target.mine-$stamp"

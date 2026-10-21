@@ -136,7 +136,8 @@ function Invoke-OneClickCheck([string]$t) {
     $noLimit = @(foreach ($f in 'install-faststream.ps1', 'install-mpv.ps1', 'sync-config.ps1', 'update.ps1', 'install-shaders.ps1', 'install-uosc.ps1') {
             $lines = @(Get-Content -LiteralPath (Join-Path $installer $f))
             for ($i = 0; $i -lt $lines.Count; $i++) {
-                if ($lines[$i] -notmatch 'Invoke-WebRequest ') { continue }
+                # the name, then a space or the backtick that continues it on the next line
+                if ($lines[$i] -notmatch 'Invoke-WebRequest') { continue }
                 $call = $lines[$i]
                 for ($j = $i; $j + 1 -lt $lines.Count -and $lines[$j] -match '`\s*$'; $j++) { $call += ' ' + $lines[$j + 1] }
                 if ($call -match '-OutFile' -and $call -notmatch '@StallLimit') { "$f`:$($i + 1)" }
@@ -256,6 +257,15 @@ function Invoke-OneClickCheck([string]$t) {
         (Read-Text (Join-Path $root 'portable_config/mpv.conf')) -eq 'v1') $r.Out
     $r = Invoke-Script sync-config.ps1 @('-Root', $root, '-Zip', $zip1, '-Commit', $c1, '-LfsSource', $lfs)
     Test-Check $t '... the same commit again: nothing to do' ($r.Code -eq 0 -and $r.Out -match 'up to date') $r.Out
+    # "run it again to repair": an install file gone (an antivirus) comes back, a changed one stays
+    Remove-Item -LiteralPath (Join-Path $root 'portable_config/mpv.conf')
+    Set-Content -LiteralPath (Join-Path $root 'old/gone.lua') 'mine' -NoNewline
+    $r = Invoke-Script sync-config.ps1 @('-Root', $root, '-Zip', $zip1, '-Commit', $c1, '-LfsSource', $lfs)
+    Test-Check $t '... the same commit with a file gone: it is put back, a file you changed stays as it is' (
+        $r.Code -eq 0 -and (Read-Text (Join-Path $root 'portable_config/mpv.conf')) -eq 'v1' -and
+        (Read-Text (Join-Path $root 'old/gone.lua')) -eq 'mine' -and
+        @(Get-ChildItem (Join-Path $root 'old') -Filter 'gone.lua.mine-*').Count -eq 0) $r.Out
+    Set-Content -LiteralPath (Join-Path $root 'old/gone.lua') 'gone' -NoNewline
     Set-Content -LiteralPath (Join-Path $root 'portable_config/input.conf') 'my keys' -NoNewline
     Set-Content -LiteralPath (Join-Path $root 'old2/edited.lua') 'my edit' -NoNewline
     Set-Content -LiteralPath (Join-Path $root 'portable_config/speed.json') '{"speed":3}' -NoNewline
@@ -340,6 +350,9 @@ function Invoke-OneClickCheck([string]$t) {
             'install.ps1'             = 'param([string]$MpvPath, [string]$NodePath, [string]$InstallDir, [switch]$NoRegister)
 [Console]::Error.WriteLine("a note on stderr")
 New-Item -ItemType Directory -Force $InstallDir | Out-Null
+Copy-Item (Join-Path $PSScriptRoot "faststream-mpv-host.mjs") (Join-Path $InstallDir "faststream-mpv-host.mjs")
+Set-Content (Join-Path $InstallDir "com.faststream.mpv.bat") "@echo off"
+Set-Content (Join-Path $InstallDir "com.faststream.mpv.json") "{}"
 @{ mpvPath = $MpvPath; node = $NodePath; noRegister = [bool]$NoRegister } | ConvertTo-Json | Set-Content (Join-Path $InstallDir "config.json")'
         }
         $mpvStandIn = Join-Path $ob 'mpvdir/mpv.exe'
@@ -356,6 +369,10 @@ New-Item -ItemType Directory -Force $InstallDir | Out-Null
         Test-Check $t '... again: the helper is up to date, nothing downloaded' (
             $r.Code -eq 0 -and $r.Out -match 'helper is up to date' -and $r.Out -match "Node\.js for the helper: $([regex]::Escape($nv)) is up to date" -and
             $r.Out -notmatch 'Downloading') $r.Out
+        Remove-Item -LiteralPath (Join-Path $hd 'faststream-mpv-host.mjs')
+        $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd) + $common)
+        Test-Check $t '... a helper file gone (an antivirus): installed again, not "up to date"' (
+            $r.Code -eq 0 -and $r.Out -notmatch 'helper is up to date' -and (Test-Path (Join-Path $hd 'faststream-mpv-host.mjs'))) $r.Out
         $other = Join-Path $ob 'other/mpv.exe'
         $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $other, '-HelperDir', $hd, '-HelperOnly', '-Yes') + $common)
         $cfg = Get-Content -Raw (Join-Path $hd 'config.json') | ConvertFrom-Json
@@ -1107,6 +1124,11 @@ function Invoke-StaticCheck {
         @{ Name = 'a file list GitHub cut short'; Files = @(& $file 'README.md' "@@`n+x"); Unread = @('GitHub listed 3000 of its 4000 files')
             Want = '[GPU: unknown]'
         }
+        @{ Name = 'a script only renamed (no diff, nothing changed in it)'; Files = @([pscustomobject]@{
+                    filename = 'portable_config/Scripts/bar.lua'; previous_filename = 'portable_config/Scripts/foo.lua'
+                    status = 'renamed'; changes = 0; patch = $null
+                }); Want = ''
+        }
         @{ Name = 'an mpv.conf diff too large to show'; Files = @([pscustomobject]@{ filename = 'portable_config/mpv.conf'; status = 'modified'; patch = $null })
             Want = '[GPU: unknown]'
         }
@@ -1334,6 +1356,10 @@ function Invoke-StaticCheck {
         Test-Check $t '... and one with an e-mail address' (
             $r.Code -ne 0 -and $r.Out -match 'the name the remote gets holds an e-mail address' -and
             -not (& git -C $bare rev-parse -q --verify ('ping-jane' + '@example.net'))) $r.Out
+        $r = Invoke-Git push -q origin ('main:refs/heads/claude' + '.ai/chat/2a9cb8')
+        Test-Check $t '... and one with a private claude.ai link' (
+            $r.Code -ne 0 -and $r.Out -match 'the name the remote gets holds a private claude.ai link' -and
+            -not (& git -C $bare rev-parse -q --verify ('claude' + '.ai/chat/2a9cb8'))) $r.Out
         $null = Invoke-Git tag -a v-test -m 'for jane example'
         $r = Invoke-Git push -q origin v-test
         Test-Check $t "... an annotated tag whose message holds one too" (

@@ -85,8 +85,10 @@ function Get-GpuReason {
             & $add $GpuFile[$area] $name
             continue
         }
-        # GitHub sends no patch for a diff too large to show: its lines cannot be read
-        if (-not $patch -and ($name -eq 'portable_config/mpv.conf' -or $name -like 'portable_config/*.lua') -and (& $field $f 'status') -ne 'removed') {
+        # GitHub sends no patch for a diff too large to show: its lines cannot be read. A file
+        # only renamed has none either, and no line to read.
+        $renamedOnly = (& $field $f 'status') -eq 'renamed' -and (& $field $f 'changes') -eq 0
+        if (-not $patch -and -not $renamedOnly -and ($name -eq 'portable_config/mpv.conf' -or $name -like 'portable_config/*.lua') -and (& $field $f 'status') -ne 'removed') {
             & $add 'unknown' "$name (its diff is too large to read)"
             continue
         }

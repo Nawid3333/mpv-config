@@ -98,7 +98,11 @@ while read -r _ lsha rref rsha; do
 	if [ -n "$list" ] && printf '%s\n' "$rref" | grep -q -i -F -e "$list"; then
 		note 'the name the remote gets holds a word from .git/info/private-words'
 	fi
-	# (a ref name cannot hold a user folder path - no ":" or "\" - but "@" and "." it can)
+	# (a ref name cannot hold a user folder path - no ":" or "\" - but "@" and "." it can,
+	# and so an e-mail address or a claude.ai link)
+	if printf '%s\n' "$rref" | grep -q -i -E "$private_path_re"; then
+		note 'the name the remote gets holds a private claude.ai link'
+	fi
 	if printf '%s\n' "$rref" | private_email; then
 		note 'the name the remote gets holds an e-mail address'
 	fi
