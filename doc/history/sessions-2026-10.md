@@ -758,7 +758,10 @@ added line for an e-mail address; only CI did, after the push had made it public
 hook took GitHub's older noreply form without the numeric id, which CI's identity check
 refuses. Both hooks now apply the e-mail rule to added lines (mpv's manual, which names its
 authors' addresses, stays out, as in the static check), and both sides want
-`<id>+<login>@users.noreply.github.com`. Accepted limits: the guards read text only, so
-binary and LFS content is unchecked; a fork's pull request gets no GPU flag (AGENTS.md says
-to look yourself); the stylua update's pull request runs only the Lua lint before it is
-offered.
+`<id>+<login>@users.noreply.github.com`. The stylua update's pull request now gets the
+regression suite as well as the Lua lint (its token's pull request starts no workflow by
+itself, and a reformat can move what the static tier's text checks look for), RECREATE.md's
+inventory lists the whole tree again, and the repository runs an action only when it is
+pinned to a full commit SHA (a setting; every action already was). What stays as it is: the
+guards read text only, so binary and LFS content is checked by eye; a fork's pull request
+gets no GPU flag (AGENTS.md says to look yourself).
