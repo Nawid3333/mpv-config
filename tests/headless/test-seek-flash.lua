@@ -25,9 +25,11 @@ H.run(function()
 	end
 	H.eq('the UI is hidden while nobody touches the mouse', visibility(), 0)
 
+	local before = mp.get_property_number('time-pos') or 0
 	H.key('k')
 	H.expect('k (10 s on) shows the timeline', visibility, 1)
-	H.check('... and seeks', (mp.get_property_number('time-pos') or 0) >= 9, mp.get_property('time-pos'))
+	-- a keyframe seek: it may land short of the 10 s (8.875 on CI's lavfi clip)
+	H.check('... and seeks', (mp.get_property_number('time-pos') or 0) > before + 5, mp.get_property('time-pos'))
 	H.sleep(1.6)
 	H.eq('... still there after 1.6 s (flash_duration alone is 1 s)', visibility(), 1)
 	H.expect('... and gone by itself', visibility, 0, nil, 3)
