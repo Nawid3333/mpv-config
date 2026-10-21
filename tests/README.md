@@ -65,8 +65,8 @@ an added user folder path, private claude.ai link or private word is refused, a 
 says to run updater.bat after a pull that pins another mpv and says nothing when the installed one is it; against a bare
 remote, a push of commits made with `--no-verify` is refused, nothing reaching the remote and no text printed, for a private
 word, user folder path or e-mail address in a message, a private word in an added line, one a later commit removes again, a
-real name as author and a forced-in ignored file, and so are a branch name and an annotated tag's message with a private
-word; a clean commit naming a noreply co-author goes out, mpv's manual with its example user folder is committed and pushed,
+real name as author and a forced-in ignored file, and so are a branch name with a private word or an e-mail address and an
+annotated tag's message with a private word; a clean commit naming a noreply co-author goes out, mpv's manual with its example user folder is committed and pushed,
 and a new branch is checked for its own commits only) and, outside CI, that this clone uses them (`core.hooksPath`) and
 commits under a public identity; privacy (the repository is public, `tests/lib/privacy.ps1`, AGENTS.md "Public
 repository"): `.gitignore` covers every kind of runtime state, and no tracked file is ignored or holds a user folder path, a

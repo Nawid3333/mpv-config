@@ -67,17 +67,23 @@ jobs:
           }
           $words = @("$env:PRIVATE_WORDS" -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
           $findings = Get-PrivacyFinding -Root . -Words $words
-          # A pull request's own commits; a push's since the commit before it (a first push,
-          # or a before this clone lacks: that commit alone). A run by hand: the files only.
+          # A pull request's own commits; a push's (to main: the only branch a push runs this
+          # for) since the commit before it - with no such commit here (a force push), all of
+          # main's history, whose messages and identities take seconds. A run by hand: the
+          # files only.
           $range = switch ($env:EVENT) {
             'pull_request' { "$env:BASE..$env:HEAD" }
-            'push' { git cat-file -e "$env:BEFORE^{commit}" 2>$null; $LASTEXITCODE ? "$env:AFTER^!" : "$env:BEFORE..$env:AFTER" }
+            'push' { git cat-file -e "$env:BEFORE^{commit}" 2>$null; $LASTEXITCODE ? $env:AFTER : "$env:BEFORE..$env:AFTER" }
           }
           if ($range) {
             foreach ($kv in (Get-CommitFinding -Root . -Range $range -Words $words).GetEnumerator()) { $findings[$kv.Key] = $kv.Value }
           }
-          if ($env:HEAD_REF -and $words.Count) {
-            $findings['the branch name holds no private word'] = @($words | Where-Object { $env:HEAD_REF.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { 'the head branch' })
+          if ($env:HEAD_REF) {
+            # (a ref name cannot hold a user folder path, but an e-mail address it can)
+            $mails = @([regex]::Matches($env:HEAD_REF, '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}') |
+                Where-Object { $_.Value -notmatch '(noreply@anthropic\.com|noreply@github\.com|support@github\.com|@users\.noreply\.github\.com|@example\.(com|org))$' })
+            $named = @($words | Where-Object { $env:HEAD_REF.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
+            $findings['the branch name holds no private word or e-mail address'] = @(if ($mails.Count -or $named.Count) { 'the head branch' })
           }
           $found = 0
           # file:line or a short sha only, never the text: this log is public

@@ -96,6 +96,10 @@ while read -r _ lsha rref rsha; do
 	if [ -n "$list" ] && printf '%s\n' "$rref" | grep -q -i -F -e "$list"; then
 		note 'the name the remote gets holds a word from .git/info/private-words'
 	fi
+	# (a ref name cannot hold a user folder path - no ":" or "\" - but "@" and "." it can)
+	if printf '%s\n' "$rref" | grep -o -E "$email_re" | grep -q -v -i -E "$noreply_re"; then
+		note 'the name the remote gets holds an e-mail address'
+	fi
 	if [ "$(git cat-file -t "$lsha" 2>/dev/null)" = tag ]; then
 		check_tag "$lsha"
 	fi

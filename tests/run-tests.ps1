@@ -1277,6 +1277,10 @@ function Invoke-StaticCheck {
         Test-Check $t 'push guard: a branch name with a private word is refused (the finding does not name it)' (
             $r.Code -ne 0 -and $r.Out -match 'a pushed branch or tag: the name the remote gets' -and
             -not (& git -C $bare rev-parse -q --verify fix-janes-laptop)) $r.Out
+        $r = Invoke-Git push -q origin ('main:refs/heads/ping-jane' + '@example.net')
+        Test-Check $t '... and one with an e-mail address' (
+            $r.Code -ne 0 -and $r.Out -match 'the name the remote gets holds an e-mail address' -and
+            -not (& git -C $bare rev-parse -q --verify ('ping-jane' + '@example.net'))) $r.Out
         $null = Invoke-Git tag -a v-test -m 'for jane example'
         $r = Invoke-Git push -q origin v-test
         Test-Check $t "... an annotated tag whose message holds one too" (
