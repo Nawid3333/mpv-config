@@ -1376,6 +1376,7 @@ local function cycle_tuning()
 		mark('As drawn', anime_lines == 'drawn')
 		notify('Anime lines: ' .. anime_lines_label(), table.concat(choices, ' · '))
 	elseif is_movie_preset(upscale_active_preset) then
+		---@type (string|number)[] 'auto', then the fixed strengths
 		local order = { SHARPEN_AUTO }
 		for _, level in ipairs(SHARPEN_LEVELS) do
 			order[#order + 1] = level.value
