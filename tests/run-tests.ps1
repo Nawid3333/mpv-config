@@ -1187,6 +1187,9 @@ function Invoke-StaticCheck {
         Test-Check $t '... and a real e-mail address' ($r.Code -ne 0 -and $r.Out -match 'not a public identity') $r.Out
         $r = Invoke-Git -c 'user.name=Claude' -c 'user.email=noreply@anthropic.com' commit -q --allow-empty -m 'agent'
         Test-Check $t '... Claude <noreply@anthropic.com> goes through' ($r.Code -eq 0) $r.Out
+        # the older noreply form, without the numeric id: CI's identity check refuses it too
+        $r = Invoke-Git -c 'user.email=guard-test@users.noreply.github.com' commit -q --allow-empty -m 'old noreply'
+        Test-Check $t '... a noreply address without its numeric id is refused' ($r.Code -ne 0 -and $r.Out -match 'not a public identity') $r.Out
         New-Item -ItemType Directory -Force (Join-Path $g 'portable_config') | Out-Null
         Write-GuardFile 'portable_config/stream-resume.json' '{}'
         $null = Invoke-Git add -f portable_config/stream-resume.json
@@ -1210,6 +1213,14 @@ function Invoke-StaticCheck {
         $null = Invoke-Git add notes.md
         $r = Invoke-Git commit -q -m 'placeholder'
         Test-Check $t '... a placeholder (C:\Users\<name>) goes through' ($r.Code -eq 0) $r.Out
+        Write-GuardFile 'notes.md' ('mail jane' + '@example.net')
+        $null = Invoke-Git add notes.md
+        $r = Invoke-Git commit -q -m 'address'
+        Test-Check $t 'commit guard: an added line with an e-mail address is refused' ($r.Code -ne 0 -and $r.Out -match 'holds an e-mail address') $r.Out
+        Write-GuardFile 'notes.md' ('by guard-test <1+guard-test' + '@users.noreply.github.com>')
+        $null = Invoke-Git add notes.md
+        $r = Invoke-Git commit -q -m 'noreply address'
+        Test-Check $t '... a noreply one goes through' ($r.Code -eq 0) $r.Out
         $words = Join-Path $g '.git/info/private-words'
         Set-Content -LiteralPath $words "# one per line`nJane Example"
         Write-GuardFile 'notes.md' 'written by jane example'
@@ -1252,6 +1263,7 @@ function Invoke-StaticCheck {
             'a user folder path in a commit message'      = { Invoke-Git commit -q --no-verify --allow-empty -m ('see C:' + '\Users\' + 'someone\Videos') }
             'an e-mail address in a commit message'       = { Invoke-Git commit -q --no-verify --allow-empty -m ('from jane' + '@example.net') }
             'an added line with a private word'           = { Write-GuardFile 'notes.md' 'written by jane example'; Invoke-Git commit -q --no-verify -am 'notes' }
+            'an added line with an e-mail address'        = { Write-GuardFile 'notes.md' ('mail jane' + '@example.net'); Invoke-Git commit -q --no-verify -am 'notes' }
             'a word one commit adds and the next removes' = {
                 Write-GuardFile 'notes.md' 'written by jane example'; Invoke-Git commit -q --no-verify -am 'notes'
                 Write-GuardFile 'notes.md' 'written'; Invoke-Git commit -q -am 'notes fixed'
@@ -1288,11 +1300,11 @@ function Invoke-StaticCheck {
         $null = Invoke-Git tag -d v-test
         # mpv's own manual names an example user folder (users\USERNAME): both guards let it in
         New-Item -ItemType Directory -Force (Join-Path $g 'doc') | Out-Null
-        Write-GuardFile 'doc/manual.txt' ('the example is C:' + '\users\USERNAME\mpv')
+        Write-GuardFile 'doc/manual.txt' ("the example is C:" + "\users\USERNAME\mpv`nreport bugs to mpv-team" + '@example.net')
         $null = Invoke-Git add doc/manual.txt
         $r = Invoke-Git commit -q -m 'manual'
         $r2 = Invoke-Git push -q origin main
-        Test-Check $t "... mpv's manual with its example user folder is committed and pushed" ($r.Code -eq 0 -and $r2.Code -eq 0) "$($r.Out) $($r2.Out)"
+        Test-Check $t "... mpv's manual with its example user folder and its authors' addresses is committed and pushed" ($r.Code -eq 0 -and $r2.Code -eq 0) "$($r.Out) $($r2.Out)"
         $published = (Invoke-Git rev-parse main).Out
         Remove-Item -LiteralPath $words
         $null = Invoke-Git switch -q -c feature

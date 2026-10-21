@@ -85,13 +85,19 @@ fi
 
 # -- 2c ------------------------------------------------------------------------
 lines=$(git diff --cached --no-color --no-ext-diff -U0 "$against" | sed -n '/^+++ /d; s/^+//p')
+# the same without mpv's manual (privacy.sh)
+checked=$(git diff --cached --no-color --no-ext-diff -U0 "$against" -- . "$private_path_skip" |
+	sed -n '/^+++ /d; s/^+//p')
 # -i: Windows paths are written in any case (c:\users\... too)
-hits=$(git diff --cached --no-color --no-ext-diff -U0 "$against" -- . "$private_path_skip" |
-	sed -n '/^+++ /d; s/^+//p' | grep -n -i -E "$private_path_re" | head -5)
+hits=$(printf '%s\n' "$checked" | grep -n -i -E "$private_path_re" | head -5)
 if [ -n "$hits" ]; then
 	refuse "an added line holds a user folder path or a private claude.ai link:" \
 		"$hits" \
 		"Write %LOCALAPPDATA%, ~~state or a placeholder like C:\\Users\\<name>."
+fi
+hits=$(printf '%s\n' "$checked" | grep -n -o -E "$email_re" | grep -v -i -E "$noreply_re" | head -5)
+if [ -n "$hits" ]; then
+	refuse "an added line holds an e-mail address (only noreply ones may be named):" "$hits"
 fi
 list=$(private_words)
 if [ -n "$list" ]; then

@@ -11,8 +11,9 @@ name: stylua update
 #   - every Lua file is reformatted with the new version in the same commit, so
 #     the editor, CI and the code agree from the merge on (the pull request names
 #     the files it changed; none = the new version formats this repo as before);
-#   - lint-lua.yml is dispatched on the branch: a pull request opened with
-#     GITHUB_TOKEN starts no workflow by itself.
+#   - lint-lua.yml and regression-tests.yml are dispatched on the branch: a pull
+#     request opened with GITHUB_TOKEN starts no workflow by itself, and a reformat
+#     can move what the static tier's text checks look for.
 # When main pins that version or a newer one (the merge, or a pin by hand), the
 # open pull request closes. Closing it unmerged skips that version until a newer
 # one comes. Needs the repo setting "Allow GitHub Actions to create and approve
@@ -26,7 +27,7 @@ on:
 permissions:
   contents: write # push stylua-update
   pull-requests: write # the pull request that offers the version
-  actions: write # dispatch lint-lua.yml on the branch
+  actions: write # dispatch lint-lua.yml and regression-tests.yml on the branch
 
 concurrency:
   group: stylua-update
@@ -141,6 +142,7 @@ jobs:
             else
               printf -- '- The new version formats every Lua file here exactly as before: nothing reformatted.\n'
             fi
+            printf -- '- Lua style and the regression tests run on this branch (this workflow starts them: a pull request it opens starts none by itself).\n'
             printf -- '- Locally: `stylua --check .` (tests/run-tests.ps1) uses the stylua on PATH - update it after the merge (`cargo install stylua --version %s --locked`).\n\n' "${latest#v}"
             printf 'This pull request keeps up: a newer release moves here. Closing it skips this version.\n'
           } > "$RUNNER_TEMP/pr.md"
@@ -155,3 +157,4 @@ jobs:
             echo "Opened ${url##*/} for $latest."
           fi
           gh workflow run lint-lua.yml --repo "$GH_REPO" --ref "$PR_BRANCH"
+          gh workflow run regression-tests.yml --repo "$GH_REPO" --ref "$PR_BRANCH"

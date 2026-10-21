@@ -30,9 +30,6 @@ url=$2
 # one line per ref: <local ref> <local sha> <remote ref> <remote sha>
 refs=$(cat)
 list=$(private_words)
-email_re='[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
-# (support@github.com: Dependabot signs its commits with it)
-noreply_re='(noreply@anthropic\.com|noreply@github\.com|support@github\.com|@users\.noreply\.github\.com|@example\.(com|org))$'
 zero=0000000000000000000000000000000000000000
 found=''
 
@@ -46,7 +43,7 @@ check_message() {
 	if printf '%s\n' "$1" | grep -q -i -E "$private_path_re"; then
 		note 'its message holds a user folder path or a private claude.ai link'
 	fi
-	if printf '%s\n' "$1" | grep -o -E "$email_re" | grep -q -v -i -E "$noreply_re"; then
+	if printf '%s\n' "$1" | private_email; then
 		note 'its message holds an e-mail address (only noreply ones may be named)'
 	fi
 	if [ -n "$list" ] && printf '%s\n' "$1" | grep -q -i -F -e "$list"; then
@@ -65,9 +62,14 @@ check_commit() {
 	names=$(git diff-tree -r -m --first-parent --root --no-commit-id --name-only --no-renames --diff-filter=AMT "$1")
 	lines=$(git diff-tree -p -m --first-parent --root --no-commit-id --no-color --no-ext-diff -U0 "$1" |
 		sed -n '/^+++ /d; s/^+//p')
-	if git diff-tree -p -m --first-parent --root --no-commit-id --no-color --no-ext-diff -U0 "$1" -- . "$private_path_skip" |
-		sed -n '/^+++ /d; s/^+//p' | grep -q -i -E "$private_path_re"; then
+	# the same without mpv's manual (privacy.sh)
+	checked=$(git diff-tree -p -m --first-parent --root --no-commit-id --no-color --no-ext-diff -U0 "$1" -- . "$private_path_skip" |
+		sed -n '/^+++ /d; s/^+//p')
+	if printf '%s\n' "$checked" | grep -q -i -E "$private_path_re"; then
 		note 'an added line holds a user folder path or a private claude.ai link'
+	fi
+	if printf '%s\n' "$checked" | private_email; then
+		note 'an added line holds an e-mail address (only noreply ones may be named)'
 	fi
 	if [ -n "$names" ] && [ -n "$(printf '%s\n' "$names" | git check-ignore --no-index --stdin)" ]; then
 		note 'it adds a file .gitignore keeps out of git (private or generated)'
@@ -97,7 +99,7 @@ while read -r _ lsha rref rsha; do
 		note 'the name the remote gets holds a word from .git/info/private-words'
 	fi
 	# (a ref name cannot hold a user folder path - no ":" or "\" - but "@" and "." it can)
-	if printf '%s\n' "$rref" | grep -o -E "$email_re" | grep -q -v -i -E "$noreply_re"; then
+	if printf '%s\n' "$rref" | private_email; then
 		note 'the name the remote gets holds an e-mail address'
 	fi
 	if [ "$(git cat-file -t "$lsha" 2>/dev/null)" = tag ]; then
