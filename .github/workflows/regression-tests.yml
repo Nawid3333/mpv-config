@@ -79,11 +79,12 @@ jobs:
             foreach ($kv in (Get-CommitFinding -Root . -Range $range -Words $words).GetEnumerator()) { $findings[$kv.Key] = $kv.Value }
           }
           if ($env:HEAD_REF) {
-            # (a ref name cannot hold a user folder path, but an e-mail address it can)
+            # (a ref name cannot hold a user folder path, but an e-mail address or a claude.ai link it can)
             $mails = @([regex]::Matches($env:HEAD_REF, '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}') |
                 Where-Object { $_.Value -notmatch '(noreply@anthropic\.com|noreply@github\.com|support@github\.com|@users\.noreply\.github\.com|@example\.(com|org))$' })
             $named = @($words | Where-Object { $env:HEAD_REF.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 })
-            $findings['the branch name holds no private word or e-mail address'] = @(if ($mails.Count -or $named.Count) { 'the head branch' })
+            $link = $env:HEAD_REF -match $PrivatePathRegex
+            $findings['the branch name holds no private word, e-mail address or claude.ai link'] = @(if ($mails.Count -or $named.Count -or $link) { 'the head branch' })
           }
           $found = 0
           # file:line or a short sha only, never the text: this log is public

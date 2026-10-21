@@ -520,6 +520,11 @@ local function show(id, title, detail, seconds, progress, side, icon)
 		card.width = nil
 	end
 	card.title, card.detail = title, detail
+	-- a progress bar's card has a fixed width and its detail on one line (card_size):
+	-- without the bar again, it is measured and wrapped anew
+	if (card.progress == nil) ~= (tonumber(progress) == nil) then
+		card.width = nil
+	end
 	card.progress = tonumber(progress)
 	card.left = side == 'left'
 	if icon == '-' then

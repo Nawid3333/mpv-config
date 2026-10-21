@@ -1247,6 +1247,9 @@ local function set_value(key, value)
 	end
 	if not title then
 		msg.warn('set: invalid ' .. tostring(key) .. ' = ' .. tostring(value))
+		-- a value typed into Custom... that the setting does not take: the prompt closed,
+		-- and nothing said why nothing changed
+		notify('Not changed', tostring(value) .. ' is not a value this setting takes', 3)
 		return
 	end
 	save()

@@ -789,3 +789,33 @@ passes `js-runtimes=node` to yt-dlp (`ytdl-raw-options-append`): measured with D
 (`--no-js-runtimes --js-runtimes node`), yt-dlp solved a public YouTube video's challenges
 with Node.js 26 and found its video and audio formats. With Deno still installed both are
 enabled; once it is uninstalled Node.js does it alone. A static check keeps the option.
+
+## 2026-10-21/22: glm reviews both repositories, rounds 1 and 2
+
+The owner asked for glm-5.3-flash reviews of mpv-config and FastStream (security, bugs,
+logic and data flow, optimization), round after round until it finds nothing real, and
+then a final review with the Anthropic API. Each round packs both repositories into
+pieces of about 250 KB (whole files, the handoff document as the specification) and sends
+each to glm; every finding is checked against the code before anything changes, and a fix
+comes with a test that fails without it. About half of each round's findings were false
+(an API read wrongly, code outside the piece assumed); those go into the next round's
+prompt with the reason, so they are not sent again.
+
+Round 1 (#4): try-gpu.ps1's public posts go through ConvertTo-PublicText, a gpu tier
+skipped as a whole leaves the check pending; mpv-auto-update re-reads the open pull request
+before editing it, and a cancelled run deletes its branch; the privacy rules find a user
+folder in any script and claude.ai's artifact links; uninstall.ps1 stops the helper's
+node.exe first; the upscale button is remembered only once uosc took it; subtitle-sync's
+ffmpeg read stops with the tool; welcome.json through state-file.lua; J disabled like the
+other re-bound keys; destination_time=total shows the total again (the local dual end time
+had covered it); lua-language-server's one warning.
+
+Round 2: running the one-click updater again on the same commit puts back a file this
+install wrote that is gone (an antivirus), and leaves a changed one alone; the FastStream
+helper is installed again when one of its files is gone; branch names are checked for
+claude.ai links (hook and CI); a pull request that only renames a script is no GPU work;
+a refused loadfile (quality switch, source menu) says so; a banner that had a progress bar
+wraps its detail again; a custom value a setting does not take says so instead of closing
+silently; the static stall-limit guard also sees `Invoke-WebRequest` followed by a backtick.
+AGENTS.md: the file-loaded re-evaluation counts in gpu-toggles' `applied` on purpose (the
+warm-up counts it in).

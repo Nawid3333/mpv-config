@@ -195,6 +195,13 @@ H.run(function()
 		set('slang', 'de;rm -rf')
 		H.sleep(0.5)
 		H.eq('invalid values are ignored', mp.get_property('slang') .. ' ' .. peak(), 'de,en 350')
+		H.expect('... and a banner says so', function()
+			for _, c in ipairs((mp.get_property_native('user-data/notify') or {}).cards or {}) do
+				if c.id == 'settings' then
+					return c.title
+				end
+			end
+		end, 'Not changed')
 		local s2 = saved()
 		H.check(
 			'... the choices are in settings.json',

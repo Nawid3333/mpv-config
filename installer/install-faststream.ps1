@@ -285,12 +285,16 @@ try {
             # umlaut) never matched - the helper was reinstalled on every run, and its own folder's
             # updater left it alone as another folder's
             $m = try { Get-Content -Raw -Encoding UTF8 -LiteralPath $marker | ConvertFrom-Json } catch { $null }
+            # its files as install.ps1 writes them: one an antivirus or a cleanup took came back
+            # only with the next release, and every stream sent to mpv failed until then
+            $gone = @('faststream-mpv-host.mjs', 'com.faststream.mpv.bat', 'com.faststream.mpv.json', 'config.json' |
+                    Where-Object { -not (Test-Path -LiteralPath (Join-Path $HelperDir $_) -PathType Leaf) })
             if ($HelperOnly -and $m -and "$($m.mpv)" -ne $MpvExe) {
                 # set up for another mpv folder: that folder's updater looks after it
                 Write-Host "The FastStream helper starts $($m.mpv), not this mpv: left as it is."
                 $doHelper = $false
             }
-            elseif ($m -and "$($m.version)" -eq $version -and "$($m.mpv)" -eq $MpvExe -and (Get-NodeMajor "$($m.node)") -ge $NodeMinMajor) {
+            elseif ($m -and "$($m.version)" -eq $version -and "$($m.mpv)" -eq $MpvExe -and (Get-NodeMajor "$($m.node)") -ge $NodeMinMajor -and $gone.Count -eq 0) {
                 Write-Host "The FastStream helper is up to date ($version)." -ForegroundColor Green
                 $doHelper = $false
                 # its private Node.js all the same: a helper can stay at one version for long,
