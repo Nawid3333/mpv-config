@@ -131,6 +131,48 @@ H.run(function()
 	H.eq('an invalid sharpness or mode is ignored', chain(), MOVIE)
 	H.eq('... and the strength is unchanged', curve_height(), '1.000')
 
+	-- ---- Shift+S: the setting that fits what runs, without the menu ----
+	local function shaders_card()
+		for _, c in ipairs((mp.get_property_native('user-data/notify') or {}).cards or {}) do
+			if c.id == 'shaders' then
+				return c.title .. ' / ' .. c.detail
+			end
+		end
+		return 'none'
+	end
+	H.key('S')
+	H.expect('Shift+S in Movie: Auto -> Off, the sharpener out', chain, MOVIE_NO_SHARPEN)
+	H.expect(
+		'... the banner lists the choices, the one now in brackets',
+		shaders_card,
+		'Movie sharpness: Off / Auto · [Off] · Low · Medium · High'
+	)
+	H.key('S')
+	H.expect('... -> Low', curve_height, '0.500')
+	H.eq('... the sharpener back in the chain', chain(), MOVIE)
+	H.key('S')
+	H.expect('... -> Medium', curve_height, '1.000')
+	H.key('S')
+	H.expect('... -> High', curve_height, '1.500')
+	H.key('S')
+	H.expect('... -> Auto again', shaders_card, 'Movie sharpness: Auto (1.00) / [Auto] · Off · Low · Medium · High')
+	H.eq('... at 1.000', curve_height(), '1.000')
+	send('set-upscale', '2')
+	H.key('S')
+	H.expect('Shift+S in Anime: lines as drawn', chain, (ANIME:gsub('Anime4K_Restore_CNN_M%.glsl;', '')))
+	H.expect('... said so', shaders_card, 'Anime lines: As drawn / Crisp · [As drawn]')
+	H.key('S')
+	H.expect('... and crisp again', chain, ANIME)
+	send('set-upscale', '0')
+	H.key('S')
+	H.expect(
+		'Shift+S with nothing running says how to start one',
+		shaders_card,
+		'No upscaling running / Shift+A Anime or Shift+Y Movie, then Shift+S tunes it'
+	)
+	H.eq('... and changes nothing', chain(), OFF)
+	send('set-upscale', '3')
+
 	-- every loaded path exists on disk
 	local missing = {}
 	for _, p in ipairs(mp.get_property_native('glsl-shaders') or {}) do

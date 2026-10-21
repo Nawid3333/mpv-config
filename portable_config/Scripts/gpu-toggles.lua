@@ -1354,6 +1354,45 @@ local function set_anime_lines(value)
 	update_menus()
 end
 
+-- Shift+S (input.conf): the setting that fits what runs, without the menu - Anime's
+-- lines (Crisp <-> As drawn), Movie's sharpness in the menu's order (Auto, Off, Low,
+-- Medium, High, Auto ...). The banner lists every choice, the one now in brackets. With
+-- no chain running it says how to start one: the key changes nothing then, as a setting
+-- changed unseen would only surprise later.
+local function cycle_tuning()
+	local choices = {}
+	local mark = function(label, on)
+		choices[#choices + 1] = on and ('[' .. label .. ']') or label
+	end
+	if is_anime_preset(upscale_active_preset) then
+		set_anime_lines(anime_lines == 'crisp' and 'drawn' or 'crisp')
+		mark('Crisp', anime_lines == 'crisp')
+		mark('As drawn', anime_lines == 'drawn')
+		notify('Anime lines: ' .. anime_lines_label(), table.concat(choices, ' · '))
+	elseif is_movie_preset(upscale_active_preset) then
+		local order = { SHARPEN_AUTO }
+		for _, level in ipairs(SHARPEN_LEVELS) do
+			order[#order + 1] = level.value
+		end
+		-- a value set by hand outside the list (script-opts) goes on to Auto
+		local next_value = order[1]
+		for i, v in ipairs(order) do
+			if v == movie_sharpness then
+				next_value = order[i % #order + 1]
+				break
+			end
+		end
+		set_movie_sharpness(next_value)
+		mark('Auto', movie_sharpness == SHARPEN_AUTO)
+		for _, level in ipairs(SHARPEN_LEVELS) do
+			mark(level.name, movie_sharpness == level.value)
+		end
+		notify('Movie sharpness: ' .. setting_label(), table.concat(choices, ' · '))
+	else
+		notify('No upscaling running', 'Shift+A Anime or Shift+Y Movie, then Shift+S tunes it')
+	end
+end
+
 -- What runs now, for the banners of the settings below.
 local function running_detail()
 	return upscale_active_preset and ('now ' .. short_name(upscale_active_preset)) or 'used when upscaling is on'
@@ -1449,6 +1488,7 @@ end
 mp.add_key_binding(nil, 'cycle-upscale', entry(cycle_upscale))
 mp.add_key_binding(nil, 'toggle-anime', entry(toggle_anime))
 mp.add_key_binding(nil, 'toggle-movie', entry(toggle_movie))
+mp.add_key_binding(nil, 'cycle-tuning', entry(cycle_tuning))
 
 -- ---- Script messages (bound in input.conf / uosc menu) --------------------
 mp.register_script_message('cycle-upscale', entry(cycle_upscale))
@@ -1461,6 +1501,7 @@ mp.register_script_message(
 )
 mp.register_script_message('set-movie-sharpness', entry(set_movie_sharpness))
 mp.register_script_message('set-anime-lines', entry(set_anime_lines))
+mp.register_script_message('cycle-tuning', entry(cycle_tuning))
 mp.register_script_message('set-quality', entry(set_quality))
 mp.register_script_message('set-screen', entry(set_screen))
 mp.register_script_message('forget-measurements', entry(forget_measurements))

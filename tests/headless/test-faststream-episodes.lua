@@ -71,17 +71,38 @@ H.run(function()
 	H.expect('a local file, nothing connected: the buttons are hidden', visibility, 'hidden')
 	H.expect('autoplay not set yet reads off', autoplay_button, 'false / Autoplay next episode: off')
 
-	-- the keys with no helper following: they say why instead of nothing (2026-10-12),
-	-- with the autoplay switch's icon, as FastStream's own notices
+	-- the keys with no helper following, on a local file: its folder's next / previous file
+	-- (the playlist), and when there is none they say so, with the autoplay switch's icon
+	-- as FastStream's own notices; autoplay is FastStream's alone
 	local why = ' / only for videos FastStream sends to mpv / playlist_play'
+	local last = 'Next episode / this is the last file of its folder / playlist_play'
 	H.key('n')
-	H.expect('n, no FastStream following: says why', fs_card, 'Next episode' .. why)
+	H.expect('n, a local file, the last of its folder: says so', fs_card, last)
+	mp.commandv('script-message-to', 'notify', 'hide', 'faststream')
 	H.key('N')
-	H.expect('N: the same', fs_card, 'Previous episode' .. why)
+	H.expect('Shift+N: the same', fs_card, last)
+	H.key('P')
+	H.expect(
+		'Shift+P, the first of its folder: says so',
+		fs_card,
+		'Previous episode / this is the first file of its folder / playlist_play'
+	)
 	H.key('Ctrl+a')
-	H.expect('Ctrl+a: the same', fs_card, 'Autoplay' .. why)
+	H.expect('Ctrl+a: only for FastStream', fs_card, 'Autoplay' .. why)
 	mp.commandv('script-message-to', 'notify', 'hide', 'faststream')
 	H.expect('(banner taken down)', fs_card, 'none')
+	-- with a next file (a series folder: autoload.lua queues it), the keys play it
+	local position = function()
+		return mp.get_property_number('playlist-pos')
+	end
+	mp.commandv('loadfile', H.media_path('second/clip2.mkv'), 'append')
+	H.key('N')
+	H.expect('Shift+N, a local file with a next one: plays it', position, 1)
+	H.key('PREV')
+	H.expect('the media key Previous: back to the first', position, 0)
+	H.key('NEXT')
+	H.expect('the media key Next: the next one again', position, 1)
+	H.check('the first file again', H.load(H.media_path('plain/clip.mkv')))
 	-- Space and a click on the video also send faststream-pause (the countdown's stop key,
 	-- 2026-10-17); with no helper they only pause, no banner about FastStream
 	local pause_keys = {}

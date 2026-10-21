@@ -214,7 +214,7 @@ foreach ($r in $reasons) { Write-Host "  $($r.Area): $($r.Detail)" }
 $states = @(Invoke-Gh @('api', "repos/$Repo/commits/$sha/statuses", '--jq', ".[] | select(.context == `"$GpuStatus`") | .state"))
 if ($tag -and $states.Count -eq 0) {
     $null = Invoke-Gh @('api', '-X', 'POST', "repos/$Repo/statuses/$sha", '-f', 'state=pending', '-f', "context=$GpuStatus",
-        '-f', "description=Not run yet: pwsh tests	ry-gpu.ps1 -Pr $Pr on the PC")
+        '-f', "description=Not run yet: pwsh tests\try-gpu.ps1 -Pr $Pr on the PC")
 }
 
 # the title

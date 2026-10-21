@@ -17,7 +17,8 @@
 --                                   followed by `connected` alone.
 --   user-data/faststream/autoplay   its "Autoplay next episode in mpv" setting
 -- and hears every client message:
---   script-message faststream-next / faststream-previous (also n / N, input.conf)
+--   script-message faststream-next / faststream-previous (also n / Shift+N / Shift+P and the
+--   media keys, input.conf); without a helper the playlist's next / previous file instead
 --   script-message faststream-autoplay (also Ctrl+a): it flips the setting, stores
 --       it, sets user-data/faststream/autoplay to the new value and says so in a
 --       notify.lua banner. Switched off during its 5 s countdown at an episode's
@@ -218,6 +219,15 @@ local KEY_TITLES = {
 	['faststream-autoplay'] = 'Autoplay',
 }
 
+-- next / previous with no helper, for a video FastStream did not send: the playlist's
+-- neighbour - for a local file the next file of its folder (autoload.lua queues the
+-- folder), an episode as well. A FastStream video's episodes are the page's, which only
+-- its helper can open: the banner says so, as before.
+local PLAYLIST_STEP = {
+	['faststream-next'] = 'playlist-next',
+	['faststream-previous'] = 'playlist-prev',
+}
+
 for name, title in pairs(KEY_TITLES) do
 	mp.register_script_message(name, function()
 		-- read now, not state.connected: that one follows a stopped heartbeat only
@@ -225,14 +235,20 @@ for name, title in pairs(KEY_TITLES) do
 		if truthy(mp.get_property_native('user-data/faststream/connected')) and helper_alive() then
 			return
 		end
-		mp.commandv(
-			'script-message-to',
-			'notify',
-			'show',
-			'faststream',
-			title,
-			'only for videos FastStream sends to mpv',
-			'4'
-		)
+		local path = mp.get_property('path')
+		local step = not is_faststream(path) and PLAYLIST_STEP[name]
+		-- a failing command returns nil (AGENTS.md validation item 3): no file there
+		if step and mp.commandv(step) then
+			return
+		end
+		local detail = 'only for videos FastStream sends to mpv'
+		if step and path and not path:find('^%a[%w+.-]*://') then
+			detail = step == 'playlist-next' and 'this is the last file of its folder'
+				or 'this is the first file of its folder'
+		elseif step then
+			detail = step == 'playlist-next' and 'nothing after it in the playlist'
+				or 'nothing before it in the playlist'
+		end
+		mp.commandv('script-message-to', 'notify', 'show', 'faststream', title, detail, '4')
 	end)
 end

@@ -984,10 +984,15 @@ local function tour_items()
 	return {
 		{
 			title = 'Upscaling',
-			hint = 'Shift+A, Shift+Y',
+			hint = 'Shift+A, Shift+Y, Shift+S',
 			items = {
 				run('Anime upscaling on / off', 'Shift+A', 'script-binding gpu_toggles/toggle-anime'),
 				run('Movie upscaling on / off', 'Shift+Y', 'script-binding gpu_toggles/toggle-movie'),
+				run(
+					'Anime lines / Movie sharpness: the next choice',
+					'Shift+S',
+					'script-binding gpu_toggles/cycle-tuning'
+				),
 				info('Anime: Anime4K - clean lines, less noise', 'anime'),
 				info('Movie: FSRCNNX / SSimSuperRes, picked by the scale', 'films'),
 				info('Local files start without; FastStream streams pick one', 'Auto'),
@@ -1033,8 +1038,14 @@ local function tour_items()
 			items = {
 				info('Allowlisted sites open in this window by themselves', 'MPV mode'),
 				info('A stream continues where you stopped (7 days)', 'Home = start'),
-				run('Next episode: the page goes on, this window plays it', 'n', 'script-message faststream-next'),
-				info('Previous episode', 'N'),
+				run(
+					'Next episode: the page goes on, this window plays it',
+					'Shift+N',
+					'script-message faststream-next'
+				),
+				info('Previous episode', 'Shift+P'),
+				info("Or the keyboard's media keys (next / previous track)", 'media keys'),
+				info('A local file: the next / previous file of its folder', 'same keys'),
 				info('At the end the next one follows (FastStream: Autoplay)', 'autoplay'),
 				info('Stop that countdown, autoplay stays on', 'Space'),
 				run('Autoplay next episode on / off', 'Ctrl+a', 'script-message faststream-autoplay'),

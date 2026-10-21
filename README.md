@@ -217,7 +217,8 @@ config is built as its mpv side:
   episode does not carry over.
 - **Episode buttons.** While FastStream plays a series in the window, the
   control bar has previous episode, next episode and an autoplay switch
-  (`N`, `n` and `Ctrl+a` on the keyboard).
+  (`Shift+P`, `Shift+N` and `Ctrl+a` on the keyboard, and the keyboard's media
+  keys for previous / next track).
 - **Decoding.** Streams and local files both decode with `d3d11va-copy` on the
   graphics card's video engine. Vulkan decoding is off since 2026-10-04: it lost
   the graphics device on this AMD card.
@@ -281,13 +282,14 @@ that needs a login session will not play in mpv.
 |---|---|
 | Click / double-click / right-click | Play-pause / fullscreen / menu |
 | `Shift+A`, `Shift+Y` | Anime upscaling on/off, Movie upscaling on/off |
+| `Shift+S` | The next choice of what runs: Anime's lines (Crisp / As drawn) or Movie's sharpness (Auto, Off, Low, Medium, High) |
 | `t` | Subtitle and audio sync timeline |
 | `c` | Subtitles on/off (selects a track if none is chosen) |
 | `r g b q w a y e h` | Speed 1x, 2x, 2.5x, 3x, 3.5x, 4x, 5x, 8x, 16x (again: back) |
 | `s` / `d` | Speed -0.1 / +0.1 |
 | `←` `→` / `j` `k` / `z` `x` | Seek 5 s / 10 s / 60 s |
 | `0`-`9` | Jump to 0 %-90 % |
-| `n` / `N` | Next / previous episode of a FastStream series: the page goes on, this window plays it |
+| `Shift+N` / `Shift+P`, media keys | Next / previous episode: of a FastStream series (the page goes on, this window plays it), or the next / previous file of a local file's folder. `n` is next too |
 | `Ctrl+a` | FastStream's autoplay of the next episode on/off |
 | `↑` `↓`, wheel, `m` | Volume ±10, ±2, mute |
 | `i`, `I` | Stats |

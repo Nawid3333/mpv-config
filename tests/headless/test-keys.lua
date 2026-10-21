@@ -89,8 +89,9 @@ H.run(function()
 		return mp.get_property_number('speed')
 	end, 0.9, 0.001)
 
-	-- n / N (2026-10-11): the messages the FastStream helper hears for the next and the
-	-- previous episode. A script message goes to every client, this script too.
+	-- the episode keys: the messages the FastStream helper hears for the next and the
+	-- previous episode (faststream-episodes.lua plays the playlist's neighbour without
+	-- one). A script message goes to every client, this script too.
 	local heard = {}
 	mp.register_script_message('faststream-next', function()
 		heard[#heard + 1] = 'next'
@@ -98,9 +99,10 @@ H.run(function()
 	mp.register_script_message('faststream-previous', function()
 		heard[#heard + 1] = 'previous'
 	end)
-	H.key('n')
-	H.key('N')
-	H.expect('n and N send faststream-next and faststream-previous', function()
+	for _, key in ipairs({ 'n', 'N', 'P', 'NEXT', 'PREV' }) do
+		H.key(key)
+	end
+	H.expect('n, Shift+N and media Next send faststream-next; Shift+P and media Previous -previous', function()
 		return table.concat(heard, ' ')
-	end, 'next previous')
+	end, 'next next previous next previous')
 end)

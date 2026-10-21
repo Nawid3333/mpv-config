@@ -205,7 +205,7 @@ lost GPU device) - due for any change to shaders, gpu-toggles, renderer/hwdec
 options or the pinned build. Such a pull request (and an mpv build whose video output,
 decoding or colour code, libplacebo or FFmpeg hardware decoding changed) gets `[GPU: <areas>]` in its title, the
 label gpu, a comment saying what, and the check "GPU tier (local)", pending until
-`pwsh tests	ry-gpu.ps1 -Pr <n>` (no mpv open) has run the gpu tier on its commit and
+`pwsh tests\try-gpu.ps1 -Pr <n>` (no mpv open) has run the gpu tier on its commit and
 build in a folder of its own (`gpu-flag.yml`, `.github/scripts/gpu-flag.ps1`). An mpv build
 with none of that says so in a comment: the owner merges it on green (2026-10-21). Manual probes: give the clip no siblings
 (`autoload.lua` queues them) and back up `speed.json` (remember-speed restores and

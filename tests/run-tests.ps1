@@ -826,6 +826,13 @@ function Invoke-StaticCheck {
     $leftovers = @(@($ownFiles | ForEach-Object { "$_.new" }) + 'yt-dlp.exe.part')
     $notIgnored = @($leftovers | Where-Object { & git -C $RepoRoot check-ignore -q --no-index -- $_; $LASTEXITCODE -ne 0 })
     Test-Check $t '.gitignore covers what a cut-short install leaves (<file>.new, yt-dlp.exe.part)' ($notIgnored.Count -eq 0) ($notIgnored -join ', ')
+    # A TAB in these files is a backslash an editing tool read as an escape: "tests\try-gpu.ps1"
+    # became "tests<TAB>ry-gpu.ps1" in a check's description. Nothing else here is a TAB
+    # (Lua is indented with them, so it is not searched). No -I: a file saved as UTF-16 is
+    # binary to git, and would be skipped. git grep exits 1 for no match, above 1 failing.
+    $tabbed = @(& git -C $RepoRoot grep -l -e "`t" -- '*.md' '*.ps1' '*.psm1' '*.yml' '*.cs' '*.conf' '*.bat')
+    Test-Check $t 'Markdown, PowerShell, workflow, C#, .conf and .bat files hold no TAB (an eaten "\t")' (
+        $LASTEXITCODE -le 1 -and $tabbed.Count -eq 0) "git grep exit $LASTEXITCODE; $($tabbed -join ', ')"
     if (-not $env:GITHUB_ACTIONS) {
         # INFO, not FAIL: the folder may lag behind the pin until updater.bat runs
         $exe = Join-Path $RepoRoot 'mpv.exe'

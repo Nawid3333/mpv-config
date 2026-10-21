@@ -689,3 +689,27 @@ choice (`video/decode/`, vd_lavc picks d3d11va-copy) and its colour and pixel-fo
 decoding layer under D3D11 (hwaccel, hwconfig, decode.c, hwcontext.c). Both count now
 (static tier: 18 cases). An mpv build with nothing GPU-related gets a comment saying so in
 so many words - merge it when every check is green.
+
+## 2026-10-21: Shift+S, and the episode keys for local files and media keys
+
+The owner wanted Anime lines and Movie sharpness without the menu, and Shift+N / Shift+P
+for the episodes. Of the options put to him (one smart key, a numbered quick menu, a toolbar
+button) he took the smart key: **Shift+S** steps the setting of what runs - Anime's lines
+(Crisp <-> As drawn), Movie's sharpness in the menu's order (Auto, Off, Low, Medium, High) -
+with a banner listing every choice, the one now in brackets; with no chain running it only
+says how to start one (a setting changed unseen would surprise later). It replaces mpv's
+default Shift+S (a screenshot without subtitles). **Episodes**: Shift+N next, Shift+P
+previous (N was previous until now; n stays next), and, at his question, the keyboard's media
+keys Next / Previous track (NEXT / PREV: mpv gets them focused, and in the background through
+Windows' media controls, `media-controls=yes` by default). Without a FastStream helper they
+play the playlist's neighbour - for a local file the next file of its folder, which
+autoload.lua queues - and say when there is none; a FastStream video keeps its banner (its
+episodes are the page's). Tests: test-upscale (Shift+S in Movie, Anime and with nothing on),
+test-faststream-episodes (the folder's next / previous, the media keys, the banners),
+test-keys (every episode key's message), the tour's keys checked against input.conf.
+
+**An eaten backslash.** An editing tool read `tests\try-gpu.ps1` as an escape, so AGENTS.md
+and the description of the "GPU tier (local)" check (gpu-flag.ps1) said
+`tests<TAB>ry-gpu.ps1`. Both are fixed, and the static tier now fails on any TAB in Markdown,
+PowerShell, workflow, C#, `.conf` or `.bat` files: none of them holds one on purpose. The
+check was red on the damaged tree.
