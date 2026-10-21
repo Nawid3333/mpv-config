@@ -1021,6 +1021,41 @@ function Invoke-StaticCheck {
         @{ Name = 'an mpv.conf diff too large to show'; Files = @([pscustomobject]@{ filename = 'portable_config/mpv.conf'; status = 'modified'; patch = $null })
             Want = '[GPU: unknown]'
         }
+        @{ Name = "mpv's decoder choice"; Files = @(& $file 'mpv-build.json' ''); Old = $old
+            New = [pscustomobject]@{ git = 'cccccccccc'; libplacebo = $old.libplacebo; ffmpeg = $old.ffmpeg }
+            Mpv = @('video/decode/vd_lavc.c'); Ffmpeg = @(); Want = '[GPU: decoding]'
+        }
+        @{ Name = "mpv's colour code"; Files = @(& $file 'mpv-build.json' ''); Old = $old
+            New = [pscustomobject]@{ git = 'dddddddddd'; libplacebo = $old.libplacebo; ffmpeg = $old.ffmpeg }
+            Mpv = @('video/csputils.c', 'stream/stream_curl.c'); Ffmpeg = @(); Want = '[GPU: color]'
+        }
+        @{ Name = "FFmpeg's hardware decoding layer"; Files = @(& $file 'mpv-build.json' ''); Old = $old
+            New = [pscustomobject]@{ git = $old.git; libplacebo = $old.libplacebo; ffmpeg = 'N-3-geeeeeee' }
+            Mpv = @(); Ffmpeg = @('libavutil/hwcontext.c'); Want = '[GPU: FFmpeg d3d11va]'
+        }
+        @{ Name = 'the 20261021 build (stream_curl only)'; Files = @(& $file 'mpv-build.json' ''); Old = $old
+            New = [pscustomobject]@{ git = 'e471496c56'; libplacebo = $old.libplacebo; ffmpeg = 'N-127893-g9a861e968' }
+            Mpv = @('stream/stream_curl.c'); Want = ''
+            # its real diffs: decode.c's change is subtitle text, hevcdec.c's film grain -
+            # "hwaccel" only in a context line around it
+            Ffmpeg = @(
+                [pscustomobject]@{ filename = 'libavcodec/decode.c'; patch = "@@`n+const char *ff_decode_subtitle_text(AVCodecContext *avctx, const AVPacket *avpkt)" }
+                [pscustomobject]@{ filename = 'libavcodec/hevc/hevcdec.c'; patch = "@@`n-        av_assert1(ret >= 0);`n+        if (ret < 0) {`n     }`n `n     if (s->avctx->hwaccel) {" }
+                'libavformat/hls.c')
+        }
+        @{ Name = "a decoder's change to its D3D11VA formats"; Files = @(& $file 'mpv-build.json' ''); Old = $old
+            New = [pscustomobject]@{ git = $old.git; libplacebo = $old.libplacebo; ffmpeg = 'N-4-gfffffff' }; Mpv = @()
+            Ffmpeg = @([pscustomobject]@{ filename = 'libavcodec/hevc/hevcdec.c'; patch = "@@`n-        *fmt++ = AV_PIX_FMT_D3D11;`n+        if (sps->bit_depth == 8) *fmt++ = AV_PIX_FMT_D3D11;" })
+            Want = '[GPU: FFmpeg d3d11va]'
+        }
+        @{ Name = "FFmpeg's HDR metadata"; Files = @(& $file 'mpv-build.json' ''); Old = $old
+            New = [pscustomobject]@{ git = $old.git; libplacebo = $old.libplacebo; ffmpeg = 'N-5-g1111111' }; Mpv = @()
+            Ffmpeg = @('libavcodec/h2645_sei.c'); Want = '[GPU: FFmpeg HDR]'
+        }
+        @{ Name = "mpv's scaler kernels"; Files = @(& $file 'mpv-build.json' ''); Old = $old
+            New = [pscustomobject]@{ git = '2222222222'; libplacebo = $old.libplacebo; ffmpeg = $old.ffmpeg }
+            Mpv = @('video/out/filter_kernels.c'); Ffmpeg = @(); Want = '[GPU: renderer]'
+        }
         @{ Name = "FFmpeg's D3D11 decoding"; Files = @(& $file 'mpv-build.json' ''); Old = $old
             New = [pscustomobject]@{ git = $old.git; libplacebo = $old.libplacebo; ffmpeg = 'N-2-gcccccccc' }
             Mpv = @(); Ffmpeg = @('libavcodec/d3d11va.c'); Want = '[GPU: FFmpeg d3d11va]'

@@ -36,14 +36,27 @@ $GpuFile = [ordered]@{
 $MpvArea = [ordered]@{
     'vulkan'   = '^video/out/vulkan/'
     'gpu-next' = '^video/out/(gpu_next/|placebo/|vo_gpu_next\.c)'
-    'renderer' = '^video/out/(gpu/|vo_gpu\.c|vo\.[ch]$)'
+    'renderer' = '^video/out/(gpu/|vo_gpu\.c|vo\.[ch]$|filter_kernels\.)'
     'd3d11'    = '^video/out/d3d11/'
     'hwdec'    = '^video/(out/hwdec/|hwdec\.|d3d\.)'
     'window'   = '^video/out/(w32_common\.|win32/)'
     'timing'   = '^player/video\.c$'
+    # which decoder runs, hardware or not (vd_lavc picks d3d11va-copy)
+    'decoding' = '^video/decode/'
+    # colour spaces and pixel formats, what the renderer is handed
+    'color'    = '^video/(csputils|mp_image|img_format|fmt-conversion|repack)'
 }
-# FFmpeg: the D3D11 decoding the config uses (hwdec=d3d11va-copy).
-$FfmpegD3d11 = '^(libavcodec/(d3d11va|dxva2)|libavutil/hwcontext_(d3d11va|dxva2))'
+# FFmpeg: the D3D11 decoding the config uses (hwdec=d3d11va-copy), and the hardware
+# decoding layer under it.
+$FfmpegD3d11 = '^(libavcodec/(d3d11va|dxva2|hwaccel|hwconfig)|libavutil/hwcontext(\.|_internal|_d3d11va|_dxva2))'
+# The decoders of what plays here, where get_format offers D3D11VA its formats, and the
+# decode layer above them: mostly code of every codec, they change often, so they count only
+# when a line their diff changes (not its context) touches hardware decoding - or with no
+# diff to read
+$FfmpegDecoder = '^libavcodec/(h264dec|hevc/hevcdec|hevcdec|av1dec|vp9|mpeg12dec)\.c$|^libavcodec/decode\.[ch]$'
+$FfmpegHwWord = 'hwaccel|HWACCEL|d3d11|D3D11|dxva|DXVA|get_format|hw_pix_fmt'
+# The HDR metadata tone mapping reads (mastering display, content light level, dynamic)
+$FfmpegHdr = '^(libavcodec/(h2645_sei|hevc/sei)|libavutil/(mastering_display_metadata|hdr_dynamic_metadata))'
 
 # The reasons a change needs the gpu tier, as @{ Area; Detail } - none for a change that
 # needs none.
@@ -52,11 +65,11 @@ $FfmpegD3d11 = '^(libavcodec/(d3d11va|dxva2)|libavutil/hwcontext_(d3d11va|dxva2)
 #   NewBuild
 #   MpvFiles   the files mpv's source changed between the two builds' commits; $null when
 #              GitHub could not say, which counts as a change of everything
-#   FfmpegFiles  the same for FFmpeg
+#   FfmpegFiles  the same for FFmpeg: names, or objects with filename and patch (the diff)
 #   Unread     what could not be read (a file list GitHub cut short, a build file it did not
 #              return): each counts as a change the gpu tier must see - never as none
 function Get-GpuReason {
-    param([object[]]$Files, [object]$OldBuild, [object]$NewBuild, [string[]]$MpvFiles, [string[]]$FfmpegFiles, [string[]]$Unread)
+    param([object[]]$Files, [object]$OldBuild, [object]$NewBuild, [string[]]$MpvFiles, [object[]]$FfmpegFiles, [string[]]$Unread)
     $reasons = [Collections.Generic.List[object]]::new()
     $add = { param($area, $detail) $reasons.Add([pscustomobject]@{ Area = $area; Detail = $detail }) }
     # a field GitHub leaves out (or a test's object lacks): $null, also under strict mode
@@ -116,8 +129,19 @@ function Get-GpuReason {
             & $add 'FFmpeg' "what changed in FFmpeg between $($OldBuild.ffmpeg) and $($NewBuild.ffmpeg) is unknown"
         }
         else {
-            $hit = @($FfmpegFiles | Where-Object { $_ -match $FfmpegD3d11 })
+            $hit = @()
+            $hdr = @()
+            foreach ($f in $FfmpegFiles) {
+                $name = if ($f -is [string]) { $f } else { $f.filename }
+                $diff = if ($f -is [string]) { $null } else { & $field $f 'patch' }
+                $changedLines = if ($diff) { ($diff -split "`n" | Where-Object { $_ -match '^[+-](?![+-])' }) -join "`n" } else { '' }
+                if ($name -match $FfmpegD3d11 -or ($name -match $FfmpegDecoder -and (-not $diff -or $changedLines -match $FfmpegHwWord))) {
+                    $hit += $name
+                }
+                if ($name -match $FfmpegHdr) { $hdr += $name }
+            }
             if ($hit.Count) { & $add 'FFmpeg d3d11va' "FFmpeg: $($hit -join ', ')" }
+            if ($hdr.Count) { & $add 'FFmpeg HDR' "FFmpeg: $($hdr -join ', ')" }
         }
     }
     return , $reasons.ToArray()
@@ -148,11 +172,12 @@ function Get-BuildAt([string]$Sha) {
     if ($LASTEXITCODE -ne 0) { return $null }
     return ($raw -join "`n") | ConvertFrom-Json
 }
-# The files a repository's history changed between two commits; $null when GitHub cannot say
-# - also when it says only part: its compare lists at most 300 files and 250 commits.
+# The files a repository's history changed between two commits, each with its diff (patch,
+# none for a large one); $null when GitHub cannot say - also when it says only part: its
+# compare lists at most 300 files and 250 commits.
 function Get-ChangedFile([string]$Upstream, [string]$From, [string]$To) {
     if (-not $From -or -not $To) { return $null }
-    $json = & gh api "repos/$Upstream/compare/$From...$To" --jq '{commits: .total_commits, files: [.files[].filename]}'
+    $json = & gh api "repos/$Upstream/compare/$From...$To" --jq '{commits: .total_commits, files: [.files[] | {filename, patch}]}'
     if ($LASTEXITCODE -ne 0) { return $null }
     $compare = ($json -join "`n") | ConvertFrom-Json
     if ($compare.commits -ge 250 -or @($compare.files).Count -ge 300) { return $null }
@@ -171,7 +196,8 @@ if (@($files.filename) -contains 'mpv-build.json') {
     $old = Get-BuildAt $pull.base.sha
     $new = Get-BuildAt $sha
     if ($old -and $new) {
-        $mpvFiles = Get-ChangedFile 'mpv-player/mpv' $old.git $new.git
+        $mpvChanged = Get-ChangedFile 'mpv-player/mpv' $old.git $new.git
+        $mpvFiles = if ($null -ne $mpvChanged) { , @($mpvChanged | ForEach-Object filename) } else { $null }
         $hash = { param($v) if ("$v" -match '-g([0-9a-f]{7,})') { $Matches[1] } }
         $ffmpegFiles = Get-ChangedFile 'FFmpeg/FFmpeg' (& $hash $old.ffmpeg) (& $hash $new.ffmpeg)
     }
@@ -214,6 +240,10 @@ $body = if ($tag) {
     $lines += @($reasons | ForEach-Object { "- **$($_.Area)**: $($_.Detail)" })
     $lines += @('', "Before merging: on the PC, with no mpv open, ``pwsh tests\try-gpu.ps1 -Pr $Pr`` runs the gpu tier against this pull request's commit (and mpv build) and sets the check **$GpuStatus**.", '', $marker)
     $lines -join "`n"
+}
+elseif ($new) {
+    # an mpv build with nothing for the GPU: said in so many words, so it can be merged on green
+    @("**Nothing GPU-related in this mpv build.** mpv's own changes since the pinned build ($($old.git) -> $($new.git)) touch no video output, decoding or colour code, libplacebo is the same, and FFmpeg's changes touch no hardware decoding: the regression suite on CI covers this update. **Merge it when every check is green.**", '', $marker) -join "`n"
 }
 elseif ($existing) { "Nothing GPU-related in this pull request any more.`n`n$marker" }
 if ($body -and $existing) { $null = Invoke-Gh @('api', '-X', 'PATCH', "repos/$Repo/issues/comments/$existing", '-f', "body=$body") }

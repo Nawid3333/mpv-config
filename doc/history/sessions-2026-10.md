@@ -677,3 +677,15 @@ a minimized window keeps its place in the z-order. The launcher now takes the fr
 window that is not minimized, a minimized one only when all are. The same check showed the
 banner drawn from x=-57 in a 320x180 clip's window: notify.lua's cards were never narrower
 than their text; they now fit the window (test-notify-narrow.lua, red without the fix).
+
+## 2026-10-21: the GPU flag, wider; an all-clear for mpv builds
+
+The owner: every mpv update pull request must say whether it can be merged on green, or
+needs the GPU tested here - he will not read code per update. The first real flag (#118,
+20261021: only stream_curl.c changed upstream, FFmpeg's 159 commits none in D3D11 decoding)
+was right. Reviewed against "anything GPU-related", two areas were missing: mpv's decoder
+choice (`video/decode/`, vd_lavc picks d3d11va-copy) and its colour and pixel-format code
+(csputils, mp_image, img_format, fmt-conversion, repack); and in FFmpeg the hardware
+decoding layer under D3D11 (hwaccel, hwconfig, decode.c, hwcontext.c). Both count now
+(static tier: 18 cases). An mpv build with nothing GPU-related gets a comment saying so in
+so many words - merge it when every check is green.
