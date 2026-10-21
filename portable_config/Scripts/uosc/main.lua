@@ -1425,8 +1425,10 @@ mp.register_script_message('set-min-visibility', function(visibility, elements)
 		Elements:set_min_visibility(clamp(0, fraction, 1), ids)
 	end
 end)
-mp.register_script_message('flash-elements', function(elements)
-	Elements:flash(comma_split(elements))
+-- Local change (not upstream uosc): `flash-elements <ids> [<ms>]`, a duration of
+-- its own (the seek keys flash the timeline longer than flash_duration).
+mp.register_script_message('flash-elements', function(elements, duration)
+	Elements:flash(comma_split(elements), tonumber(duration))
 end)
 mp.register_script_message('overwrite-binding', function(name, command)
 	key_binding_overwrites[name] = command

@@ -184,12 +184,16 @@ end
 
 -- Briefly flashes the element for `options.flash_duration` milliseconds.
 -- Useful to visualize changes of volume and timeline when changed via hotkeys.
-function Element:flash()
-	if self.enabled and options.flash_duration > 0 and (self.proximity < 1 or self._flash_out_timer:is_enabled()) then
+-- Local change (not upstream uosc): `duration` (ms) instead of flash_duration, for
+-- the seek keys' longer timeline flash (input.conf, flash-elements).
+---@param duration? number
+function Element:flash(duration)
+	duration = duration or options.flash_duration
+	if self.enabled and duration > 0 and (self.proximity < 1 or self._flash_out_timer:is_enabled()) then
 		self:tween_stop()
 		self.forced_visibility = 1
 		request_render()
-		self._flash_out_timer.timeout = options.flash_duration / 1000
+		self._flash_out_timer.timeout = duration / 1000
 		self._flash_out_timer:kill()
 		self._flash_out_timer:resume()
 	end

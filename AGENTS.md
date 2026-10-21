@@ -141,7 +141,8 @@ replace the folder and drop them (a static check guards each): managed buttons t
 (right-click); `user-data/uosc/bottom-ui` and `user-data/uosc/ui-scale` are
 published; the timeline shows a second (real-time) remaining time only when it
 differs and hatches the buffer for streams only; a timeline click seeks by
-keyframe; `lib/intl.lua` reads the UI language from settings.json; `lib/cursor.lua` takes the
+keyframe; `flash-elements` takes a duration (ms) of its own, for the seek keys' timeline;
+`lib/intl.lua` reads the UI language from settings.json; `lib/cursor.lua` takes the
 pointer back over the window at the same pixel (another window covered it) for no move,
 and hides the UI with the pointer resting on it too (`autohide_over_controls`, 3 s; not
 while the left button is held or a menu is open).
@@ -181,7 +182,9 @@ at startup was rejected as a visible race.
   D3D11 compiles the big shaders 10-20 s each).
 - **Window**: native title bar (`border=yes`, Windows does Snap); a click on the
   video only toggles pause (`window-dragging=no`).
-- **Seeks are instant keyframe seeks**, silent; numbers jump by percent.
+- **Seeks are instant keyframe seeks**, without OSD text; numbers jump by percent. Each
+  seek key shows the timeline for 2.5 s (the owner, 2026-10-21: a skip has to show where
+  it landed; from 2026-09-25 they flashed nothing, to match FastStream).
 - **`video-sync=audio`**: FreeSync smooths judder, and reaches mpv only in
   fullscreen with an Adrenalin per-app profile set to FreeSync On.
 - **target-peak** (HDR brightness) applies to HDR sources only; set globally it dims SDR.

@@ -765,3 +765,16 @@ inventory lists the whole tree again, and the repository runs an action only whe
 pinned to a full commit SHA (a setting; every action already was). What stays as it is: the
 guards read text only, so binary and LFS content is checked by eye; a fork's pull request
 gets no GPU flag (AGENTS.md says to look yourself).
+
+## 2026-10-21 (evening): the seek keys show the timeline
+
+The owner: after a skip with the arrows, `x`, `j`/`k` or `z`, only the picture changed, and
+nothing showed where in the video (or the song) it had landed. Since 2026-09-25 the seek keys
+flashed nothing, to match FastStream. Every seek key (`z x j k`, Left/Right, `0`-`9`) now
+sends `script-message-to uosc flash-elements timeline 2500`: the timeline with its times
+for 2.5 s ("2 seconds, 3 seconds"), then it fades as uosc's flashes do. uosc's flashes all
+last `flash_duration` (1 s, the volume's and the pause's, which stay), so `flash-elements`
+takes a duration of its own: a local uosc change in `main.lua`, `Elements:flash()` and
+`Element:flash()`. The static tier checks every seek key carries the same flash and the
+local change is there; `tests/headless/test-seek-flash.lua` (`--vo=sixel`, as ui-hover) sees
+the timeline still up at 1.6 s and gone after.

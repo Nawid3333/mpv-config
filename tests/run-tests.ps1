@@ -700,12 +700,15 @@ function Invoke-StaticCheck {
     $badSeparators = @($menuParts | Where-Object { $_ -match '---' -and $_.Trim() -ne '---' })
     Test-Check $t "input.conf: every menu separator is a plain --- ($(@($menuParts | Where-Object { $_.Trim() -eq '---' }).Count))" (
         $badSeparators.Count -eq 0) ($badSeparators -join ' | ')
-    Test-Check $t 'input.conf: no seek key flashes the timeline (seeks are silent)' ($inputConf -notmatch 'flash-timeline')
     $seekLines = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]+\s+(osd-\w+\s+)?seek\b' })
     Test-Check $t 'input.conf: every seek binding is no-osd' ($seekLines.Count -eq 0) ($seekLines -join ' | ')
     # every seek key is an instant keyframe seek (2026-10-09, the user: "make it instant ... I can
     # live with it when it is not exact"); absolute seeks are exact unless they say keyframes
     $seekKeys = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]+\s+no-osd\s+seek\s' })
+    # and shows where it landed: the timeline for 2.5 s (the owner, 2026-10-21), the same on every key
+    $unflashed = @($seekKeys | Where-Object { $_ -notmatch ';\s*script-message-to uosc flash-elements timeline 2500(\s|$)' })
+    Test-Check $t "input.conf: every seek key shows the timeline for 2.5 s ($($seekKeys.Count) keys)" (
+        $seekKeys.Count -ge 16 -and $unflashed.Count -eq 0) ($unflashed -join ' | ')
     $exactKeys = @($seekKeys | Where-Object { $_ -match '\bexact\b' -or ($_ -match '\babsolute' -and $_ -notmatch '\+keyframes\b') })
     Test-Check $t "input.conf: every seek key is an instant keyframe seek ($($seekKeys.Count) keys)" (
         $seekKeys.Count -ge 16 -and $exactKeys.Count -eq 0) ($exactKeys -join ' | ')
@@ -754,6 +757,14 @@ function Invoke-StaticCheck {
         $uoscMain.Contains("'user-data/uosc/bottom-ui'") -and $uoscMain.Contains('volume = volume_box')) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t 'uosc local change present: main.lua publishes user-data/uosc/ui-scale (notify, subtitle-sync, music-info)' (
         $uoscMain.Contains("'user-data/uosc/ui-scale'")) 're-apply it after a uosc update (AGENTS.md)'
+    # without it the seek keys' 2500 is dropped and the timeline flashes for flash_duration (1 s)
+    $uoscElement = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/elements/Element.lua')
+    $uoscElements = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/elements/Elements.lua')
+    Test-Check $t 'uosc local change present: flash-elements takes a duration (the seek keys'' 2.5 s timeline)' (
+        $uoscMain.Contains('Elements:flash(comma_split(elements), tonumber(duration))') -and
+        $uoscElements.Contains('element:flash(duration)') -and
+        $uoscElement.Contains('duration = duration or options.flash_duration') -and
+        $uoscElement.Contains('self._flash_out_timer.timeout = duration / 1000')) 're-apply it after a uosc update (AGENTS.md)'
     $uoscCursor = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/lib/cursor.lua')
     Test-Check $t 'uosc local change present: cursor.lua shows nothing for a pointer back over the window at the same pixel' (
         $uoscCursor.Contains('cursor.last_hover == false and mouse.hover and same_pixel')) 're-apply it after a uosc update (AGENTS.md)'
@@ -2140,6 +2151,11 @@ $HeadlessTests = @(
     # an OSD surface: uosc lays out (and publishes user-data/uosc/bottom-ui) only with one; a
     # sound track, or uosc draws no volume slider
     @{ Name = 'ui-hover'; Phases = @(@{ Script = 'headless/test-ui-hover.lua'; File = $RealOsdClip
+            Args = $RealOsd + @('--audio-file=av://lavfi:sine=frequency=440:duration=120')
+        })
+    }
+    # the same OSD surface; the sound track gives the volume key a slider to flash instead
+    @{ Name = 'seek-flash'; Phases = @(@{ Script = 'headless/test-seek-flash.lua'; File = $RealOsdClip
             Args = $RealOsd + @('--audio-file=av://lavfi:sine=frequency=440:duration=120')
         })
     }
