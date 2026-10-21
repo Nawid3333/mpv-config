@@ -841,9 +841,9 @@ function Invoke-StaticCheck {
         Add-Result $t "the installed mpv.exe is the pinned build ($($buildJson.tag))" ($same ? 'PASS' : 'INFO') ($same ? '' : 'not yet - run updater.bat')
     }
 
-    # -- privacy: this workspace is published to the public mpv-config (2026-10-03) ----
+    # -- privacy: this repository is public -------------------------------------------
     # What mpv and the scripts write while you watch names what was watched - none of
-    # it may reach git. One sample path per kind (AGENTS.md, "Public copy"). The shader
+    # it may reach git. One sample path per kind (AGENTS.md, "Public repository"). The shader
     # capture's files are no longer written (2026-10-05), but an old copy may still sit
     # in a config folder.
     $private = @(
@@ -857,17 +857,17 @@ function Invoke-StaticCheck {
     )
     $notIgnored = @($private | Where-Object { & git -C $RepoRoot check-ignore -q --no-index -- $_; $LASTEXITCODE -ne 0 })
     Test-Check $t ".gitignore covers what mpv and the scripts write while you watch ($($private.Count) kinds)" ($notIgnored.Count -eq 0) ($notIgnored -join ', ')
-    # the same checks the publish job runs before every copy (tests/lib/privacy.ps1),
-    # over what would be published; reported as file:line, never the text
+    # the same checks CI's privacy job runs on every push (tests/lib/privacy.ps1), over
+    # every tracked file; reported as file:line, never the text
     . (Join-Path $PSScriptRoot 'lib/privacy.ps1')
     $wordsFile = & git -C $RepoRoot rev-parse --path-format=absolute --git-path info/private-words 2>$null
     $words = ($wordsFile -and (Test-Path $wordsFile)) ? @(Get-Content $wordsFile) : @()
-    $findings = Get-PrivacyFinding -Root $RepoRoot -Words $words -Exclude (Get-PublishExclude $RepoRoot)
+    $findings = Get-PrivacyFinding -Root $RepoRoot -Words $words
     foreach ($kv in $findings.GetEnumerator()) {
-        Test-Check $t "published files: $($kv.Key)" ($kv.Value.Count -eq 0) ($kv.Value -join ', ')
+        Test-Check $t "tracked files: $($kv.Key)" ($kv.Value.Count -eq 0) ($kv.Value -join ', ')
     }
     if (-not ($findings.Keys -match 'private words')) {
-        Add-Result $t 'published files: none of the private words' 'SKIP' 'no .git/info/private-words in this clone (CI has none; the publish job checks the PRIVATE_WORDS secret)'
+        Add-Result $t 'tracked files: none of the private words' 'SKIP' 'no .git/info/private-words in this clone (CI has none; its privacy job checks the PRIVATE_WORDS secret)'
     }
     # A git that cannot run must stop the check: it printed nothing, which read as clean.
     $noRepo = Join-Path $WorkDir 'privacy-no-repo'
@@ -875,6 +875,50 @@ function Invoke-StaticCheck {
     $privacyError = ''
     try { $null = Get-PrivacyFinding -Root $noRepo } catch { $privacyError = "$_" }
     Test-Check $t 'privacy check: a git that cannot run fails it, not "nothing found"' ($privacyError -match 'privacy check cannot tell') $privacyError
+    # CI's commit check (Get-CommitFinding) and the masking of a word in a reported path, in
+    # a throwaway repo. Leaks are built here, so this file holds none itself.
+    $pr = Join-Path $WorkDir 'privacy-commits'
+    if (Test-Path $pr) { Remove-Item $pr -Recurse -Force }
+    New-Item -ItemType Directory -Force $pr | Out-Null
+    $pw = @('-c', 'user.name=guard-test', '-c', 'user.email=1+guard-test@users.noreply.github.com', '-c', 'core.hooksPath=')
+    function Write-PrivacyCommit([string[]]$Message, [string[]]$Git = @()) {
+        & git -C $pr @pw @Git commit -q --allow-empty @($Message | ForEach-Object { '-m'; $_ }) 2>&1 | Out-Null
+        & git -C $pr rev-parse --short HEAD
+    }
+    try {
+        & git -C $pr init -q -b main 2>&1 | Out-Null
+        $base = Write-PrivacyCommit 'base'
+        $clean = Write-PrivacyCommit @('clean work', ('Co-Authored-By: Claude <noreply' + '@anthropic.com>'))
+        $bot = Write-PrivacyCommit @('bump an action', ('Signed-off-by: dependabot[bot] <support' + '@github.com>'))
+        $web = Write-PrivacyCommit 'merged on the website' -Git @('-c', 'user.name=GitHub', '-c', 'user.email=noreply@github.com', '-c', 'author.name=guard-test', '-c', 'author.email=1+guard-test@users.noreply.github.com')
+        $word = Write-PrivacyCommit 'notes from jane example'
+        $path = Write-PrivacyCommit ('see C:' + '\Users\' + 'someone\Videos')
+        $mail = Write-PrivacyCommit ('from jane' + '@example.net')
+        $who = Write-PrivacyCommit 'work' -Git @('-c', 'user.name=Jane Doe', '-c', 'user.email=jane@example.org')
+        $cf = Get-CommitFinding -Root $pr -Range "$base..HEAD" -Words @('# a comment', 'Jane Example')
+        $want = [ordered]@{
+            'every author and committer is a public identity'                       = $who
+            'no commit message holds a user folder path or private claude.ai link' = $path
+            'no commit message holds an e-mail address but noreply ones'          = $mail
+            'no commit message holds a private word'                               = $word
+        }
+        $bad = @(foreach ($kv in $want.GetEnumerator()) {
+                $got = @($cf[$kv.Key]) -join ','
+                if ($got -ne $kv.Value) { "$($kv.Key): got '$got', want '$($kv.Value)'" }
+            })
+        # the eight commits really exist (a failed commit returns the one before it again)
+        $made = @($base, $clean, $bot, $web, $word, $path, $mail, $who | Select-Object -Unique).Count -eq 8
+        Test-Check $t "privacy, CI's commit check: each kind of leak names its commit (short sha only); a noreply co-author, Dependabot's sign-off and GitHub as committer pass" (
+            $made -and $bad.Count -eq 0 -and $cf.Count -eq 4) "$($bad -join '; ') (8 distinct commits: $made)"
+        Set-Content -LiteralPath (Join-Path $pr 'by Jane Example.txt') 'x'
+        & git -C $pr add -A 2>&1 | Out-Null
+        $named = @((Get-PrivacyFinding -Root $pr -Words @('Jane Example'))['no file name holds a private word'])
+        Test-Check $t '... a reported path holds no private word (*** in its place)' (
+            $named.Count -eq 1 -and $named[0] -eq 'by ***.txt') ($named -join ', ')
+    }
+    finally {
+        Remove-Item $pr -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
     # -- installer/install-mpv.ps1, against a stand-in build (no download) --------------
     $sevenZip = Get-Command 7z.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object Source
@@ -1074,14 +1118,14 @@ function Invoke-StaticCheck {
         })
     Test-Check $t "gpu-flag.ps1 flags what CI cannot test on a GPU, and nothing else ($($flagCases.Count) cases)" ($flagBad.Count -eq 0) ($flagBad -join '; ')
 
-    # -- commit guard (.githooks), tried in a throwaway repo ----------------------------
+    # -- commit and push guards (.githooks), tried in a throwaway repo ------------------
     # 2026-09-27: an mpv update was committed on a feature branch and a pull deleted
     # mpv.exe; since 2026-10-03 the files are not in git at all and the guard keeps
     # them out (a forced add would put ~120 MB back into Git LFS).
     $hooks = Join-Path $RepoRoot '.githooks'
-    $hookFiles = 'pre-commit', 'pre-push', 'post-checkout', 'post-commit', 'post-merge'
+    $hookFiles = 'pre-commit', 'pre-push', 'privacy.sh', 'post-checkout', 'post-commit', 'post-merge'
     $hookMissing = @($hookFiles | Where-Object { -not (Test-Path (Join-Path $hooks $_)) })
-    Test-Check $t '.githooks: the commit guard and the git-lfs hooks are there' ($hookMissing.Count -eq 0) ($hookMissing -join ', ')
+    Test-Check $t '.githooks: the commit and push guards, their privacy.sh and the git-lfs hooks are there' ($hookMissing.Count -eq 0) ($hookMissing -join ', ')
     if ($env:GITHUB_ACTIONS) {
         Add-Result $t 'this clone uses them (core.hooksPath)' 'SKIP' 'a CI checkout runs no commits'
     }
@@ -1095,7 +1139,8 @@ function Invoke-StaticCheck {
             'git config user.name <login>; git config user.email <id>+<login>@users.noreply.github.com'
     }
     $g = Join-Path $WorkDir 'git-guard'
-    if (Test-Path $g) { Remove-Item $g -Recurse -Force }
+    $bare = Join-Path $WorkDir 'git-guard-remote'
+    foreach ($d in $g, $bare) { if (Test-Path $d) { Remove-Item $d -Recurse -Force } }
     New-Item -ItemType Directory -Force $g | Out-Null
     Copy-Item $hooks (Join-Path $g '.githooks') -Recurse
     Copy-Item (Join-Path $RepoRoot 'mpv-build.json'), (Join-Path $RepoRoot '.gitignore') $g
@@ -1188,84 +1233,77 @@ function Invoke-StaticCheck {
         $null = Invoke-Git switch -q main
         $r = Invoke-Git merge -q --ff-only ci-this
         Test-Check $t '... and nothing when the installed mpv.exe is the pinned one' ($r.Code -eq 0 -and $r.Out -notmatch 'updater\.bat') $r.Out
-    }
-    finally {
-        Remove-Item $g -Recurse -Force -ErrorAction SilentlyContinue
-    }
 
-    # -- publish.ps1 (the public copy, 2026-10-03), between two throwaway repos ---------
-    # Leaks are built here, so this file holds none itself.
-    $pw = Join-Path $WorkDir 'publish-test'
-    if (Test-Path $pw) { Remove-Item $pw -Recurse -Force }
-    $ws = Join-Path $pw 'workspace'
-    $pub = Join-Path $pw 'public'
-    New-Item -ItemType Directory -Force (Join-Path $ws 'tests/lib'), (Join-Path $ws 'notes'), $pub | Out-Null
-    Copy-Item (Join-Path $RepoRoot 'tests/lib/privacy.ps1') (Join-Path $ws 'tests/lib')
-    Set-Content -LiteralPath (Join-Path $ws 'a.txt') 'hello'
-    Set-Content -LiteralPath (Join-Path $ws 'notes/private.md') 'by Jane Example'
-    Set-Content -LiteralPath (Join-Path $ws '.publishignore') 'notes/**'
-    Set-Content -LiteralPath (Join-Path $pub 'README.md') 'public'
-    $who = @('-c', 'user.name=guard-test', '-c', 'user.email=1+guard-test@users.noreply.github.com')
-    function Invoke-PubGit([string]$Dir) { & git -C $Dir @who @args 2>&1 | Out-Null }
-    foreach ($d in $ws, $pub) {
-        Invoke-PubGit $d init -q -b main
-        Invoke-PubGit $d add -A
-        Invoke-PubGit $d commit -q -m 'workspace'
-    }
-    $publish = Join-Path $RepoRoot '.github/scripts/publish.ps1'
-    function Invoke-Publish {
-        $out = & pwsh -NoProfile -File $publish -Workspace $ws -Public $pub -Name guard-test `
-            -Email '1+guard-test@users.noreply.github.com' -Words 'Jane Example' -NoPush 2>&1
-        [pscustomobject]@{ Code = $LASTEXITCODE; Out = ($out -join ' ') }
-    }
-    try {
-        $r = Invoke-Publish
-        $tree = @(& git -C $pub ls-files)
-        Test-Check $t 'publish.ps1: a clean workspace becomes one commit by the public identity' (
-            $r.Code -eq 0 -and (& git -C $pub log -1 --format='%an|%s') -eq 'guard-test|workspace' -and 'a.txt' -in $tree -and 'README.md' -notin $tree) $r.Out
-        Test-Check $t '... without the .publishignore paths or the file itself' (-not ($tree -match '^(notes/|\.publishignore$)')) ($tree -join ', ')
-        $r = Invoke-Publish
-        Test-Check $t '... nothing new: no commit' ($r.Code -eq 0 -and $r.Out -match 'Nothing to publish' -and (& git -C $pub rev-list --count HEAD) -eq '2') $r.Out
-        $leaks = [ordered]@{
-            'a user folder path' = 'C:' + '\Users\' + 'someone\Videos'
-            'a private word'     = 'written by jane example'
-            'an e-mail address'  = 'mail jane' + '@example.net'
+        # pre-push: the history is public too, so every commit a push adds is checked - also
+        # one the commit guard never saw (--no-verify, a clone without the hooks). The remote
+        # gets main as it is (the forced-in mpv.exe above included: public already).
+        $null = & git init -q --bare $bare 2>&1
+        $null = Invoke-Git remote add origin $bare
+        $null = Invoke-Git push -q --no-verify origin main
+        Write-GuardFile 'script.lua' 'v3'
+        $null = Invoke-Git commit -q -am 'more work' -m ('Co-Authored-By: Claude <noreply' + '@anthropic.com>')
+        $r = Invoke-Git push -q origin main
+        $published = (Invoke-Git rev-parse main).Out
+        Test-Check $t 'push guard: a clean commit goes out (a noreply co-author named in it)' (
+            $r.Code -eq 0 -and (& git -C $bare rev-parse main) -eq $published) $r.Out
+        Set-Content -LiteralPath $words 'Jane Example'
+        $pushLeaks = [ordered]@{
+            'a private word in a commit message'          = { Invoke-Git commit -q --no-verify --allow-empty -m 'notes from jane example' }
+            'a user folder path in a commit message'      = { Invoke-Git commit -q --no-verify --allow-empty -m ('see C:' + '\Users\' + 'someone\Videos') }
+            'an e-mail address in a commit message'       = { Invoke-Git commit -q --no-verify --allow-empty -m ('from jane' + '@example.net') }
+            'an added line with a private word'           = { Write-GuardFile 'notes.md' 'written by jane example'; Invoke-Git commit -q --no-verify -am 'notes' }
+            'a word one commit adds and the next removes' = {
+                Write-GuardFile 'notes.md' 'written by jane example'; Invoke-Git commit -q --no-verify -am 'notes'
+                Write-GuardFile 'notes.md' 'written'; Invoke-Git commit -q -am 'notes fixed'
+            }
+            'a real name as author'                       = { Invoke-Git -c 'user.name=Jane Doe' commit -q --no-verify --allow-empty -m 'work' }
+            'a forced-in ignored file'                    = {
+                Write-GuardFile 'portable_config/stream-resume.json' '{}'
+                Invoke-Git add -f portable_config/stream-resume.json; Invoke-Git commit -q --no-verify -m 'state'
+            }
         }
-        foreach ($kv in $leaks.GetEnumerator()) {
-            Set-Content -LiteralPath (Join-Path $ws 'a.txt') $kv.Value
-            Invoke-PubGit $ws commit -q -am 'leak'
-            $before = & git -C $pub rev-parse HEAD
-            $r = Invoke-Publish
-            Test-Check $t "publish.ps1: a copy holding $($kv.Key) is not published (and the text is not printed)" (
-                $r.Code -eq 1 -and $r.Out -match 'NOT published' -and (& git -C $pub rev-parse HEAD) -eq $before -and
-                -not $r.Out.Contains($kv.Value)) $r.Out
-            Invoke-PubGit $pub reset -q --hard
+        foreach ($kv in $pushLeaks.GetEnumerator()) {
+            $null = & $kv.Value
+            $r = Invoke-Git push -q origin main
+            Test-Check $t "push guard: $($kv.Key) is refused, nothing reaches the remote, the text is not printed" (
+                $r.Code -ne 0 -and $r.Out -match 'Push refused' -and (& git -C $bare rev-parse main) -eq $published -and
+                $r.Out -notmatch 'jane|someone') $r.Out
+            $null = Invoke-Git reset -q --hard $published
         }
-        Set-Content -LiteralPath (Join-Path $ws 'a.txt') 'hello again'
-        Invoke-PubGit $ws commit -q -am 'notes from Jane Example'
-        $r = Invoke-Publish
-        Test-Check $t '... a commit subject with a private word is not published (generic message)' (
-            $r.Code -eq 0 -and (& git -C $pub log -1 --format='%s') -eq 'Publish from the workspace') $r.Out
-        # The workspace's pull requests and branches stay private: a merge goes public
-        # as the pull request's title (the message body), a #<number> not at all.
-        Set-Content -LiteralPath (Join-Path $ws 'a.txt') 'hello merged'
-        Invoke-PubGit $ws commit -q -am 'Merge pull request #12 from guard-test/feature/x' -m 'feat: the merged change'
-        $r = Invoke-Publish
-        Test-Check $t '... a pull request merge goes public as its title, without its number and branch' (
-            $r.Code -eq 0 -and (& git -C $pub log -1 --format='%s') -eq 'feat: the merged change') $r.Out
-        Set-Content -LiteralPath (Join-Path $ws 'a.txt') 'hello numbered'
-        Invoke-PubGit $ws commit -q -am 'fix: what #12 left out'
-        $r = Invoke-Publish
-        Test-Check $t '... a subject naming a workspace #number is not published (generic message)' (
-            $r.Code -eq 0 -and (& git -C $pub log -1 --format='%s') -eq 'Publish from the workspace') $r.Out
-        Set-Content -LiteralPath (Join-Path $ws 'a.txt') 'hello once more'
-        Invoke-PubGit $ws commit -q -am 'more'
-        & git -C $pub -c 'user.name=Jane Example' -c 'user.email=jane@example.org' commit -q --allow-empty -m 'web edit' 2>&1 | Out-Null
-        $r = Invoke-Publish
-        Test-Check $t 'publish.ps1: nothing is published while a public commit names someone' ($r.Code -eq 1 -and $r.Out -match 'names no one') $r.Out
+        # what the remote gets besides commits: the branch name (a word a name can hold: a
+        # PC name), an annotated tag
+        Add-Content -LiteralPath $words 'janes-laptop'
+        $r = Invoke-Git push -q origin 'main:refs/heads/fix-janes-laptop'
+        Test-Check $t 'push guard: a branch name with a private word is refused (the finding does not name it)' (
+            $r.Code -ne 0 -and $r.Out -match 'a pushed branch or tag: the name the remote gets' -and
+            -not (& git -C $bare rev-parse -q --verify fix-janes-laptop)) $r.Out
+        $r = Invoke-Git push -q origin ('main:refs/heads/ping-jane' + '@example.net')
+        Test-Check $t '... and one with an e-mail address' (
+            $r.Code -ne 0 -and $r.Out -match 'the name the remote gets holds an e-mail address' -and
+            -not (& git -C $bare rev-parse -q --verify ('ping-jane' + '@example.net'))) $r.Out
+        $null = Invoke-Git tag -a v-test -m 'for jane example'
+        $r = Invoke-Git push -q origin v-test
+        Test-Check $t "... an annotated tag whose message holds one too" (
+            $r.Code -ne 0 -and $r.Out -match 'Push refused' -and -not (& git -C $bare rev-parse -q --verify v-test)) $r.Out
+        $null = Invoke-Git tag -d v-test
+        # mpv's own manual names an example user folder (users\USERNAME): both guards let it in
+        New-Item -ItemType Directory -Force (Join-Path $g 'doc') | Out-Null
+        Write-GuardFile 'doc/manual.txt' ('the example is C:' + '\users\USERNAME\mpv')
+        $null = Invoke-Git add doc/manual.txt
+        $r = Invoke-Git commit -q -m 'manual'
+        $r2 = Invoke-Git push -q origin main
+        Test-Check $t "... mpv's manual with its example user folder is committed and pushed" ($r.Code -eq 0 -and $r2.Code -eq 0) "$($r.Out) $($r2.Out)"
+        $published = (Invoke-Git rev-parse main).Out
+        Remove-Item -LiteralPath $words
+        $null = Invoke-Git switch -q -c feature
+        Write-GuardFile 'script.lua' 'v4'
+        $null = Invoke-Git commit -q -am 'feature work'
+        $r = Invoke-Git push -q origin feature
+        Test-Check $t "... a new branch: only its own commits are checked (main's public history holds mpv.exe)" (
+            $r.Code -eq 0 -and (& git -C $bare rev-parse feature) -eq (Invoke-Git rev-parse feature).Out) $r.Out
     }
     finally {
-        Remove-Item $pw -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item $g, $bare -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     # -- shader cache: the startup check and the warm-up it starts stay wired --------

@@ -25,6 +25,9 @@ concurrency:
 
 jobs:
   flag:
+    # A fork's pull request, and any run Dependabot starts, get a read-only token, which
+    # can set none of it (Dependabot changes only workflow pins, nothing GPU-related)
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

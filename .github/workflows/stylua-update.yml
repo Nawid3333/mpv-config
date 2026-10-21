@@ -1,0 +1,157 @@
+name: stylua update
+
+# Moves the stylua pin when StyLua releases a new version (2026-10-11, at the
+# user's request: "when dependabot next time updates, the pinned moves with it").
+# Dependabot cannot do it: it reads `uses:` lines and package files, and the pin
+# is the stylua action's `version:` input in lint-lua.yml. So this runs on
+# Dependabot's schedule (weekly) and offers the new version the same way, on ONE
+# rolling pull request (branch stylua-update, assigned to the owner):
+#   - lint-lua.yml's `version:` and .vscode/settings.json's
+#     `stylua.targetReleaseVersion` (the editor's format-on-save) move together;
+#   - every Lua file is reformatted with the new version in the same commit, so
+#     the editor, CI and the code agree from the merge on (the pull request names
+#     the files it changed; none = the new version formats this repo as before);
+#   - lint-lua.yml is dispatched on the branch: a pull request opened with
+#     GITHUB_TOKEN starts no workflow by itself.
+# When main pins that version or a newer one (the merge, or a pin by hand), the
+# open pull request closes. Closing it unmerged skips that version until a newer
+# one comes. Needs the repo setting "Allow GitHub Actions to create and approve
+# pull requests" (mpv-auto-update.yml needs it too).
+
+on:
+  schedule:
+    - cron: "40 4 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # push stylua-update
+  pull-requests: write # the pull request that offers the version
+  actions: write # dispatch lint-lua.yml on the branch
+
+concurrency:
+  group: stylua-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # persist-credentials: false - the token never lands in .git/config.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Offer the latest stylua on a pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          UPSTREAM: JohnnyMorganz/StyLua
+          ASSET: stylua-linux-x86_64.zip
+          PR_BRANCH: stylua-update
+          LINT: .github/workflows/lint-lua.yml
+          EDITOR_SETTINGS: .vscode/settings.json
+          # this job reads no binary; the checkout must not fetch LFS objects
+          GIT_LFS_SKIP_SMUDGE: '1'
+        run: |
+          set -euo pipefail
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          authgit() { git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" "$@"; }
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "Run this on main: it reads the pin there." >&2
+            exit 1
+          fi
+
+          # --- what main pins, what StyLua has -----------------------------------
+          pinned=$(sed -n 's/^ *version: \(v[0-9][0-9.]*\) *$/\1/p' "$LINT")
+          if [ "$(printf '%s\n' "$pinned" | grep -c .)" != 1 ]; then
+            echo "Expected exactly one 'version: vX.Y.Z' line in $LINT, found: '$pinned'" >&2
+            exit 1
+          fi
+          latest=$(gh api "repos/$UPSTREAM/releases/latest" --jq .tag_name)
+          if ! printf '%s' "$latest" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Unexpected release tag from $UPSTREAM: '$latest'" >&2
+            exit 1
+          fi
+          echo "main pins $pinned, $UPSTREAM's latest release is $latest"
+          newer() { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]; }
+
+          pr=$(gh pr list --repo "$GH_REPO" --state open --head "$PR_BRANCH" --base main --json number --jq '.[0].number // empty')
+          if ! newer "$latest" "$pinned"; then
+            if [ -n "$pr" ]; then
+              gh pr close "$pr" --repo "$GH_REPO" --delete-branch --comment "main pins stylua $pinned already: nothing left to merge here."
+            fi
+            echo "Nothing to do."
+            exit 0
+          fi
+          # The branch offers this version already (open pull request), or offered
+          # it and the pull request was closed unmerged: skip until a newer one.
+          if offered=$(authgit fetch -q --depth=1 origin "refs/heads/$PR_BRANCH" 2>/dev/null && git show FETCH_HEAD:"$LINT" | sed -n 's/^ *version: \(v[0-9][0-9.]*\) *$/\1/p'); then
+            if [ -n "$offered" ] && ! newer "$latest" "$offered"; then
+              echo "Branch $PR_BRANCH offers $offered already${pr:+ (#$pr)}; nothing to do."
+              exit 0
+            fi
+          fi
+
+          # --- the new stylua, checked against GitHub's digest ---------------------
+          digest=$(gh api "repos/$UPSTREAM/releases/tags/$latest" --jq ".assets[] | select(.name == \"$ASSET\") | .digest")
+          want=${digest#sha256:}
+          if ! printf '%s' "$want" | grep -qE '^[0-9a-f]{64}$'; then
+            echo "No sha256 digest for $ASSET in $latest: '$digest'" >&2
+            exit 1
+          fi
+          dl="$RUNNER_TEMP/stylua"
+          mkdir -p "$dl"
+          curl -fsSL --retry 3 -o "$dl/$ASSET" "https://github.com/$UPSTREAM/releases/download/$latest/$ASSET"
+          got=$(sha256sum "$dl/$ASSET" | cut -d' ' -f1)
+          if [ "$got" != "$want" ]; then
+            echo "$ASSET: sha256 $got, GitHub says $want" >&2
+            exit 1
+          fi
+          unzip -q -o "$dl/$ASSET" -d "$dl"
+          chmod +x "$dl/stylua"
+          "$dl/stylua" --version
+
+          # --- the pin, the editor's version, the code -----------------------------
+          sed -i "s/^\( *version: \)$pinned *\$/\1$latest/" "$LINT"
+          sed -i "s/\(\"stylua.targetReleaseVersion\": \"\)v[0-9][0-9.]*\"/\1$latest\"/" "$EDITOR_SETTINGS"
+          grep -q "^ *version: $latest\$" "$LINT"
+          grep -q "\"stylua.targetReleaseVersion\": \"$latest\"" "$EDITOR_SETTINGS"
+          "$dl/stylua" .
+          "$dl/stylua" --check .
+          reformatted=$(git diff --name-only -- . ":(exclude)$LINT" ":(exclude)$EDITOR_SETTINGS")
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -q -c "$PR_BRANCH"
+          git add -u
+          git commit -q -m "ci: stylua $latest (was $pinned)"
+          authgit push -q -f origin "HEAD:refs/heads/$PR_BRANCH"
+
+          title="ci: stylua $latest"
+          # shellcheck disable=SC2016 # backticks are Markdown
+          {
+            printf '@%s StyLua %s is out (main pins %s). **It waits for your merge.**\n\n' "$OWNER" "$latest" "$pinned"
+            printf -- '- Release: https://github.com/%s/releases/tag/%s\n' "$UPSTREAM" "$latest"
+            printf -- '- The pin moves in `%s` (CI) and `%s` (the editor'"'"'s format-on-save) together.\n' "$LINT" "$EDITOR_SETTINGS"
+            if [ -n "$reformatted" ]; then
+              printf -- '- The new version formats these files differently; they are reformatted in this commit:\n'
+              printf '%s\n' "$reformatted" | sed 's/^/  - `/; s/$/`/'
+            else
+              printf -- '- The new version formats every Lua file here exactly as before: nothing reformatted.\n'
+            fi
+            printf -- '- Locally: `stylua --check .` (tests/run-tests.ps1) uses the stylua on PATH - update it after the merge (`cargo install stylua --version %s --locked`).\n\n' "${latest#v}"
+            printf 'This pull request keeps up: a newer release moves here. Closing it skips this version.\n'
+          } > "$RUNNER_TEMP/pr.md"
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --repo "$GH_REPO" --title "$title" --body-file "$RUNNER_TEMP/pr.md" > /dev/null
+            echo "#$pr offers $latest now."
+          else
+            if ! url=$(gh pr create --repo "$GH_REPO" --base main --head "$PR_BRANCH" --title "$title" --body-file "$RUNNER_TEMP/pr.md" --assignee "$OWNER"); then
+              authgit push -q origin --delete "$PR_BRANCH"
+              exit 1
+            fi
+            echo "Opened ${url##*/} for $latest."
+          fi
+          gh workflow run lint-lua.yml --repo "$GH_REPO" --ref "$PR_BRANCH"
