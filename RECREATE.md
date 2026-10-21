@@ -40,7 +40,7 @@ re-created by the scripts in `installer/`.
 | Shader cache `portable_config/cache/` | no: auto-generated (gitignored) | mpv: the startup check warms it in the background after the first video starts (~8 s, once) |
 | `speed.json`, `stream-resume.json`, `movie-sharpness.json`, `settings.json`, `upscale.json`, `welcome.json` in `portable_config/` | no: personal and per-PC state (gitignored) | the scripts, as you use mpv |
 | mpv's own files: `mpv.exe`, `mpv.com`, `d3dcompiler_43.dll`, `doc/manual.pdf`, `doc/mpbindings.png`, `mpv-register.bat` / `mpv-unregister.bat`, `installer/mpv-install.bat` / `mpv-uninstall.bat` / `mpv-icon.ico`, `mpv/fonts.conf` | no (gitignored, since 2026-10-03): `mpv-build.json` pins the build | `updater.bat` (installer\install-mpv.ps1): downloads the pinned archive, checks every file's SHA-256 |
-| `yt-dlp.exe` | no (gitignored, since 2026-10-03) | `updater.bat`: `yt-dlp -U`, or a fresh download checked against GitHub's SHA-256 |
+| `yt-dlp.exe` | no (gitignored, since 2026-10-03) | `updater.bat`: `yt-dlp -U`, or a fresh download checked against GitHub's SHA-256. For YouTube's challenges it needs Node.js on PATH (mpv.conf `ytdl-raw-options`; no Deno) |
 
 > `d3dcompiler_43.dll` is only used by mpv's D3D11/ANGLE render path, which
 > this config takes only as a fallback (`gpu-context=winvk,d3d11`: a GPU without

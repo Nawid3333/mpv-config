@@ -778,3 +778,14 @@ takes a duration of its own: a local uosc change in `main.lua`, `Elements:flash(
 `Element:flash()`. The static tier checks every seek key carries the same flash and the
 local change is there; `tests/headless/test-seek-flash.lua` (`--vo=sixel`, as ui-hover) sees
 the timeline still up at 1.6 s and gone after.
+
+## 2026-10-21 (night): yt-dlp on Node.js, not Deno
+
+The owner asked what Deno on the PC was for. It was yt-dlp's: newer yt-dlp solves YouTube's
+JavaScript challenges with an external runtime, and Deno is its only default
+(`yt-dlp -v`: "JS runtimes: deno-2.9.7"; Deno came by winget on 2026-09-17). Cloudflare is
+buying Deno (announced 2026-10-09; the runtime gets fixes only for a year). mpv.conf now
+passes `js-runtimes=node` to yt-dlp (`ytdl-raw-options-append`): measured with Deno left out
+(`--no-js-runtimes --js-runtimes node`), yt-dlp solved a public YouTube video's challenges
+with Node.js 26 and found its video and audio formats. With Deno still installed both are
+enabled; once it is uninstalled Node.js does it alone. A static check keeps the option.

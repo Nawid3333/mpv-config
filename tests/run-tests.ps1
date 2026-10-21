@@ -664,6 +664,9 @@ function Invoke-StaticCheck {
     Test-Check $t "mpv.conf: no '#' inside a value (it starts a comment - use r/g/b/a colours)" ($hashBad.Count -eq 0) ($hashBad -join ' | ')
     Test-Check $t 'mpv.conf: vo=gpu-next set explicitly (global)' ($global['vo'] -eq 'gpu-next') "vo=$($global['vo'])"
     Test-Check $t 'mpv.conf: window-dragging=no (click never becomes a drag)' ($global['window-dragging'] -eq 'no')
+    # yt-dlp's only default JS runtime is Deno: without this, YouTube links lose their formats once it goes
+    Test-Check $t 'mpv.conf: yt-dlp may solve YouTube''s challenges with Node.js (ytdl-raw-options js-runtimes=node)' (
+        $global['ytdl-raw-options-append'] -eq 'js-runtimes=node') "ytdl-raw-options-append=$($global['ytdl-raw-options-append'])"
     # auto_profiles off (its load-and-unload raced the first hooks: config-load's CI flake),
     # which only works while no profile has a condition
     $conds = @($mpvConf | Where-Object { $_ -match '^\s*profile-cond\s*=' })
