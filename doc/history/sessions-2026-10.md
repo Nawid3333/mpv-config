@@ -752,3 +752,13 @@ now (37 s). The GPU flag skips a fork's pull request and Dependabot's runs, whos
 cannot set the label or status. Pull
 request and issue texts are public and checked by nothing: AGENTS.md says so. Pull request
 numbers in these notes up to this entry are the workspace's.
+
+**The final review (glm-5.3).** Two gaps remained after the move. Neither hook checked an
+added line for an e-mail address; only CI did, after the push had made it public. And the
+hook took GitHub's older noreply form without the numeric id, which CI's identity check
+refuses. Both hooks now apply the e-mail rule to added lines (mpv's manual, which names its
+authors' addresses, stays out, as in the static check), and both sides want
+`<id>+<login>@users.noreply.github.com`. Accepted limits: the guards read text only, so
+binary and LFS content is unchecked; a fork's pull request gets no GPU flag (AGENTS.md says
+to look yourself); the stylua update's pull request runs only the Lua lint before it is
+offered.

@@ -48,7 +48,11 @@ Keep it short: a new fact goes here in one line, its story into doc/history.
   out, messages, branch and tag names included; CI's privacy job checks every tracked
   file, the new commits and a pull request's branch name on every pull request and push
   to main, with the same list as the `PRIVATE_WORDS` secret (update both). A branch
-  pushed without a pull request reaches no CI: there the push guard is all. Nothing checks a
+  pushed without a pull request reaches no CI: there the push guard is all. All of these
+  read text only: a binary (LFS included) is not searched - an image or an exe is
+  checked by eye. GitHub's own checks run as well: CodeQL (default setup), secret
+  scanning with push protection, Dependabot security updates; and the repository runs an
+  action only when it is pinned to a full commit SHA (Dependabot moves the pins). Nothing checks a
   pull request's or issue's title, text and comments: write them the same way. Every
   file that records viewing (watch_later/, watch_history.jsonl, stream-resume.json,
   screenshots, yt-dlp cookies, root `*.txt` notes) is gitignored: a new kind of state
@@ -210,7 +214,9 @@ decoding or colour code, libplacebo or FFmpeg hardware decoding changed) gets `[
 label gpu, a comment saying what, and the check "GPU tier (local)", pending until
 `pwsh tests\try-gpu.ps1 -Pr <n>` (no mpv open) has run the gpu tier on its commit and
 build in a folder of its own (`gpu-flag.yml`, `.github/scripts/gpu-flag.ps1`). An mpv build
-with none of that says so in a comment: the owner merges it on green (2026-10-21). Manual probes: give the clip no siblings
+with none of that says so in a comment: the owner merges it on green (2026-10-21). A fork's
+pull request (read-only token) and Dependabot's get no flag: look at a fork's changes for GPU
+areas yourself. Manual probes: give the clip no siblings
 (`autoload.lua` queues them) and back up `speed.json` (remember-speed restores and
 rewrites it); judge upscaling on `test-media/`'s clean clips (gitignored), never on
 a soft low-bitrate film - one misled a Movie decision once. CI runs static + headless on every
