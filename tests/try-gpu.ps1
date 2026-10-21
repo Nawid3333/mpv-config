@@ -58,6 +58,14 @@ function Invoke-Git([string[]]$Arguments) {
     return $out
 }
 
+# The pull request's status and comment are public (AGENTS.md, "Public repository"), and a
+# failed check's detail names its log under %TEMP%, inside the user folder: what leaves
+# this PC goes through ConvertTo-PublicText first.
+. (Join-Path $PSScriptRoot 'lib/privacy.ps1')
+$privateWords = @()
+$wordsFile = & git -C $RepoRoot rev-parse --path-format=absolute --git-path info/private-words 2>$null
+if ($wordsFile -and (Test-Path -LiteralPath $wordsFile)) { $privateWords = @(Get-Content -LiteralPath $wordsFile) }
+
 $running = @(Get-CimInstance Win32_Process -Filter "Name='mpv.exe'")
 if ($running.Count) {
     Write-Host "An mpv runs (pid $($running.ProcessId -join ', ')): you may be watching. Close it and run this again." -ForegroundColor Yellow
@@ -88,6 +96,7 @@ $work = Join-Path $Here 'work'
 $log = Join-Path $Here "pr-$Pr-$($sha.Substring(0, 7)).log"
 $null = New-Item -ItemType Directory -Force $Here
 $lost = $null
+$notRun = @()
 try {
     if (Test-Path -LiteralPath $wt) { $null = & git -C $RepoRoot worktree remove --force $wt 2>&1 }
     # a folder deleted by hand leaves git's record of it, and the add below would refuse
@@ -118,14 +127,19 @@ try {
     }
     $gpu = (Get-CimInstance Win32_VideoController | Select-Object -First 1)
     $where = "$($gpu.Name), driver $($gpu.DriverVersion)"
-    $passed = $summary.Success -and [int]$summary.Groups[2].Value -eq 0 -and [int]$summary.Groups[1].Value -gt 0
-    $result = if ($summary.Success) { "$($summary.Groups[1].Value) passed, $($summary.Groups[2].Value) failed" } else { 'no summary (the run broke off)' }
+    # The gpu tier skipped as a whole (an mpv started meanwhile, a display adapter not OK:
+    # run-tests.ps1's "gpu tier" / "gpu run" SKIP) ran no GPU test: not a pass.
+    $notRun = @($text -split "`r?`n" | Where-Object { $_ -match '^\s+SKIP\s+gpu (tier|run)\b' } | ForEach-Object { ($_ -split '::', 2)[-1].Trim() } | Select-Object -First 1)
+    $passed = -not $notRun.Count -and $summary.Success -and [int]$summary.Groups[2].Value -eq 0 -and [int]$summary.Groups[1].Value -gt 0
+    $result = if ($notRun.Count) { "not run: $($notRun[0])" }
+    elseif ($summary.Success) { "$($summary.Groups[1].Value) passed, $($summary.Groups[2].Value) failed" }
+    else { 'no summary (the run broke off)' }
 }
 catch {
     $passed = $false
     $result = "did not run: $($_.Exception.Message)"
     $failedLines = @()
-    $where = $env:COMPUTERNAME
+    $where = 'this PC'
 }
 finally {
     if (Test-Path -LiteralPath $wt) { $null = & git -C $RepoRoot worktree remove --force $wt 2>&1 }
@@ -137,12 +151,16 @@ if ($Filter -ne '*') {
     Write-Host "Log: $log"
     exit $(if ($passed) { 0 } else { 1 })
 }
-$state = if ($passed) { 'success' } else { 'failure' }
+# A tier that did not run leaves the check pending: the pull request still waits for one.
+$state = if ($passed) { 'success' } elseif ($notRun.Count) { 'pending' } else { 'failure' }
+$verdict = if ($passed) { 'passed' } elseif ($notRun.Count) { 'NOT RUN' } else { 'FAILED' }
+$result = ConvertTo-PublicText $result $privateWords
+$where = ConvertTo-PublicText $where $privateWords
 $description = "$result on $where"
 if ($description.Length -gt 140) { $description = $description.Substring(0, 137) + '...' }
 $null = Invoke-Gh @('api', '-X', 'POST', "repos/$repo/statuses/$sha", '-f', "state=$state", '-f', "context=$Context", '-f', "description=$description")
-$body = @("**$Context**: $(if ($passed) { 'passed' } else { 'FAILED' }) on commit $($sha.Substring(0, 7)) - $result, on $where.")
-if ($failedLines.Count) { $body += @('', '```', ($failedLines | Select-Object -First 30), '```') }
+$body = @("**$Context**: $verdict on commit $($sha.Substring(0, 7)) - $result, on $where.")
+if ($failedLines.Count) { $body += @('', '```', ($failedLines | Select-Object -First 30 | ForEach-Object { ConvertTo-PublicText $_ $privateWords }), '```') }
 if ($lost) { $body += @('', 'The GPU device was lost: this commit is not run here again without `-Force` (a device loss is reproduced at most once).') }
 $null = Invoke-Gh @('api', '-X', 'POST', "repos/$repo/issues/$Pr/comments", '-f', "body=$($body -join "`n")")
 Write-Host ''

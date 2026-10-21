@@ -3,6 +3,29 @@
 # nothing personal may be in it. The hooks in .githooks check each commit and push.
 # A finding is reported as file:line or a path, never the text: a CI log would repeat it.
 
+# A user folder path (C:\Users\ and a name in any script - a placeholder such as <name>,
+# %USERNAME%, $env:USERNAME or * is not one) or a link to a private claude.ai page, for
+# git grep -E and .NET alike (.githooks/privacy.sh has the same rule).
+$PrivatePathPattern = '[A-Za-z]:[\\/]+Users[\\/]+[^[:space:]\\/<%$*".]|claude\.ai/(code|artifacts?|chat|share|project)/'
+$PrivatePathRegex = '(?i)[A-Za-z]:[\\/]+Users[\\/]+[^\s\\/<%$*".]|claude\.ai/(code|artifacts?|chat|share|project)/'
+
+# Text for a public place (a pull request's status or comment): user folders become
+# %TEMP%, %LOCALAPPDATA%, %APPDATA%, %USERPROFILE% or C:\Users\<name>; the user's name,
+# the PC's name and each of -Words become ***.
+function ConvertTo-PublicText([string]$Text, [string[]]$Words = @()) {
+    # the longest folder first: %TEMP% lies inside %LOCALAPPDATA%, which lies in the profile
+    foreach ($name in 'TEMP', 'LOCALAPPDATA', 'APPDATA', 'USERPROFILE') {
+        $dir = [Environment]::GetEnvironmentVariable($name)
+        if ($dir) { $Text = [regex]::Replace($Text, [regex]::Escape($dir.TrimEnd('\')), "%$name%", 'IgnoreCase') }
+    }
+    $Text = [regex]::Replace($Text, '(?i)([A-Za-z]:[\\/]+Users[\\/]+)[^\s\\/<%$*".]+', '$1<name>')
+    $hide = @($Words | ForEach-Object { "$_".Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }) + @($env:USERNAME, $env:COMPUTERNAME)
+    foreach ($word in $hide) {
+        if ($word) { $Text = [regex]::Replace($Text, [regex]::Escape($word), '***', 'IgnoreCase') }
+    }
+    $Text
+}
+
 # A commit identity that names no one: a GitHub noreply address whose name is its
 # login (<id>+<login>@users.noreply.github.com), or Claude <noreply@anthropic.com>.
 function Test-PublicIdentity([string]$Name, [string]$Email) {
@@ -36,7 +59,7 @@ function Get-PrivacyFinding {
     # -i: Windows paths are written in any case; mpv's own manual has its example path
     # in lower case (users\USERNAME), like its e-mail addresses below
     $r['no user folder path (C:\Users\<name>) or private claude.ai link'] = & $at (& $git @(
-            'grep', '-I', '-n', '-i', '-E', '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/', '--', '.', ':(exclude)doc/manual.txt') 1)
+            'grep', '-I', '-n', '-i', '-E', $PrivatePathPattern, '--', '.', ':(exclude)doc/manual.txt') 1)
     $r['no e-mail address but noreply ones'] = & $at @((& $git @(
                 'grep', '-I', '-n', '-o', '-E', '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}', '--', '.', ':(exclude)doc/manual.txt') 1) |
             Where-Object { $_ -notmatch '(noreply@anthropic\.com|noreply@github\.com|support@github\.com|@users\.noreply\.github\.com|@example\.(com|org))$' })
@@ -85,7 +108,7 @@ function Get-CommitFinding {
             -not ((Test-PublicIdentity $_.Author $_.AuthorEmail) -and ($byGitHub -or (Test-PublicIdentity $_.Committer $_.CommitterEmail)))
         } | ForEach-Object { $_.Sha })
     $r['no commit message holds a user folder path or private claude.ai link'] = @($commits |
-            Where-Object { $_.Message -match '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/' } |
+            Where-Object { $_.Message -match $PrivatePathRegex } |
             ForEach-Object { $_.Sha })
     # (support@github.com: Dependabot signs its commits with it)
     $r['no commit message holds an e-mail address but noreply ones'] = @($commits | Where-Object {

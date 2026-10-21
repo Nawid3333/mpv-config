@@ -1,11 +1,13 @@
 # What may go into this public repository - shared by the commit guard (pre-commit)
 # and the push guard (pre-push). Sourced by them, never run: no git hook has this name.
 
-# A user folder path (C:\Users\<name>, in any case) or a link to a private claude.ai
-# session or artifact (grep -E -i), and an e-mail address but a noreply one. Neither is
-# looked for in mpv's own manual, which names an example path (users\USERNAME) and its
-# authors' addresses (a git pathspec, for the diff that lists added lines).
-private_path_re='[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/'
+# A user folder path (C:\Users\ and a name in any case and script; a placeholder such as
+# <name>, %USERNAME%, $env:USERNAME, ... or * is not one) or a link to a private claude.ai
+# page (grep -E -i; tests/lib/privacy.ps1 has the same rule), and an e-mail address but a
+# noreply one. Neither is looked for in mpv's own manual, which names an example path
+# (users\USERNAME) and its authors' addresses (a git pathspec, for the diff that lists
+# added lines).
+private_path_re='[A-Za-z]:[\\/]+Users[\\/]+[^[:space:]\\/<%$*".]|claude\.ai/(code|artifacts?|chat|share|project)/'
 private_path_skip=':(exclude)doc/manual.txt'
 email_re='[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
 # (support@github.com: Dependabot signs its commits with it)
@@ -40,11 +42,13 @@ public_ident() {
 }
 
 # The words in the clone's own .git/info/private-words (real name, user name, PC name,
-# private paths), one per line; nothing without the file. It is never committed.
+# private paths), one per line, trimmed as CI's privacy job trims them (a space pasted
+# after a word must not make it unfindable); nothing without the file. It is never
+# committed.
 private_words() {
 	words=$(git rev-parse --git-path info/private-words)
 	if [ -s "$words" ]; then
-		tr -d '\r' <"$words" | grep -v -e '^[[:space:]]*$' -e '^#'
+		tr -d '\r' <"$words" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | grep -v -e '^$' -e '^#'
 	fi
 	return 0
 }

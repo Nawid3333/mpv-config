@@ -115,6 +115,7 @@ jobs:
           persist-credentials: false
 
       - name: Offer the latest upstream build on a pull request, if tests pass with it
+        id: offer
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -407,6 +408,8 @@ jobs:
           commit=$(git rev-parse HEAD)
           authgit push -q origin "$commit:refs/heads/$branch"
           echo "Branch $branch at $commit."
+          # for the step below that a cancelled run (by hand, or the job's timeout) runs
+          echo "tried_branch=$branch" >> "$GITHUB_OUTPUT"
 
           # regression-tests.yml triggers on pushes to main only, and a push by
           # this workflow's own token starts nothing anyway - so the suite is
@@ -480,6 +483,11 @@ jobs:
               printf -- '- What the suite does NOT cover: it runs static + headless on a runner with no GPU (`--vo=null`), so hardware decoding (Vulkan, d3d11va) and the renderer are untested. When mpv'"'"'s video output, libplacebo or FFmpeg'"'"'s D3D11 decoding changed, the title starts with `[GPU: ...]`, a comment lists what, and the check **GPU tier (local)** waits for `pwsh tests\\try-gpu.ps1 -Pr <this pull request>` on your PC (no mpv open). The build reaches your PC when you merge this and run `updater.bat`.\n\n'
               printf 'This pull request keeps up: a newer build that passes moves here, and the title says which. Closing it skips this build; the next one that passes opens a new pull request.\n'
             } > "$RUNNER_TEMP/pr.md"
+            # The pull request as it is now: the owner may have merged or closed it while
+            # the suite ran. The edit then went to a closed one, and the build waited on a
+            # branch with no pull request ("waits for the owner's merge" on every later run).
+            pr=$(gh pr list --repo "$GH_REPO" --state open --head "$PR_BRANCH" --base main --json number,isCrossRepository \
+              --jq '[.[] | select(.isCrossRepository | not)][0].number // ""')
             if [ -n "$pr" ]; then
               if ! gh pr edit "$pr" --repo "$GH_REPO" --title "$title" --body-file "$RUNNER_TEMP/pr.md" > /dev/null; then
                 authgit push -q origin --delete "$branch" || true
@@ -552,6 +560,18 @@ jobs:
       # open, assigned and @mentioning the owner, like FastStream's failure
       # handling. Not for a pull request's dry run: its failure shows on the
       # pull request.
+      # A cancelled run (by hand, or the job's timeout) ends before its build has a test
+      # result, and the step above deletes the build's branch only on the failures it sees
+      # itself: left there, the branch reads as "failed its tests", and the build was never
+      # tried again. Deleted here, the next run tries it anew.
+      - name: A cancelled run does not count as a test result
+        if: cancelled() && steps.offer.outputs.tried_branch != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ steps.offer.outputs.tried_branch }}
+        run: gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$BRANCH" || true
+
       - name: Report this workflow's own failure
         if: failure() && github.event_name != 'pull_request'
         env:

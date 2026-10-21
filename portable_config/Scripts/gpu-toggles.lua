@@ -64,7 +64,9 @@ local SHADER_DIR = mp.command_native({ 'expand-path', '~~/shaders' })
 ---@return string|nil
 local function fs_content(path)
 	local content = fragment.value(path, 'fs-content=')
-	return content and content:match('^(%a*)')
+	-- %a+: an empty item ("fs-content=") is no tag, as faststream-episodes.lua and
+	-- faststream-quality.lua read it - Auto upscales FastStream's streams only
+	return content and content:match('^(%a+)')
 end
 
 local function is_anime_content()
@@ -763,8 +765,12 @@ local function set_uosc_button(name, data)
 	if last_button_json[name] == json then
 		return -- nothing changed; skip the push and uosc's repaint
 	end
-	last_button_json[name] = json
-	mp.commandv('script-message-to', 'uosc', 'set-button', name, json)
+	-- remembered only once sent: before uosc has started there is nobody to send to (a
+	-- slow start), and an unchanged button is never sent again (faststream-episodes.lua's
+	-- push does the same; the initial push below repeats until uosc has it)
+	if mp.commandv('script-message-to', 'uosc', 'set-button', name, json) then
+		last_button_json[name] = json
+	end
 end
 
 local upscale_active_preset = nil -- nil | UPSCALE_ANIME(_FAST) | UPSCALE_MOVIE_SSSR | UPSCALE_MOVIE_FSRCNNX
@@ -1530,7 +1536,17 @@ mp.register_event(
 -- entry() counts an action in user-data/gpu-toggles/applied, which the shader
 -- warm-up waits on - an extra count would make its steps look done one action
 -- early.
-mp.add_timeout(0.5, function()
-	forget_display_scale()
+-- Again every half second until uosc has it (at most 10 s): a slow start had no uosc to
+-- send to yet, and the unchanged button of a local file is not sent again by itself.
+local initial_tries = 0
+local initial_push
+initial_push = mp.add_periodic_timer(0.5, function()
+	initial_tries = initial_tries + 1
+	if initial_tries == 1 then
+		forget_display_scale()
+	end
 	update_upscale_button()
+	if last_button_json.upscale or initial_tries >= 20 then
+		initial_push:kill()
+	end
 end)
