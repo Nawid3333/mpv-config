@@ -46,21 +46,42 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0 # the commits a push or pull request brings
           persist-credentials: false
 
-      - name: Every tracked file (tests/lib/privacy.ps1)
+      - name: Every tracked file, the new commits and the branch name (tests/lib/privacy.ps1)
         shell: pwsh
         env:
           PRIVATE_WORDS: ${{ secrets.PRIVATE_WORDS }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           $ErrorActionPreference = 'Stop'
           . ./tests/lib/privacy.ps1
           if (-not $env:PRIVATE_WORDS) {
-            Write-Output '::warning title=No PRIVATE_WORDS::The secret is not set for this run (a fork''s pull request gets none): the private words are not checked.'
+            Write-Output '::warning title=No PRIVATE_WORDS::The secret is not set for this run (a fork''s or Dependabot''s pull request gets none): the private words are not checked.'
+          }
+          $words = @("$env:PRIVATE_WORDS" -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
+          $findings = Get-PrivacyFinding -Root . -Words $words
+          # A pull request's own commits; a push's since the commit before it (a first push,
+          # or a before this clone lacks: that commit alone). A run by hand: the files only.
+          $range = switch ($env:EVENT) {
+            'pull_request' { "$env:BASE..$env:HEAD" }
+            'push' { git cat-file -e "$env:BEFORE^{commit}" 2>$null; $LASTEXITCODE ? "$env:AFTER^!" : "$env:BEFORE..$env:AFTER" }
+          }
+          if ($range) {
+            foreach ($kv in (Get-CommitFinding -Root . -Range $range -Words $words).GetEnumerator()) { $findings[$kv.Key] = $kv.Value }
+          }
+          if ($env:HEAD_REF -and $words.Count) {
+            $findings['the branch name holds no private word'] = @($words | Where-Object { $env:HEAD_REF.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 } | ForEach-Object { 'the head branch' })
           }
           $found = 0
-          # file:line only, never the text: this log is public
-          foreach ($kv in (Get-PrivacyFinding -Root . -Words ("$env:PRIVATE_WORDS" -split '\r?\n')).GetEnumerator()) {
+          # file:line or a short sha only, never the text: this log is public
+          foreach ($kv in $findings.GetEnumerator()) {
             if ($kv.Value.Count) {
               $found++
               Write-Output "::error title=Privacy::$($kv.Key) - found in: $($kv.Value -join ', ')"

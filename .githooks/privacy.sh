@@ -2,8 +2,10 @@
 # and the push guard (pre-push). Sourced by them, never run: no git hook has this name.
 
 # A user folder path (C:\Users\<name>, in any case) or a link to a private claude.ai
-# session or artifact (grep -E -i)
+# session or artifact (grep -E -i). Not looked for in mpv's own manual, whose example
+# path is users\USERNAME (a git pathspec, for the diff that lists added lines).
 private_path_re='[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/'
+private_path_skip=':(exclude)doc/manual.txt'
 
 # $1 = "Name <email>" (what git var prints may follow it: " time zone"). A public
 # identity names no one: a GitHub noreply address whose name is its login

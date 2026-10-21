@@ -875,6 +875,50 @@ function Invoke-StaticCheck {
     $privacyError = ''
     try { $null = Get-PrivacyFinding -Root $noRepo } catch { $privacyError = "$_" }
     Test-Check $t 'privacy check: a git that cannot run fails it, not "nothing found"' ($privacyError -match 'privacy check cannot tell') $privacyError
+    # CI's commit check (Get-CommitFinding) and the masking of a word in a reported path, in
+    # a throwaway repo. Leaks are built here, so this file holds none itself.
+    $pr = Join-Path $WorkDir 'privacy-commits'
+    if (Test-Path $pr) { Remove-Item $pr -Recurse -Force }
+    New-Item -ItemType Directory -Force $pr | Out-Null
+    $pw = @('-c', 'user.name=guard-test', '-c', 'user.email=1+guard-test@users.noreply.github.com', '-c', 'core.hooksPath=')
+    function Write-PrivacyCommit([string[]]$Message, [string[]]$Git = @()) {
+        & git -C $pr @pw @Git commit -q --allow-empty @($Message | ForEach-Object { '-m'; $_ }) 2>&1 | Out-Null
+        & git -C $pr rev-parse --short HEAD
+    }
+    try {
+        & git -C $pr init -q -b main 2>&1 | Out-Null
+        $base = Write-PrivacyCommit 'base'
+        $clean = Write-PrivacyCommit @('clean work', ('Co-Authored-By: Claude <noreply' + '@anthropic.com>'))
+        $bot = Write-PrivacyCommit @('bump an action', ('Signed-off-by: dependabot[bot] <support' + '@github.com>'))
+        $web = Write-PrivacyCommit 'merged on the website' -Git @('-c', 'user.name=GitHub', '-c', 'user.email=noreply@github.com', '-c', 'author.name=guard-test', '-c', 'author.email=1+guard-test@users.noreply.github.com')
+        $word = Write-PrivacyCommit 'notes from jane example'
+        $path = Write-PrivacyCommit ('see C:' + '\Users\' + 'someone\Videos')
+        $mail = Write-PrivacyCommit ('from jane' + '@example.net')
+        $who = Write-PrivacyCommit 'work' -Git @('-c', 'user.name=Jane Doe', '-c', 'user.email=jane@example.org')
+        $cf = Get-CommitFinding -Root $pr -Range "$base..HEAD" -Words @('# a comment', 'Jane Example')
+        $want = [ordered]@{
+            'every author and committer is a public identity'                       = $who
+            'no commit message holds a user folder path or private claude.ai link' = $path
+            'no commit message holds an e-mail address but noreply ones'          = $mail
+            'no commit message holds a private word'                               = $word
+        }
+        $bad = @(foreach ($kv in $want.GetEnumerator()) {
+                $got = @($cf[$kv.Key]) -join ','
+                if ($got -ne $kv.Value) { "$($kv.Key): got '$got', want '$($kv.Value)'" }
+            })
+        # the eight commits really exist (a failed commit returns the one before it again)
+        $made = @($base, $clean, $bot, $web, $word, $path, $mail, $who | Select-Object -Unique).Count -eq 8
+        Test-Check $t "privacy, CI's commit check: each kind of leak names its commit (short sha only); a noreply co-author, Dependabot's sign-off and GitHub as committer pass" (
+            $made -and $bad.Count -eq 0 -and $cf.Count -eq 4) "$($bad -join '; ') (8 distinct commits: $made)"
+        Set-Content -LiteralPath (Join-Path $pr 'by Jane Example.txt') 'x'
+        & git -C $pr add -A 2>&1 | Out-Null
+        $named = @((Get-PrivacyFinding -Root $pr -Words @('Jane Example'))['no file name holds a private word'])
+        Test-Check $t '... a reported path holds no private word (*** in its place)' (
+            $named.Count -eq 1 -and $named[0] -eq 'by ***.txt') ($named -join ', ')
+    }
+    finally {
+        Remove-Item $pr -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
     # -- installer/install-mpv.ps1, against a stand-in build (no download) --------------
     $sevenZip = Get-Command 7z.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object Source
@@ -1226,6 +1270,26 @@ function Invoke-StaticCheck {
                 $r.Out -notmatch 'jane|someone') $r.Out
             $null = Invoke-Git reset -q --hard $published
         }
+        # what the remote gets besides commits: the branch name (a word a name can hold: a
+        # PC name), an annotated tag
+        Add-Content -LiteralPath $words 'janes-laptop'
+        $r = Invoke-Git push -q origin 'main:refs/heads/fix-janes-laptop'
+        Test-Check $t 'push guard: a branch name with a private word is refused (the finding does not name it)' (
+            $r.Code -ne 0 -and $r.Out -match 'a pushed branch or tag: the name the remote gets' -and
+            -not (& git -C $bare rev-parse -q --verify fix-janes-laptop)) $r.Out
+        $null = Invoke-Git tag -a v-test -m 'for jane example'
+        $r = Invoke-Git push -q origin v-test
+        Test-Check $t "... an annotated tag whose message holds one too" (
+            $r.Code -ne 0 -and $r.Out -match 'Push refused' -and -not (& git -C $bare rev-parse -q --verify v-test)) $r.Out
+        $null = Invoke-Git tag -d v-test
+        # mpv's own manual names an example user folder (users\USERNAME): both guards let it in
+        New-Item -ItemType Directory -Force (Join-Path $g 'doc') | Out-Null
+        Write-GuardFile 'doc/manual.txt' ('the example is C:' + '\users\USERNAME\mpv')
+        $null = Invoke-Git add doc/manual.txt
+        $r = Invoke-Git commit -q -m 'manual'
+        $r2 = Invoke-Git push -q origin main
+        Test-Check $t "... mpv's manual with its example user folder is committed and pushed" ($r.Code -eq 0 -and $r2.Code -eq 0) "$($r.Out) $($r2.Out)"
+        $published = (Invoke-Git rev-parse main).Out
         Remove-Item -LiteralPath $words
         $null = Invoke-Git switch -q -c feature
         Write-GuardFile 'script.lua' 'v4'

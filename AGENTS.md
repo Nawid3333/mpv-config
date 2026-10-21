@@ -45,8 +45,9 @@ Keep it short: a new fact goes here in one line, its story into doc/history.
   private claude.ai links. `.githooks` (switched on per clone: `git config
   core.hooksPath .githooks`) refuses such lines, a non-noreply identity and the words
   in `.git/info/private-words` at each commit, and at each push every commit going
-  out, messages included; CI's privacy job checks every tracked file on every push
-  with the same list as the `PRIVATE_WORDS` secret (update both). Nothing checks a
+  out, messages, branch and tag names included; CI's privacy job checks every tracked
+  file, the new commits and a pull request's branch name on every push with the same
+  list as the `PRIVATE_WORDS` secret (update both). Nothing checks a
   pull request's or issue's title, text and comments: write them the same way. Every
   file that records viewing (watch_later/, watch_history.jsonl, stream-resume.json,
   screenshots, yt-dlp cookies, root `*.txt` notes) is gitignored: a new kind of state

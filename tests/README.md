@@ -65,12 +65,15 @@ an added user folder path, private claude.ai link or private word is refused, a 
 says to run updater.bat after a pull that pins another mpv and says nothing when the installed one is it; against a bare
 remote, a push of commits made with `--no-verify` is refused, nothing reaching the remote and no text printed, for a private
 word, user folder path or e-mail address in a message, a private word in an added line, one a later commit removes again, a
-real name as author and a forced-in ignored file; a clean commit naming a noreply co-author goes out, and a new branch is
-checked for its own commits only) and, outside CI, that this clone uses them (`core.hooksPath`) and commits under a public
-identity; privacy (the repository is public, `tests/lib/privacy.ps1`, AGENTS.md "Public repository"): `.gitignore` covers
-every kind of runtime state, and no tracked file is ignored or holds a user folder path, a private claude.ai link, a
-non-noreply e-mail or a word from `.git/info/private-words` (reported as file:line only; CI's privacy job runs the same
-check with the `PRIVATE_WORDS` secret on every push, docs included); the shader-cache files (incl. host.ps1) are in place, the warm-up is
+real name as author and a forced-in ignored file, and so are a branch name and an annotated tag's message with a private
+word; a clean commit naming a noreply co-author goes out, mpv's manual with its example user folder is committed and pushed,
+and a new branch is checked for its own commits only) and, outside CI, that this clone uses them (`core.hooksPath`) and
+commits under a public identity; privacy (the repository is public, `tests/lib/privacy.ps1`, AGENTS.md "Public
+repository"): `.gitignore` covers every kind of runtime state, and no tracked file is ignored or holds a user folder path, a
+private claude.ai link, a non-noreply e-mail or a word from `.git/info/private-words` (reported as file:line only, a word in
+a path as `***`); CI's commit check, in a throwaway repo, names each leaking commit (identity, path, e-mail, word in its
+message) by short sha and passes a noreply co-author, Dependabot's sign-off and GitHub as committer (CI's privacy job runs
+both with the `PRIVATE_WORDS` secret on every push, docs included); the shader-cache files (incl. host.ps1) are in place, the warm-up is
 not a top-level player script and the manual script runs it hidden; every `.ps1` parses; stylua (when installed).
 
 Headless (`headless/test-*.lua`):

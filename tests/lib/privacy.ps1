@@ -39,7 +39,7 @@ function Get-PrivacyFinding {
             'grep', '-I', '-n', '-i', '-E', '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/', '--', '.', ':(exclude)doc/manual.txt') 1)
     $r['no e-mail address but noreply ones'] = & $at @((& $git @(
                 'grep', '-I', '-n', '-o', '-E', '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}', '--', '.', ':(exclude)doc/manual.txt') 1) |
-            Where-Object { $_ -notmatch '(noreply@anthropic\.com|noreply@github\.com|@users\.noreply\.github\.com|@example\.(com|org))$' })
+            Where-Object { $_ -notmatch '(noreply@anthropic\.com|noreply@github\.com|support@github\.com|@users\.noreply\.github\.com|@example\.(com|org))$' })
     $Words = @($Words | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
     if ($Words.Count) {
         $e = @($Words | ForEach-Object { '-e'; $_ })
@@ -49,5 +49,63 @@ function Get-PrivacyFinding {
                 @($Words | Where-Object { $path.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count
             })
     }
+    # A finding is a path, and a path can hold the word itself: *** in its place
+    foreach ($key in @($r.Keys)) {
+        $r[$key] = @($r[$key] | ForEach-Object { Hide-PrivateWord $_ $Words })
+    }
     $r
+}
+
+# Every check over the commits of a range (CI passes a push's before..after, or a pull
+# request's base..head): an ordered map check -> findings, each a short sha, never any
+# message text. The hooks check the same before a push; this catches a commit pushed
+# from a clone without them. -Words as in Get-PrivacyFinding.
+function Get-CommitFinding {
+    param([string]$Root, [string]$Range, [string[]]$Words = @())
+    $repo = $Root
+    $git = {
+        param([string[]]$GitArgs)
+        $out = @(& git -C $repo @GitArgs)
+        if ($LASTEXITCODE -ne 0) {
+            throw "git $($GitArgs[0]) failed (exit $LASTEXITCODE): the privacy check cannot tell what the repository holds"
+        }
+        , $out
+    }
+    # one record per commit: short sha, the four identity fields, then the message (which
+    # holds newlines), separated by U+001F
+    $sep = [char]0x1f
+    $commits = @((& $git @('rev-list', $Range)) | ForEach-Object {
+            $f = @(((& $git @('log', '-1', '--format=%h%x1f%an%x1f%ae%x1f%cn%x1f%ce%x1f%B', $_)) -join "`n") -split $sep, 6)
+            [pscustomobject]@{ Sha = $f[0]; Author = $f[1]; AuthorEmail = $f[2]; Committer = $f[3]; CommitterEmail = $f[4]; Message = $f[5] }
+        })
+    $r = [ordered]@{}
+    # GitHub itself commits a merge or an edit made on the website
+    $r['every author and committer is a public identity'] = @($commits | Where-Object {
+            $byGitHub = $_.Committer -eq 'GitHub' -and $_.CommitterEmail -eq 'noreply@github.com'
+            -not ((Test-PublicIdentity $_.Author $_.AuthorEmail) -and ($byGitHub -or (Test-PublicIdentity $_.Committer $_.CommitterEmail)))
+        } | ForEach-Object { $_.Sha })
+    $r['no commit message holds a user folder path or private claude.ai link'] = @($commits |
+            Where-Object { $_.Message -match '[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z0-9_]|claude\.ai/(code|artifact|chat|share)/' } |
+            ForEach-Object { $_.Sha })
+    # (support@github.com: Dependabot signs its commits with it)
+    $r['no commit message holds an e-mail address but noreply ones'] = @($commits | Where-Object {
+            @([regex]::Matches($_.Message, '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}') |
+                Where-Object { $_.Value -notmatch '(noreply@anthropic\.com|noreply@github\.com|support@github\.com|@users\.noreply\.github\.com|@example\.(com|org))$' }).Count
+        } | ForEach-Object { $_.Sha })
+    $Words = @($Words | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') })
+    if ($Words.Count) {
+        $r['no commit message holds a private word'] = @($commits | Where-Object {
+                $msg = $_.Message
+                @($Words | Where-Object { $msg.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count
+            } | ForEach-Object { $_.Sha })
+    }
+    $r
+}
+
+# $Text with each of $Words (already trimmed) replaced by ***, in any case
+function Hide-PrivateWord([string]$Text, [string[]]$Words) {
+    foreach ($w in $Words) {
+        if ($w) { $Text = [regex]::Replace($Text, [regex]::Escape($w), '***', 'IgnoreCase') }
+    }
+    $Text
 }

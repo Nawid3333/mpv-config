@@ -739,9 +739,16 @@ have overwritten their pull requests here) run here. As the history is public no
 `.githooks/privacy.sh`) checks every commit a push sends before anything leaves the clone:
 identities, messages, added lines, file names, forced-in ignored files - each commit, not
 just the last, since a word one commit adds and the next removes is still published. It also
-covers commits the commit guard never saw (`--no-verify`, a clone without the hooks). CI's
-new **privacy job** runs `tests/lib/privacy.ps1` over every tracked file on every push, docs
-included (the suite itself skips docs-only changes), with the `PRIVATE_WORDS` secret. The
-GPU flag skips a fork's pull request, whose token cannot set the label or status. Pull
+covers commits the commit guard never saw (`--no-verify`, a clone without the hooks), the
+branch or tag name the remote gets, and an annotated tag's message; a push whose commits git
+cannot list is refused. CI's new **privacy job** runs `tests/lib/privacy.ps1` on every push,
+docs included (the suite itself skips docs-only changes), with the `PRIVATE_WORDS` secret:
+every tracked file, and the new commits' identities and messages and a pull request's branch
+name, for a push made without the hooks. A private word inside a reported path is printed as
+`***`. glm's review found those gaps; it also led to finding that both guards refused mpv's
+manual (its example path `users\USERNAME`), which the static check had always left out:
+pushing this repository's whole history to an empty remote was refused for it, and passes
+now (37 s). The GPU flag skips a fork's pull request and Dependabot's runs, whose token
+cannot set the label or status. Pull
 request and issue texts are public and checked by nothing: AGENTS.md says so. Pull request
 numbers in these notes up to this entry are the workspace's.
