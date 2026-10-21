@@ -713,3 +713,10 @@ and the description of the "GPU tier (local)" check (gpu-flag.ps1) said
 `tests<TAB>ry-gpu.ps1`. Both are fixed, and the static tier now fails on any TAB in Markdown,
 PowerShell, workflow, C#, `.conf` or `.bat` files: none of them holds one on purpose. The
 check was red on the damaged tree.
+
+**No cancelled runs on main.** Regression tests, Lua style and PowerShell lint cancelled a
+running run when another started on the same branch. On main that happened when two merges
+came minutes apart, and on 2026-10-21 when a delayed push run met one started by hand. GitHub
+then showed the commit with a red X, which reads as a failure. Now only a pull request's newer
+push cancels its older run; every other run has a group of its own (`github.run_id`) and runs
+to its end.

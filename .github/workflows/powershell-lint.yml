@@ -21,9 +21,12 @@ on:
 permissions:
   contents: read
 
+# A pull request's newer push cancels its older run. Any other run (main's push, a
+# dispatch) has a group of its own and runs to its end: GitHub shows a cancelled run on
+# its commit as a red X, like a failure, and two merges minutes apart cancelled the first's.
 concurrency:
-  group: powershell-lint-${{ github.ref }}
-  cancel-in-progress: true
+  group: powershell-lint-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
