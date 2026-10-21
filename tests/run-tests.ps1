@@ -799,6 +799,8 @@ function Invoke-StaticCheck {
     $uoscTimeline = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/elements/Timeline.lua')
     Test-Check $t 'uosc local change present: Timeline.lua shows the amber time only when it differs (speed is not 1x)' (
         $uoscTimeline.Contains('state.realtime_remaining_human ~= state.content_remaining_human')) 're-apply it after a uosc update (AGENTS.md)'
+    Test-Check $t 'uosc local change present: Timeline.lua leaves the end time to destination_time=total (the pair is for the remaining times)' (
+        $uoscTimeline.Contains("options.destination_time ~= 'total'")) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t 'uosc local change present: Timeline.lua seeks a click by keyframe (instant), not exact' (
         $uoscTimeline.Contains("mp.commandv('seek', self:get_time_at_x(cursor.x), 'absolute+keyframes')")) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t "uosc.conf: font_scale matches the scripts' FONT_SCALE (Segoe UI's line box)" (
