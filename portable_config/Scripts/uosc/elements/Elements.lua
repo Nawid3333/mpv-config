@@ -99,10 +99,12 @@ function Elements:set_min_visibility(visibility, ids)
 end
 
 -- Flash passed elements.
+-- Local change (not upstream uosc): an optional duration (ms), see Element:flash().
 ---@param ids string[] IDs of elements to peek.
-function Elements:flash(ids)
+---@param duration? number
+function Elements:flash(ids, duration)
 	local elements = itable_filter(self._all, function(element) return itable_has(ids, element.id) end)
-	for _, element in ipairs(elements) do element:flash() end
+	for _, element in ipairs(elements) do element:flash(duration) end
 
 	-- Special case for 'progress' since it's a state of timeline, not an element
 	if itable_has(ids, 'progress') and not itable_has(ids, 'timeline') then
