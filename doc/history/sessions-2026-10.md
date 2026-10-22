@@ -857,3 +857,45 @@ started from pwsh). The static guard on reading the FastStream fragment sees eve
 item; uosc publishes bottom-ui also with the controls and the timeline both switched off (it
 kept its last value, and bottom-bar.lua drew a scrim over a bar that was gone). Checked and
 not a bug: video-info.lua's rotate swap (measured: mpv's dw/dh leave the rotation out).
+
+## 2026-10-22 (evening): yt-dlp's private Node.js, a leaner repository, lls in CI
+
+The work was split: a FastStream session took FastStream, this one mpv-config only, the two
+sharing the three glm workers through a local queue.
+
+- **#10**: mpv.conf has yt-dlp solve YouTube's challenges with Node.js, which it looks for on
+  PATH; the one-click install keeps its FastStream helper's node.exe private, so a PC without
+  a Node.js of its own had none. settings.lua points yt-dlp at that node.exe when it is there
+  (headless ytdl-node, two processes with a LOCALAPPDATA of their own).
+- **#11, leaner**: uosc's `bin/ziggy-darwin` and `ziggy-linux` (11.8 MB of LFS every install
+  and update fetched) are gone, with a static check after uosc's local changes;
+  `install-shaders.ps1` and `install-uosc.ps1` are retired (nothing called them; the
+  committed files are the source). Each shader's source and SHA-256 moved into
+  THIRD-PARTY-NOTICES.md, which the static tier checks every file against. Both new checks
+  were broken once (a byte added to a shader, a ziggy-linux put back): red, then green.
+  Left on purpose: gpu-toggles.lua's comment still places CfL's pin in install-shaders.ps1,
+  since any change to that file needs a GPU tier run; it goes with the next real change there.
+- **#12**: CI's Lua lint (lint-lua.yml) runs lua-language-server 3.19.2 too, pinned with the
+  release asset's SHA-256, in directory mode. A planted undefined global failed it (the log
+  named the file and line), its removal passed.
+- **#13**: autoload.lua is upstream's 867990d9 (it was 8364b122, unchanged). Measured with an
+  instrumented copy: the old file, given a folder, scanned the folder's parent - in a bare mpv
+  with `directory_mode=recursive` that queued 26 files from the neighbouring folders. Our
+  autoload.conf sets only `same_type=yes`, so it scans without recursion, never finds the
+  opened file there and stops: nothing visible changes here, and no test can fail without the
+  update. A first explanation of that (timing) had been a guess and went into the PR text; the
+  measurement showed it wrong and the text was corrected.
+- **#14**: doc/manual.txt was the manual of 2026-09-27 while the pin had moved on; the pinned
+  build's manual differs (a new `ytdl-format` default, `aes-ctr://`, DSD passthrough, the
+  ANGLE renderer). Made again with pypdf, the tool that made the first copy (its layout
+  matched exactly); its first line names the build, and RECREATE.md section 5 has the command,
+  which reproduced the file byte for byte in PowerShell. Its branch was rebased with
+  `git rebase ... | tail -1 && git push --force-with-lease`: the rebase stopped on a conflict,
+  the pipe hid it, and main's commit went to the branch, so GitHub closed the PR. Repaired,
+  reopened and explained on the PR; main was not touched.
+- glm reviewed #11 (no findings) and #12-#14: one finding, that RECREATE.md had no section 5
+  for the manual command - false, the command sits in "5. Updating".
+
+The owner, the same evening: work from data, not guesses or assumptions, and learn from
+mistakes without being told each step; glm's answers are leads to check, never facts; PRs may
+be merged here once every check is green.
