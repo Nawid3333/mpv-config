@@ -5,7 +5,8 @@
 -- script, so it idles until killed - a warm-up that would run for minutes,
 -- without a race against a fast one finishing first.
 -- Leaves a stamp that differs only in the shaders and the mpv version, for
--- phase 4.
+-- phase 4, and names a screen its sizes were drawn for (this player has none: the
+-- screen never counts as changed here).
 local base = debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$')
 local H = dofile(base .. 'lib/harness.lua')
 local R = dofile(base .. 'lib/shader-cache.lua')
@@ -23,6 +24,6 @@ H.run(function()
 	H.sleep(2)
 	H.eq('still running when the player quits', R.info.state, 'warming')
 	H.eq('the video kept playing', mp.get_property_native('pause'), false)
-	R.write_stamp({ config = '00000000', mpv = 'v0.0.0-test' })
+	R.write_stamp({ config = '00000000', mpv = 'v0.0.0-test', display = '1234x567' })
 	-- H.run returning quits the player mid warm-up
 end)

@@ -36,6 +36,13 @@ H.run(function()
 	H.sleep(0.5)
 	H.check('a quick check that compiled nothing showed no bar', not bar_seen)
 	H.eq('stamp records the current shaders', (R.read_stamp() or {}).config, (R.info.fingerprint or {}).config)
+	-- it drew no screen sizes: a stamp naming the screen it runs on would keep a new
+	-- screen from ever getting them
+	H.eq(
+		'a quick check keeps the screen the sizes were drawn for (phase 3: 1234x567)',
+		(R.read_stamp() or {}).display,
+		'1234x567'
+	)
 	H.check('lock, progress and args files cleaned up', #R.leftovers() == 0, table.concat(R.leftovers(), ', '))
 	R.write_stamp({ files = '999999' })
 end)

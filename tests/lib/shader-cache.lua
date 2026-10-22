@@ -108,6 +108,10 @@ function R.write_stamp(changes)
 	for _, k in ipairs({ 'libplacebo', 'driver', 'config', 'warmup', 'mpv', 'files' }) do
 		f:write(k, '=', tostring(t[k]), '\n')
 	end
+	-- the screen it was warmed on, only when a test names one
+	if t.display then
+		f:write('display=', t.display, '\n')
+	end
 	f:close()
 end
 
