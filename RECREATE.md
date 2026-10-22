@@ -28,7 +28,7 @@ re-created by the scripts in `installer/`.
 | `lua-api/` | mpv API stubs for Lua language server (editor support only) |
 | `tests/` | Regression suite: `pwsh tests/run-tests.ps1` (see `tests/README.md`) |
 | `installer/warm-shader-cache.ps1` | Runs that warm-up on request, hidden, progress in the terminal (mpv also runs it by itself in the background whenever the cache is stale) |
-| `doc/manual.txt` | Version-matched mpv manual (extracted text, for grepping) |
+| `doc/manual.txt` | The text of the mpv build's `doc/manual.pdf`, for grepping. Its first line names the build it came from; section 5 says how to make it again |
 | `mpv-build.json` | Which shinchiro mpv build this setup uses (tag, download URL, SHA-256 of the archive and of every file in it). A daily CI job offers each new build that passes the regression tests as one pull request (`mpv-update`); nothing moves the pin by itself |
 | `updater.bat`, `installer/update.ps1`, `installer/install-mpv.ps1` | Ours: `updater.bat` brings the config up to date (`git pull` in a clone), installs the pinned mpv build and keeps yt-dlp current |
 | `install.bat`, `installer/setup.ps1`, `installer/sync-config.ps1`, `installer/install-faststream.ps1`, `uninstall.bat`, `installer/uninstall.ps1` | Ours (2026-10-09): the one-click install for a PC without git - the config as GitHub's ZIP into `%LOCALAPPDATA%\Programs\mpv` (no admin), mpv, yt-dlp, the FastStream helper with a private Node.js, the add-on opened in Firefox, "Open with" + Start menu; `updater.bat` then updates such a folder through `sync-config.ps1` instead of `git pull`. README.md "Install" is the user-facing description, AGENTS.md the behaviour |
@@ -134,4 +134,10 @@ already exists and always verifies results at the end.
 | uosc | in the repository, by hand: a new uosc must get the local changes AGENTS.md lists carried over (the static tests check them). Not uosc's own updater (it replaces `Scripts/uosc` and drops them; the menu entry is gone) |
 | Shaders | in the repository, by hand: the new file from its source, and its row in THIRD-PARTY-NOTICES.md's shader table (source and SHA-256; the static tests check it). A shader change is GPU work: the gpu tier runs before it is merged (AGENTS.md "Testing") |
 | mpv.exe, yt-dlp | Run `updater.bat`. It pulls the repo (a new mpv build that passes the regression suite is offered as one pull request, `mpv-update`; merging it moves `mpv-build.json`), installs exactly that build, and updates yt-dlp - nothing to commit. A build that fails the suite is not pinned (CI opens one "mpv update failed" issue); the pin, and your mpv, stay where they were. The next mpv start re-checks the shader cache by itself in the background (a quick check for a new mpv, a full warm-up for a new libplacebo) |
+| `doc/manual.txt` | when a merged build changes `doc/manual.pdf` (its SHA-256 in `mpv-build.json`): install that build (`updater.bat`), then run the command below in the repository and commit the file. It needs pypdf (`py -3 -m pip install pypdf`) |
 | This doc | keep **sections 1-3** (repo layout tables, install steps) in sync when files/scripts are added or removed. Section 4 points to AGENTS.md for cycle shapes, defaults and policy instead of restating them: a fact kept in two places goes stale in one |
+
+```powershell
+# doc/manual.txt from the installed build's doc/manual.pdf; its first line names the build
+py -3 -P -c "import json, pypdf; tag = json.load(open('mpv-build.json'))['tag']; text = '\n'.join(p.extract_text() for p in pypdf.PdfReader('doc/manual.pdf').pages); open('doc/manual.txt', 'w', encoding='utf-8', newline='\n').write(f'[This copy: the text of doc/manual.pdf in the mpv build {tag} (mpv-build.json), extracted with pypdf {pypdf.__version__}. RECREATE.md says how to make it again.]\n{text}')"
+```
