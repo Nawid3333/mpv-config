@@ -1307,6 +1307,19 @@ function Invoke-StaticCheck {
         $null = Invoke-Git switch -q main
         $r = Invoke-Git merge -q --ff-only ci-this
         Test-Check $t '... and nothing when the installed mpv.exe is the pinned one' ($r.Code -eq 0 -and $r.Out -notmatch 'updater\.bat') $r.Out
+        # ... nor in a linked worktree (git worktree add, a dev's): it has no mpv of its own
+        $wt = Join-Path (Split-Path -Parent $g) 'guard-worktree'
+        $null = Invoke-Git worktree add -q -b ci-wt $wt
+        $null = Invoke-Git switch -q -c ci-third
+        Write-PinnedExe ('2' * 64)
+        $null = Invoke-Git commit -q -am 'ci: pin a third mpv'
+        $null = Invoke-Git switch -q main
+        $ErrorActionPreference = 'Continue'
+        $out = & git -C $wt merge -q --ff-only ci-third 2>&1
+        $code = $LASTEXITCODE
+        $ErrorActionPreference = 'Stop'
+        Test-Check $t '... nor in a linked worktree, which has no mpv of its own' ($code -eq 0 -and ($out -join ' ') -notmatch 'updater\.bat') ($out -join ' ')
+        $null = Invoke-Git worktree remove --force $wt
 
         # pre-push: the history is public too, so every commit a push adds is checked - also
         # one the commit guard never saw (--no-verify, a clone without the hooks). The remote
