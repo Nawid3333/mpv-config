@@ -123,7 +123,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "yt-dlp -U exited with $LASTEXITCODE" }
     }
     else {
-        $release = Invoke-RestMethod 'https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest' -UseBasicParsing -TimeoutSec 60
+        $release = Invoke-RestMethod 'https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest' -UseBasicParsing -TimeoutSec 60 @StallLimit
         $asset = @($release.assets | Where-Object { $_.name -eq 'yt-dlp.exe' })[0]
         if (-not $asset -or $asset.digest -notmatch '^sha256:([0-9a-f]{64})$') { throw "yt-dlp $($release.tag_name) has no yt-dlp.exe with a SHA-256 digest" }
         $want = $Matches[1]

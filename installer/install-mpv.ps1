@@ -80,8 +80,10 @@ function Get-7zExe {
     throw 'no 7-Zip found: install 7-Zip, or run git lfs pull for 7z\7zr.exe'
 }
 
-# The json may only ever name files of the build itself - never this repo's
-# config, scripts, tests or workflows, never a path outside the folder.
+# The json may only ever name files of the build itself, never a path outside the folder.
+# Refused here: a path out of it, and this repo's config, tests and workflow folders. That
+# no pinned name is any other file of the repository (installer\, the .bat files) is the
+# static tier's check on every pin before it can be merged: not in git, and in .gitignore.
 function Test-SafePath([string]$Rel) {
     if ($Rel -match '(^|[\\/])\.\.([\\/]|$)' -or $Rel -match '^[\\/]' -or $Rel -match ':') { return $false }
     return $Rel -notmatch '^(portable_config|\.github|\.githooks|tests|lua-api|\.git)([\\/]|$)'

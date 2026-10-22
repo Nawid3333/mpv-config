@@ -146,6 +146,16 @@ jobs:
             printf -- '- Locally: `stylua --check .` (tests/run-tests.ps1) uses the stylua on PATH - update it after the merge (`cargo install stylua --version %s --locked`).\n\n' "${latest#v}"
             printf 'This pull request keeps up: a newer release moves here. Closing it skips this version.\n'
           } > "$RUNNER_TEMP/pr.md"
+          # The checks before the pull request, as mpv-auto-update.yml does. A dispatch that
+          # failed after the pull request was offered was never made again: every later run
+          # found the version "offered already", and the pull request sat without checks.
+          # Failed, the branch goes, and the next run offers the version anew.
+          for workflow in lint-lua.yml regression-tests.yml; do
+            if ! gh workflow run "$workflow" --repo "$GH_REPO" --ref "$PR_BRANCH"; then
+              authgit push -q origin --delete "$PR_BRANCH" || true
+              exit 1
+            fi
+          done
           if [ -n "$pr" ]; then
             gh pr edit "$pr" --repo "$GH_REPO" --title "$title" --body-file "$RUNNER_TEMP/pr.md" > /dev/null
             echo "#$pr offers $latest now."
@@ -156,5 +166,3 @@ jobs:
             fi
             echo "Opened ${url##*/} for $latest."
           fi
-          gh workflow run lint-lua.yml --repo "$GH_REPO" --ref "$PR_BRANCH"
-          gh workflow run regression-tests.yml --repo "$GH_REPO" --ref "$PR_BRANCH"

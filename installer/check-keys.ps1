@@ -7,7 +7,7 @@
     2026-10-11 the owner saw an mpv started by FastStream that did not use his keys:
     the speed keys did nothing and j/k did not seek 10 s, as with mpv's standard
     bindings, and clicking into the window did not help. Every check afterwards found
-    the right mpv and the right config (TODO item 3), so this asks the mpv itself the
+    the right mpv and the right config, so this asks the mpv itself the
     next time it happens. check-keys.bat runs it; nothing is changed anywhere.
 
     For every running mpv.exe it shows:
