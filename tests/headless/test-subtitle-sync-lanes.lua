@@ -50,6 +50,11 @@ H.run(function()
 	H.expect('a click on the upper lane at that time jumps to the sign (1 s)', function()
 		return mp.get_property_number('time-pos')
 	end, 1, 0.06)
+	-- the label "Subtitles", left of the timeline: no time of the panel's
+	local row = state().rows.subs
+	H.click(row.x0 - 30, math.floor((row.y0 + row.y1) / 2))
+	H.sleep(0.3)
+	H.eq('a click on a row label seeks nowhere', mp.get_property_number('time-pos'), 1, 0.06)
 	H.key('t')
 	os.remove(srt)
 end)

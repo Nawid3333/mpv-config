@@ -1225,7 +1225,11 @@ local function on_release()
 				t = hit.s + delay
 			end
 		end
-		seek(t, true)
+		-- the row labels are no timeline: a click there jumped to a time the panel did
+		-- not show (before 0 near a file's start: back to its beginning)
+		if x >= g.tx0 and x <= g.tx1 then
+			seek(t, true)
+		end
 	end
 	tick()
 end
