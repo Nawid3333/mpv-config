@@ -142,7 +142,7 @@ jobs:
             else
               printf -- '- The new version formats every Lua file here exactly as before: nothing reformatted.\n'
             fi
-            printf -- '- Lua style and the regression tests run on this branch (this workflow starts them: a pull request it opens starts none by itself).\n'
+            printf -- '- Lua lint and the regression tests run on this branch (this workflow starts them: a pull request it opens starts none by itself).\n'
             printf -- '- Locally: `stylua --check .` (tests/run-tests.ps1) uses the stylua on PATH - update it after the merge (`cargo install stylua --version %s --locked`).\n\n' "${latest#v}"
             printf 'This pull request keeps up: a newer release moves here. Closing it skips this version.\n'
           } > "$RUNNER_TEMP/pr.md"
