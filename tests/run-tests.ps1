@@ -2118,10 +2118,13 @@ function Invoke-RuntimeTest {
         $mpvArgs = @("--script=$script", "--log-file=$log", '--no-terminal', '--script-opts-append=welcome-auto=no') +
         $ExtraArgs + @($ph.ContainsKey('Args') ? $ph.Args : @()) + $fileArgs
         # MPV_TEST_PHASE: a test that runs the same script in several processes tells them apart by it
-        $r = Invoke-Mpv $Exe $mpvArgs @{
+        $vars = @{
             MPV_TEST_MEDIA = $Media.Replace('\', '/'); MPV_TEST_ROOT = $root.Replace('\', '/'); MPV_TEST_TIMEOUT = $TimeoutSeconds - 10
             MPV_TEST_PHASE = $ph.ContainsKey('Phase') ? $ph.Phase : ''
-        } -TimeoutSeconds $TimeoutSeconds
+        }
+        # a phase's own Env goes to its mpv too (ytdl-node: a LOCALAPPDATA of its own)
+        if ($ph.ContainsKey('Env')) { foreach ($k in $ph.Env.Keys) { $vars[$k] = $ph.Env[$k] } }
+        $r = Invoke-Mpv $Exe $mpvArgs $vars -TimeoutSeconds $TimeoutSeconds
         $label = $Test.Phases.Count -gt 1 ? "[$phase/$($Test.Phases.Count)] " : ''
         $seen = 0
         $done = $false
@@ -2258,6 +2261,17 @@ $DamageSettingsFile = {
     Set-Content -LiteralPath (Join-Path $root 'portable_config/settings.json') -NoNewline '{"slang":"de,en", broken'
 }
 
+# ytdl-node: a LOCALAPPDATA of the test's own, first without the one-click install's private
+# node.exe, then (after the first process) with a stand-in for it
+$FakeLocalAppData = Join-Path $WorkDir 'localappdata'
+Remove-Item -LiteralPath $FakeLocalAppData -Recurse -Force -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $FakeLocalAppData | Out-Null
+$MakePrivateNode = {
+    $dir = Join-Path $FakeLocalAppData 'FastStreamMpvHost\node'
+    New-Item -ItemType Directory -Force $dir | Out-Null
+    Set-Content -LiteralPath (Join-Path $dir 'node.exe') 'a stand-in' -NoNewline
+}
+
 # welcome: the third process is a first start again, with no file
 $ForgetWelcome = {
     Remove-Item -LiteralPath (Join-Path $root 'portable_config/welcome.json') -ErrorAction SilentlyContinue
@@ -2354,6 +2368,10 @@ $HeadlessTests = @(
             @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'legacy'; After = $MakeOldBufferPc }
             @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'migrated'; After = $DamageSettingsFile }
             @{ Script = 'headless/test-settings.lua'; File = 'plain/clip.mkv'; Phase = 'damaged' })
+    }
+    @{ Name = 'ytdl-node'; Phases = @(
+            @{ Script = 'headless/test-ytdl-node.lua'; File = 'plain/clip.mkv'; Phase = 'none'; Env = @{ LOCALAPPDATA = $FakeLocalAppData }; After = $MakePrivateNode }
+            @{ Script = 'headless/test-ytdl-node.lua'; File = 'plain/clip.mkv'; Phase = 'private'; Env = @{ LOCALAPPDATA = $FakeLocalAppData } })
     }
     @{ Name = 'stream-buffer'; Phases = @(
             @{ Script = 'headless/test-stream-buffer.lua'; File = 'plain/clip.mkv'; Phase = 'stream'; Args = @('--script-opts-append=stream_buffer-local_is_stream=yes', '--script-opts-append=stream_buffer-headroom_mb=0') }

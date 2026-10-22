@@ -1447,6 +1447,28 @@ mp.register_script_message('screen-seen', function(w, h, fps)
 	screen_seen(tonumber(w), tonumber(h), tonumber(fps))
 end)
 
+-- ---- yt-dlp's JavaScript runtime --------------------------------------------------------------
+-- mpv.conf has yt-dlp solve YouTube's challenges with Node.js (js-runtimes=node), which yt-dlp
+-- looks for on PATH. The one-click install puts none there: the node.exe of its FastStream
+-- helper is private (installer/install-faststream.ps1), so yt-dlp is pointed at that one when
+-- it is there. Without it, a PC with no Node.js of its own got none of YouTube's formats that
+-- need the challenges solved.
+local function private_node()
+	local base = os.getenv('LOCALAPPDATA')
+	if not base or base == '' then
+		return nil
+	end
+	local node = base .. '\\FastStreamMpvHost\\node\\node.exe'
+	local info = utils.file_info(node)
+	return info and info.is_file and node or nil
+end
+local node = private_node()
+if node then
+	local raw = mp.get_property_native('options/ytdl-raw-options') or {}
+	raw['js-runtimes'] = 'node:' .. node
+	mp.set_property_native('options/ytdl-raw-options', raw)
+end
+
 -- ---- the gear button in uosc's control bar (uosc.conf controls= button:settings) --------------
 local function settings_button()
 	local json = utils.format_json({
