@@ -42,8 +42,9 @@
 --
 -- Stored per PC in ~~state/settings.json (gitignored). A PC that ran this
 -- config before (any state file of it is there) keeps what mpv.conf gave it -
--- German, then English, 350 nits, 1 GB, 3 s - so an update changes nothing
--- there; a new install starts from the recommended values.
+-- German, then English, 350 nits, 1 GB - so an update changes nothing there
+-- (the start and stall wait is Adaptive everywhere: mpv.conf's 3 s gave way to
+-- it); a new install starts from the recommended values.
 local mp = require('mp')
 local msg = require('mp.msg')
 local options = require('mp.options')

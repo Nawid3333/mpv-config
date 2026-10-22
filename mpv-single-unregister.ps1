@@ -76,6 +76,10 @@ foreach ($ext in $extensions) {
     if ($null -eq (Get-ItemProperty -Path $key -Name $progId -ErrorAction SilentlyContinue)) { continue }
     try {
         Remove-ItemProperty -Path $key -Name $progId
+        # register made the key for a type that had none: left empty, it goes, and the
+        # type's key with it when nothing else is in it
+        $left = Get-Item -LiteralPath $key
+        if ($left.SubKeyCount -eq 0 -and $left.ValueCount -eq 0) { Remove-EmptyUp $key $ClassesRoot }
     }
     catch {
         $failed += "$ext ($($_.Exception.Message))"
