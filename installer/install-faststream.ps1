@@ -17,9 +17,11 @@
          faststream-mpv-host.mjs of exactly that release (the add-on and the
          helper must match), installed by the fork's own install.ps1 into
          %LOCALAPPDATA%\FastStreamMpvHost and registered under HKCU (no admin),
-         pointed at this mpv.exe. It runs on Node.js: a private copy of the
-         current LTS node.exe is kept in the helper's folder (node\node.exe,
-         checked against nodejs.org's SHA256 list) - nothing is installed for
+         pointed at this mpv.exe. Both files run only when they match the
+         SHA-256 the release lists for them (native-host.sha256). It runs on
+         Node.js: a private copy of the current LTS node.exe is kept in the
+         helper's folder (node\node.exe, checked against nodejs.org's SHA256
+         list, and signed by the OpenJS Foundation) - nothing is installed for
          the whole PC and nothing is added to PATH. A helper this script did
          not install (a FastStream developer's own) is only replaced when you
          say so (-Replace, or yes at the question).
@@ -57,7 +59,11 @@
 
 .PARAMETER HelperSource
     A folder with install.ps1 and faststream-mpv-host.mjs to use instead of
-    downloading them (the tests).
+    downloading them (the tests). Taken as it is, unless -HelperSums names a list.
+
+.PARAMETER HelperSums
+    The helper files' SHA-256 list (sha256sum's form; a URL or a file). Default:
+    the release's native-host.sha256 when the files are downloaded.
 
 .PARAMETER NodeDist
     Where Node.js comes from: a URL or a folder laid out like
@@ -75,8 +81,19 @@ param(
     [switch]$NoRegister,
     [string]$UpdatesJson,
     [string]$HelperSource,
+    [string]$HelperSums,
     [string]$NodeDist = 'https://nodejs.org/dist'
 )
+
+# Windows PowerShell started under PowerShell 7 (a pwsh terminal) inherits 7's module folders
+# ahead of its own, and then cannot load Microsoft.PowerShell.Security: no
+# Get-AuthenticodeSignature for node.exe's check below. Its folders are dropped before any
+# module loads.
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $env:PSModulePath = (($env:PSModulePath -split ';') | Where-Object {
+            $_ -and $_ -notmatch '\\PowerShell\\(\d+\\)?Modules\\?$' -and $_ -notmatch '\\WindowsApps\\Microsoft\.PowerShell_'
+        }) -join ';'
+}
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -205,6 +222,14 @@ function Install-PrivateNode([string]$Dir, [string]$Work, [string]$Dist) {
         [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, "$exe.new", $true)
     }
     finally { $archive.Dispose() }
+    # The zip's SHA-256 comes from a list nodejs.org serves the same way as the zip, so it
+    # proves only that the two agree: node.exe must also be signed by the OpenJS Foundation,
+    # which a changed download cannot fake.
+    $signature = Get-AuthenticodeSignature -LiteralPath "$exe.new"
+    if ($signature.Status -ne 'Valid' -or "$($signature.SignerCertificate.Subject)" -notmatch 'OpenJS Foundation') {
+        Remove-Item -LiteralPath "$exe.new" -Force -ErrorAction SilentlyContinue
+        throw "the downloaded node.exe of Node.js $ver is not signed by the OpenJS Foundation ($($signature.Status))"
+    }
     # The old node.exe may be running (the helper of an open Firefox): Windows lets a running
     # program be renamed, not replaced, so it is moved aside, and removed on a later run.
     Get-ChildItem -LiteralPath $Dir -Filter 'node.exe.old-*' -ErrorAction SilentlyContinue |
@@ -308,9 +333,28 @@ try {
             $node = Install-PrivateNode (Join-Path $HelperDir 'node') $work $NodeDist
             $hs = Join-Path $work 'native-host'
             $null = New-Item -ItemType Directory -Path $hs
+            # The helper's files run as this user's program: only as the release lists them with
+            # their SHA-256 (native-host.sha256, a file of the release itself). Downloaded from
+            # the tag, whatever answered there ran: a moved tag, a changed or broken download.
+            $sums = $null
+            $sumsAt = if ($HelperSums) { $HelperSums } elseif (-not $HelperSource) { "https://github.com/$Repo/releases/download/v$version/native-host.sha256" }
+            if ($sumsAt) {
+                $sumsFile = Join-Path $work 'native-host.sha256'
+                if (Test-Path -LiteralPath $sumsAt -PathType Leaf) { Copy-Item -LiteralPath $sumsAt -Destination $sumsFile }
+                else { Get-Source ($sumsAt -replace '/[^/]*$', '') ($sumsAt -replace '^.*/', '') $sumsFile }
+                $sums = @{}
+                foreach ($l in Get-Content -LiteralPath $sumsFile) {
+                    if ($l -match '^([0-9a-f]{64})\s+\*?(\S+)\s*$') { $sums[$Matches[2]] = $Matches[1] }
+                }
+            }
             foreach ($f in 'install.ps1', 'faststream-mpv-host.mjs') {
                 if ($HelperSource) { Copy-Item -LiteralPath (Join-Path $HelperSource $f) -Destination (Join-Path $hs $f) }
                 else { Get-Source "https://raw.githubusercontent.com/$Repo/v$version/native-host" $f (Join-Path $hs $f) }
+                if ($sums) {
+                    $got = Get-Sha256 (Join-Path $hs $f)
+                    if (-not $sums.ContainsKey($f)) { throw "native-host.sha256 of FastStream $version does not list $f" }
+                    if ($got -ne $sums[$f]) { throw "the helper's $f is not the one FastStream $version released (sha256 $got, expected $($sums[$f]))" }
+                }
             }
             # the fork's own installer, as its documentation runs it (Windows PowerShell 5.1)
             $ps = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object Source

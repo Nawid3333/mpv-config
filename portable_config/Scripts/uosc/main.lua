@@ -561,40 +561,41 @@ function update_margins()
 		controls = controls and controls.enabled and controls or nil
 		timeline = timeline and timeline.enabled and timeline or nil
 		volume = volume and volume.enabled and volume or nil
-		if controls or timeline then
-			local visibility = 0
-			for _, element in ipairs({ controls or false, timeline or false }) do
-				if element then
-					visibility = math.max(visibility, element:get_visibility())
-				end
+		-- Also with both gone (disable-elements, uosc.conf disable_elements): the bar as gone,
+		-- invisible at the screen's bottom edge. Skipped, the property kept its last value, and
+		-- bottom-bar.lua drew its scrim and lifted the subtitles over a bar that was not there.
+		local visibility = 0
+		for _, element in ipairs({ controls or false, timeline or false }) do
+			if element then
+				visibility = math.max(visibility, element:get_visibility())
 			end
-			visibility = round(visibility * 100) / 100
-			local timeline_top = round(timeline and timeline.ay or display.height)
-			local controls_top = round(controls and controls.ay or timeline_top)
-			local volume_box = volume
-				and { ax = round(volume.ax), ay = round(volume.ay), bx = round(volume.bx), by = round(volume.by) }
-			local key = visibility
-				.. ' '
-				.. controls_top
-				.. ' '
-				.. timeline_top
-				.. ' '
-				.. display.height
-				.. (
-					volume_box
-						and (' ' .. volume_box.ax .. ' ' .. volume_box.ay .. ' ' .. volume_box.bx .. ' ' .. volume_box.by)
-					or ''
-				)
-			if key ~= state.bottom_ui_key then
-				state.bottom_ui_key = key
-				mp.set_property_native('user-data/uosc/bottom-ui', {
-					visibility = visibility,
-					controls_top = controls_top,
-					timeline_top = timeline_top,
-					height = display.height,
-					volume = volume_box,
-				})
-			end
+		end
+		visibility = round(visibility * 100) / 100
+		local timeline_top = round(timeline and timeline.ay or display.height)
+		local controls_top = round(controls and controls.ay or timeline_top)
+		local volume_box = volume
+			and { ax = round(volume.ax), ay = round(volume.ay), bx = round(volume.bx), by = round(volume.by) }
+		local key = visibility
+			.. ' '
+			.. controls_top
+			.. ' '
+			.. timeline_top
+			.. ' '
+			.. display.height
+			.. (
+				volume_box
+					and (' ' .. volume_box.ax .. ' ' .. volume_box.ay .. ' ' .. volume_box.bx .. ' ' .. volume_box.by)
+				or ''
+			)
+		if key ~= state.bottom_ui_key then
+			state.bottom_ui_key = key
+			mp.set_property_native('user-data/uosc/bottom-ui', {
+				visibility = visibility,
+				controls_top = controls_top,
+				timeline_top = timeline_top,
+				height = display.height,
+				volume = volume_box,
+			})
 		end
 	end
 

@@ -842,3 +842,18 @@ quit the player instead of 3x (always so, not new with the keys off). Quit-and-s
 to Ctrl+q; Q is unbound (a static check). Capitals doing what their letters do were tried
 and taken out again: mpv reads Shift+r as R too, so they put Shift keys on his speed keys
 that he had not asked for. Alt+s is gone too (he uses Windows' own screenshot tool).
+
+## 2026-10-22: hardening - everything the review found, fixed
+
+The owner, on the list of findings left as low or accepted: "if we found it and can fix it,
+fix it - even once in a million". Here: the one-click installer runs the FastStream helper's
+two files only when they match the release's `native-host.sha256` (FastStream publishes it
+with every release since its hardening PR), and node.exe only when the OpenJS Foundation
+signed it - the zip's SHA-256 came from a list nodejs.org serves the same way, which proved
+only that the two agreed. The installer drops PowerShell 7's module folders as FastStream's
+update tool does (Get-AuthenticodeSignature's module did not load in Windows PowerShell
+started from pwsh). The static guard on reading the FastStream fragment sees every Lua search
+(find, match, gmatch, gsub) in both spellings of a tag (fs- and fs%-), not one anchored on an
+item; uosc publishes bottom-ui also with the controls and the timeline both switched off (it
+kept its last value, and bottom-bar.lua drew a scrim over a bar that was gone). Checked and
+not a bug: video-info.lua's rotate swap (measured: mpv's dw/dh leave the rotation out).
