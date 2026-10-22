@@ -41,11 +41,11 @@ runs static + headless on every push; the gpu tier is local only.
 Static (`run-tests.ps1`): input.conf syntax; every `script-binding` /
 `script-message-to` target in input.conf, uosc.conf and our scripts is
 registered with the matching mechanism (AGENTS.md validation item 2); every
-shader the presets name exists, is installed by `install-shaders.ps1`, and
-nothing unused is left; the GLSL `//!` rule; `vo=gpu-next`, `window-dragging=no`;
+shader the presets name exists, matches the SHA-256 THIRD-PARTY-NOTICES.md lists
+with its source, and nothing unused is left; the GLSL `//!` rule; `vo=gpu-next`, `window-dragging=no`;
 profile sections hold only their own options (the 2026-09-21 scoping bug); no `#` inside an mpv.conf value (it starts a comment and silently empties the value);
 silent seek keys; mpv's own quit keys untouched; every message is a notify.lua banner (no `mp.osd_message`/`show-text` in our scripts, no `osd-msg` bindings), mpv.conf styles mpv's own OSD text to match (osd-box, top right) and uosc does not move it (`adjust_osd_margins=no`); uosc proximity + toolbar
-buttons + the local uosc changes (`menu_command` on managed buttons, `user-data/uosc/bottom-ui`, `user-data/uosc/ui-scale`); badge width; `button:source` in uosc.conf's controls, and the
+buttons + the local uosc changes (`menu_command` on managed buttons, `user-data/uosc/bottom-ui`, `user-data/uosc/ui-scale`, only `ziggy-windows.exe` in `bin/`); badge width; `button:source` in uosc.conf's controls, and the
 episode buttons with their gap behind `<user-data/faststream-episodes/shown>`; mpv's build is pinned, not committed
 (`mpv-build.json` is a complete pin, mpv's files and yt-dlp.exe are not in git and `.gitignore` covers each; outside CI,
 INFO whether the installed mpv.exe is the pinned one); `installer/install-mpv.ps1` against a stand-in build made with 7-Zip,

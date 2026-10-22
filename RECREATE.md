@@ -18,8 +18,8 @@ re-created by the scripts in `installer/`.
 | `portable_config/script-modules/` | Ours: code the scripts load with `dofile` (`state-file.lua`: state files written whole or not at all; `faststream-fragment.lua`: reading FastStream's URL fragment items) - not scripts themselves |
 | `portable_config/fonts/` | uosc's icon and texture fonts (LFS) |
 | `portable_config/Scripts/shader-cache/` | Ours: the startup shader-cache check and its progress banner (`main.lua`, drawn by `notify.lua`), what it compares (`fingerprint.lua`), the warm-up it runs in the background when the cache is stale (`warmup.lua`) and the hidden window that warm-up runs in (`host.ps1`) |
-| `portable_config/Scripts/uosc/` | uosc UI (v5.13.0, incl. LFS-tracked ziggy binaries) |
-| `portable_config/shaders/*.glsl` | The 13 shaders the presets use: 9 Anime4K v4.0.1 files (the Anime presets, High and Fast), FSRCNNX, SSimSuperRes, CfL_Prediction and adaptive-sharpen (Movie presets; adaptive-sharpen is a locally modified copy, not downloaded by the installer) - committed, licenses permit redistribution. Trimmed 2026-09-21 from the full Anime4K pack + ArtCNN + SSimDownscaler, none of which any preset used |
+| `portable_config/Scripts/uosc/` | uosc UI (v5.13.0, with its LFS-tracked Windows helper `bin/ziggy-windows.exe`) |
+| `portable_config/shaders/*.glsl` | The 13 shaders the presets use: 9 Anime4K v4.0.1 files (the Anime presets, High and Fast), FSRCNNX, SSimSuperRes, CfL_Prediction and adaptive-sharpen (Movie presets; adaptive-sharpen is a locally modified copy) - committed, licenses permit redistribution; THIRD-PARTY-NOTICES.md names each one's source and SHA-256. Trimmed 2026-09-21 from the full Anime4K pack + ArtCNN + SSimDownscaler, none of which any preset used |
 | `portable_config/script-opts/*.conf` | Script settings: `uosc.conf` (uosc), `gpu_toggles.conf`, `autoload.conf` |
 | `mpv-single.cs`, `mpv-single.exe` (LFS), `mpv-single-register.bat` / `.ps1`, `mpv-single-unregister.bat` / `.ps1` | Ours: the launcher Explorer opens files with (one window for local files, AGENTS.md "Opening files"); the exe is built from the .cs (command in its header) |
 | `check-keys.bat`, `installer/check-keys.ps1` | Ours: a read-only check of which keys each running mpv uses, for when one seems to ignore this setup's keys (a FastStream window) |
@@ -53,11 +53,9 @@ re-created by the scripts in `installer/`.
 > `mpv.exe` (and a user PATH entry pointing into it) may still exist from the
 > removed RIFE setup; both are unused and safe to delete.
 >
-> Shaders and uosc **are** committed — but if they ever drift from upstream,
-> the installers can rebuild them: `install-uosc.ps1` re-fetches uosc v5.13.0
-> + thumbfast, `install-shaders.ps1` re-downloads the 12 downloadable shaders (the Anime4K v4.0.1
-> files the Anime presets need, FSRCNNX, SSimSuperRes, CfL_Prediction) with pinned URLs; the 13th,
-> the locally modified adaptive-sharpen, is only in the repo.
+> Shaders, uosc and thumbfast **are** committed, with local changes: the committed files are
+> the source, and nothing downloads them again. THIRD-PARTY-NOTICES.md names where each came
+> from (each shader with its SHA-256, which the static tier checks).
 
 ## 3. Quick start on a fresh PC
 
@@ -67,7 +65,7 @@ re-created by the scripts in `installer/`.
 
 ```powershell
 # 0) Prerequisites (check boxes):
-#    - Git (with Git LFS)  - the ziggy binaries, fonts, 7z\7zr.exe and mpv-single.exe are LFS
+#    - Git (with Git LFS)  - uosc's ziggy-windows.exe, fonts, 7z\7zr.exe and mpv-single.exe are LFS
 #    - PowerShell 7 (pwsh) on PATH - the regression suite and warm-shader-cache.ps1 need it
 #      (updater.bat also runs in Windows PowerShell 5.1)
 #    - ffmpeg on PATH (the validation test; and the sync tool (t) uses it to list
@@ -100,24 +98,18 @@ git config user.email "<id>+<login>@users.noreply.github.com"
 #    one per line, in this clone's .git/info/private-words (never committed; the owner keeps
 #    the same list as the repository's PRIVATE_WORDS secret, for CI's privacy job).
 
-# 3) uosc + thumbfast (UI): committed, with local changes - nothing to do in a clone.
-#    install-uosc.ps1 is for a folder without them (it fetches upstream's copies,
-#    which lack those changes; it says so):
-# powershell -ExecutionPolicy Bypass -File installer\install-uosc.ps1
+# 3) uosc + thumbfast (UI) and the GLSL shaders: committed - nothing to do in a clone.
 
-# 4) GLSL shaders (the 12 downloadable files the presets use; adaptive-sharpen is in the repo):
-powershell -ExecutionPolicy Bypass -File installer\install-shaders.ps1
-
-# 5) File associations / App Paths (optional, admin not required), then point mpv's file
+# 4) File associations / App Paths (optional, admin not required), then point mpv's file
 #    types at mpv-single.exe (one window for the files you open; run it again after
 #    every mpv-register.bat or installer\mpv-install.bat, which write mpv.exe back):
 .\mpv-register.bat
 .\mpv-single-register.bat
 
-# 6) Optional - mpv does this by itself in the background. Pre-compile now (~8 s, nothing on screen):
+# 5) Optional - mpv does this by itself in the background. Pre-compile now (~8 s, nothing on screen):
 pwsh -File installer\warm-shader-cache.ps1
 
-# 7) Check everything (static + headless; add -Tier gpu for the renderer):
+# 6) Check everything (static + headless; add -Tier gpu for the renderer):
 pwsh -File tests\run-tests.ps1
 ```
 
@@ -140,6 +132,6 @@ already exists and always verifies results at the end.
 | Component | How |
 |---|---|
 | uosc | in the repository, by hand: a new uosc must get the local changes AGENTS.md lists carried over (the static tests check them). Not uosc's own updater (it replaces `Scripts/uosc` and drops them; the menu entry is gone) |
-| Anime4K etc. | re-run `install-shaders.ps1` (re-downloads) |
+| Shaders | in the repository, by hand: the new file from its source, and its row in THIRD-PARTY-NOTICES.md's shader table (source and SHA-256; the static tests check it). A shader change is GPU work: the gpu tier runs before it is merged (AGENTS.md "Testing") |
 | mpv.exe, yt-dlp | Run `updater.bat`. It pulls the repo (a new mpv build that passes the regression suite is offered as one pull request, `mpv-update`; merging it moves `mpv-build.json`), installs exactly that build, and updates yt-dlp - nothing to commit. A build that fails the suite is not pinned (CI opens one "mpv update failed" issue); the pin, and your mpv, stay where they were. The next mpv start re-checks the shader cache by itself in the background (a quick check for a new mpv, a full warm-up for a new libplacebo) |
 | This doc | keep **sections 1-3** (repo layout tables, install steps) in sync when files/scripts are added or removed. Section 4 points to AGENTS.md for cycle shapes, defaults and policy instead of restating them: a fact kept in two places goes stale in one |
