@@ -67,7 +67,9 @@ Keep it short: a new fact goes here in one line, its story into doc/history.
 **Docs.** `RECREATE.md` is the fresh-PC runbook (a new clone sets its noreply git
 identity and `core.hooksPath` there, step 2); it points here for current
 behaviour, so defaults and policy are updated here only. `doc/manual.txt` is a
-local copy of mpv's manual: grep it before guessing what an option does.
+local copy of mpv's manual: grep it before guessing what an option does. Its first line
+names the build it came from; when a merged build changes `doc/manual.pdf` (its SHA-256 in
+mpv-build.json), make it again (RECREATE.md section 5).
 
 **Layout.** `portable_config/` next to `mpv.exe` (portable mode: `~~/`, `~~state/`,
 `~~cache/` all resolve there). `mpv.conf`, `input.conf` (keys, and the right-click

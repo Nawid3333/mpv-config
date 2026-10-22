@@ -1,3 +1,4 @@
+[This copy: the text of doc/manual.pdf in the mpv build 20261021 (mpv-build.json), extracted with pypdf 6.18.0. RECREATE.md says how to make it again.]
 mpv
  a media player
  Copyright:
@@ -196,7 +197,7 @@ Properties
 Property list
  236
 Inconsistencies between options and properties
- 267
+ 268
 Property Expansion
  268
 Raw and Formatted Properties
@@ -1335,6 +1336,18 @@ mpv slice://1g-+2g@cap.ts
 This starts reading from cap.ts after seeking 1 GiB, then reads until reaching 3 GiB or end of file.
 mpv slice://100m@appending://cap.ts
 This starts reading from cap.ts after seeking 100MiB, then reads until end of file.
+aes-ctr://key:iv@URL
+Decrypt a stream that was encrypted as a whole with AES in CTR mode.
+key is the AES key as 32, 48 or 64 hex digits. iv is the initial counter block as 32 hex digits. The counter
+block is incremented as a 128 bit big endian number, which is what openssl enc -aes-128-ctr
+does.
+Seeking works if the stream behind URL is seekable.
+
+Example
+mpv aes-ctr://000102030405060708090a0b0c0d0e0f:f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff@video.mkv.enc
+This plays a file that was encrypted with
+openssl enc -aes-128-ctr -K 000102030405060708090a0b0c0d0e0f
+-iv f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff -in video.mkv -out video.mkv.enc.
 null://
 Simulate an empty file. If opened for writing, it will discard all data. The null demuxer will specifically
 pass autoprobing if this protocol is used (while it's not automatically invoked for empty files).
@@ -1342,7 +1355,6 @@ memory://data
 Use the data part as source data.
 hex://data
 Like memory://, but the string is interpreted as hexdump.
-
 archive://[ARCHIVE PATH]|[FILE PATH IN ARCHIVE]
 Open a file at the specified path inside an archive. Requires libarchive feature enabled. The archive path
 must have all % and | characters URL escaped. The file path should not be URL escaped.
@@ -2099,12 +2111,14 @@ extension is not necessary, but only ".exe" is acceptable.
 
 Why do the option names mix _ and -?
 I have no idea.
---ytdl-format=<|ytdl|best|worst|mp4|webm|...>
+--ytdl-format=<ytdl|best|worst|mp4|webm|...>
 Format selection string that is directly passed to youtube-dl. The possible values are specific to the
 website and the video, for a given URL the available formats can be found with the command
-youtube-dl -F URL. See youtube-dl's documentation for available aliases. (Default: empty)
-An empty value or ytdl does not pass a --format option to youtube-dl at all, and thus uses its default
-format selection behavior.
+youtube-dl -F URL. See youtube-dl's documentation for available aliases. (Default:
+bestvideo*+bestaudio/bestvideo+bestaudio/best)
+The default selects the best separate video and audio tracks with a muxed fallback.
+The ytdl value does not pass a --format option to youtube-dl at all, and thus does not override its
+default.
 --ytdl-raw-options=<key>=<value>[,<key>=<value>[,...]]
 Pass arbitrary options to youtube-dl. Parameter and argument should be passed as a key-value pair.
 Options without argument must include =.
@@ -2139,8 +2153,8 @@ this by default.
 --load-auto-profiles=<yes|no|auto>
 Enable the builtin script that does auto profiles (default: auto). See Conditional auto profiles for details.
 auto will load the script, but immediately unload it if there are no conditional profiles.
---load-select=<yes|no>
 
+--load-select=<yes|no>
 Enable the builtin script that lets you select from lists of items (default: yes). By default, its keybindings
 start with the g key.
 --load-context-menu=<yes|no>
@@ -2865,9 +2879,13 @@ modify a previously specified list, but you should not need these for typical us
 --audio-spdif=<codecs>
 List of codecs for which compressed audio passthrough should be used. This works for both classic
 S/PDIF and HDMI.
-Possible codecs are ac3, dts, dts-hd, eac3, truehd. Multiple codecs can be specified by separating
-them with ,. dts refers to low bitrate DTS core, while dts-hd refers to DTS MA (receiver and OS
-support varies). If both dts and dts-hd are specified, it behaves equivalent to specifying dts-hd only.
+Possible codecs are ac3, dts, dts-hd, eac3, truehd, dsd. Multiple codecs can be specified by
+separating them with ,. dts refers to low bitrate DTS core, while dts-hd refers to DTS MA (receiver
+and OS support varies). If both dts and dts-hd are specified, it behaves equivalent to specifying
+dts-hd only.
+dsd enables bit-perfect passthrough of DSD audio, requires an audio output with exclusive device
+access (currently wasapi) and a DAC that accepts DoP at the resulting PCM rate (176.4 kHz for
+DSD64, 352.8 kHz for DSD128, and so on).
 In earlier mpv versions you could use --ad to force the spdif wrapper. This does not work anymore.
 Warning
 There is not much reason to use this. HDMI supports uncompressed multichannel PCM, and mpv
@@ -4485,6 +4503,9 @@ begin-vo-dragging command, and does not disable window dragging initialized with
 --input-builtin-drag-and-drop=<yes|no>
 Enable the built-in drag-and-drop behavior (default: yes). Setting it to no disables the built-in
 drag-and-drop handling.
+Note (macOS)
+This also affects the drag and drop behavior on the Dock Icon and loading files from Finder, since
+both cases can't be distinguished.
 --input-cmdlist
 Prints all commands that can be bound to keys.
 --input-commands=<cmd1,cmd2,...>
@@ -4497,13 +4518,13 @@ Example
 --input-commands="playlist-play-index 1,set ao-volume 40"
 sets the playlist index to 1 and the ao-volume to 40
 --input-doubleclick-time=<milliseconds>
+
 Time in milliseconds to recognize two consecutive button presses as a double-click (default: 300).
 --input-keylist
 Prints all keys that can be bound to commands.
 --input-key-fifo-size=<2-65000>
 Specify the size of the FIFO that buffers key events (default: 7). If it is too small, some events may be
 lost. The main disadvantage of setting it to a very large value is that if you hold down a key triggering
-
 some particularly slow command then the player may be unresponsive while it processes all the queued
 commands.
 --input-test
@@ -4540,9 +4561,9 @@ Note
 To use this option on Windows, the fd must refer to a wrapped (created by _open_osfhandle)
 named pipe server handle with a client already connected. Alternatively, the Windows HANDLE
 can be passed by prefixing it with handle:// if mpv inherited it from the parent. The named pipe
+
 must be created duplex with overlapped IO and inheritable handles. The program communicates
 with mpv through the client handle.
-
 Warning
 Writing to the input-ipc-server option at runtime will start another instance of an IPC client
 handler for the input-ipc-client option, because initialization is bundled, and this thing is
@@ -4583,13 +4604,13 @@ window, and 2. the mouse is inside of the sub-window. It can steal away all keyb
 application embedding the mpv window, and on the other hand, the mpv window will receive no input if
 the mouse is outside of the mpv window, even though mpv has focus. Modern toolkits work around this
 weird X11 behavior, but naively embedding foreign windows breaks it.
+
 The only way to handle this reasonably is using the XEmbed protocol, which was designed to solve
 these problems. GTK provides GtkSocket, which supports XEmbed. Qt doesn't seem to provide
 anything working in newer versions.
 If the embedder supports XEmbed, input should work with default settings and with this option disabled.
 Note that input-default-bindings is disabled by default in libmpv as well - it should be enabled if
 you want the mpv default key bindings.
-
 --input-touch-emulate-mouse=<yes|no>
 When multi-touch support is enabled (either required by the platform, or enabled by --native-touch),
 emulate mouse move and button presses for the touch events (default: yes). This is useful for
@@ -4627,8 +4648,8 @@ Input Command Prefixes.
 --osd-duration=<time>
 Set the duration of the OSD messages in ms (default: 1000).
 --osd-font=<name>
-Specify font to use for OSD. The default is sans-serif.
 
+Specify font to use for OSD. The default is sans-serif.
 Examples
  
 --osd-font='Bitstream Vera Sans'
@@ -4673,8 +4694,8 @@ Default: title.
 Position of the OSD bar. -1 is far left, 0 is centered, 1 is far right. Fractional values (like 0.5) are allowed.
 --osd-bar-align-y=<-1-1>
 Position of the OSD bar. -1 is top, 0 is centered, 1 is bottom. Fractional values (like 0.5) are allowed.
---osd-bar-w=<1-100>
 
+--osd-bar-w=<1-100>
 Width of the OSD bar, in percentage of the screen width (default: 75). A value of 50 means the bar is half
 the screen wide.
 --osd-bar-h=<0.1-50>
@@ -4721,8 +4742,8 @@ Specify the color used for OSD. See --sub-color for details.
 --osd-selected-color=<color>
 The color of the selected item in lists. See --sub-color for details.
 --osd-selected-outline-color=<color>
-The outline color of the selected item in lists. See --sub-color for details.
 
+The outline color of the selected item in lists. See --sub-color for details.
 --osd-fractions
 Show OSD times with fractions of seconds (in millisecond precision). Useful to see the exact timestamp
 of a video frame.
@@ -4768,8 +4789,8 @@ option when deciding whether the elements are scaled with window size or not.
 Displacement of the OSD shadow in scaled pixels (see --sub-font-size for details). A value of 0
 disables shadows.
 Default: 0.
---osd-spacing=<size>
 
+--osd-spacing=<size>
 Horizontal OSD/sub font spacing in scaled pixels (see --sub-font-size for details). This value is
 added to the normal letter spacing. Negative values are allowed.
 Default: 0.
@@ -4818,10 +4839,10 @@ Tag screenshots with the appropriate colorspace (default: yes).
 Note that not all formats support this. When it is unsupported, or when this option is disabled,
 screenshots will be converted to sRGB before being written.
 --screenshot-high-bit-depth=<yes|no>
+
 If possible, write screenshots with a bit depth similar to the source video (default: yes). This is interesting
 in particular for PNG, as this sometimes triggers writing 16 bit PNGs with huge file sizes. This will also
 include an unused alpha channel in the resulting files if 16 bit is used.
-
 --screenshot-template=<template>
 Specify the filename template used to save screenshots. The template specifies the filename without file
 extension, and can contain format specifiers, which will be substituted when taking a screenshot. By
@@ -4861,10 +4882,10 @@ stamps for identifying frames.)
 %wX
 Specify the current playback time using the format string X. %p is like %wH:%wM:%wS, and %P is like
 %wH:%wM:%wS.%wT.
+
 Valid format specifiers:
 %wH
 hour (padded with 0 to two digits)
-
 %wh
 hour (not padded)
 %wM
@@ -4905,8 +4926,8 @@ Set the JPEG quality level. Higher means better quality. The default is 90.
 --screenshot-jpeg-source-chroma=<yes|no>
 Write JPEG files with the same chroma subsampling as the video (default: yes). If disabled, the libjpeg
 default is used.
---screenshot-png-compression=<0-9>
 
+--screenshot-png-compression=<0-9>
 Set the PNG compression level. Higher means better compression. This will affect the file size of the
 written screenshot file and the time it takes to write a screenshot. Too high compression might occupy
 enough CPU time to interrupt playback. The default is 7.
@@ -6124,13 +6145,9 @@ presentation is not supported (for example, on Windows 7 without the platform up
 automatically fall back to the older bitblt presentation model.
 If set to no, the --angle-swapchain-length option will have no effect.
 Windows with ANGLE only.
---angle-renderer=<d3d9|d3d11|auto>
-Forces a specific renderer when using the ANGLE backend (default: auto). In auto mode this will pick
-D3D11 for systems that support Direct3D 11 feature level 9_3 or higher, and D3D9 otherwise. This
-option is mainly for debugging purposes. Normally there is no reason to force a specific renderer, though
---angle-renderer=d3d9 may give slightly better performance on old hardware. Note that the D3D9
-renderer only supports OpenGL ES 2.0, so most extended OpenGL features will not work if this renderer
-is selected (similar to --gpu-dumb-mode).
+--angle-renderer=<d3d11|auto>
+Forces a specific renderer when using the ANGLE backend (default: auto). This option is mainly for
+debugging purposes. Normally there is no reason to force a specific renderer.
 Windows with ANGLE only.
 --macos-force-dedicated-gpu=<yes|no>
 Deactivates the automatic graphics switching and forces the dedicated GPU. (default: no)
@@ -6155,14 +6172,14 @@ switch together with --target-trc and --target-prim.
 Sets the color space to the icc profile of the screen (default).
  display-p3:
 DCI P3 primaries, a D65 white point and the sRGB transfer function.
-
-display-p3-hlg:
+ display-p3-hlg:
 DCI P3 primaries, a D65 white point and the Hybrid Log-Gamma (HLG) transfer
 function.
  display-p3-pq:
 DCI P3 primaries, a D65 white point and the Perceptual Quantizer (PQ) transfer
 function.
- display-p3-line
+
+display-p3-line
  ar:
 DCI P3 primaries, a D65 white point and linear transfer function.
  dci-p3:
@@ -6231,15 +6248,15 @@ The standard macOS popover material.
 The standard macOS sidebar material.
  headerView:
 The standard macOS header view material.
-
-sheet:
+ sheet:
 The standard macOS sheet material.
  windowBackgr
  ound:
 The standard macOS window background material.
  hudWindow:
 The standard macOS hudWindow material.
- fullScreen:
+
+fullScreen:
 The standard macOS full screen material.
  toolTip:
 The standard macOS tool tip material.
@@ -6298,11 +6315,11 @@ No manual syncing, depend on the layer mechanic and the next drawable
  feedback:
 Same as precise but uses the presentation feedback core mechanism
 --macos-menu-shortcuts=<yes|no>
-
 Enables the default menu bar shortcuts (default: yes). The menu bar shortcuts always take precedence
 over any other shortcuts, they are not propagated to the mpv core and they can't be used in config files
 like input.conf or script bindings.
 --macos-bundle-path=path1,path2,...
+
 App Bundles operate in their own shell environment that is different from the one in the terminal. The
 default PATH variable for all Bundles is /usr/bin:/bin:/usr/sbin:/sbin. Because of that mpv
 can not find binaries installed by package manager that might be used in scripts for example. This option
@@ -6353,10 +6370,10 @@ win backend does (if the ANGLE build is new enough).
 dxinterop (experimental)
 Win32, using WGL for rendering and Direct3D 9Ex for presentation. Works on Nvidia and AMD.
 Newer Intel chips with the latest drivers may also work.
-
 d3d11
 Win32, with native Direct3D 11 rendering.
 x11
+
 X11/GLX (deprecated/legacy, EGL is preferred these days)
 x11vk
 VK_KHR_xlib_surface
@@ -6398,10 +6415,10 @@ Only allow GLES
 no
 Only allow desktop/core GL
 --fbo-format=<fmt>
-
 Selects the internal format of textures used for FBOs. The format can influence performance and quality
 of the video output. fmt can be one of: rgb8, rgb10, rgb10_a2, rgb16, rgb16f, rgb32f, rgba12, rgba16,
 rgba16f, rgba16hf, rgba32f.
+
 Default: auto, which first attempts to utilize 16bit float (rgba16f, rgba16hf), and falls back to rgba16 if
 those are not available. Finally, attempts to utilize rgb10_a2 or rgba8 if all of the previous formats are not
 available.
@@ -6444,10 +6461,10 @@ Note
 Auto detected target colorspace metadata is not guaranteed to be always best choice. It depends
 on your compositor, driver, and display capabilities. However in most cases auto mode should
 work fine.
-
 --target-colorspace-hint-mode=<target|source|source-dynamic>
 Select which metadata to use for the --target-colorspace-hint. (Only for --vo=gpu-next)
 target
+
 Uses metadata based on the target display's actual capabilities. This mode adapts the source
 content to the target display before output. Note: HDR primaries are not overridden by the
 --target-prim option this only affects the enclosing container for the colorspace.
@@ -6487,9 +6504,9 @@ SDR transfer function. This way any input will be converted to SDR.
 Use the stats display to verify the input and output colorspace settings.
 TL;DR: Use --target-colorspace-hint=auto and adjust --target-* parameters to
 match your target display capabilities, until it looks best for you. Use Conditional auto profiles for
-
 specific adjustments. Avoid using --target-colorspace-hint=no unless it's sRGB content,
 but even then it's better to set the colorspace metadata.
+
 Note
 Additional chatter about the "HDR passthrough" mode: There is a belief that this mode should
 send the source HDR signal as-is to the display, and the display will magically handle it, no
@@ -6529,12 +6546,12 @@ apple
 Apple RGB
 adobe
 Adobe RGB (1998)
-
 prophoto
 ProPhoto RGB (ROMM)
 cie1931
 CIE 1931 RGB (not to be confused with CIE XYZ)
 dci-p3
+
 DCI-P3 (Digital Cinema Colorspace), SMPTE RP431-2
 display-p3
 DCI-P3 with a D65 white point
@@ -6575,11 +6592,11 @@ ITU-R BT.2100 HLG (Hybrid Log-gamma) curve, aka ARIB STD-B67
 v-log
 Panasonic V-Log (VARICAM) curve
 s-log1
-
 Sony S-Log1 curve
 s-log2
 Sony S-Log2 curve
 scrgb
+
 scRGB, extended linear light transfer. Supports both HDR and wide color gamut content. The output
 gamut defaults to BT.709 unless display primaries are reported by the system. You can also use
 --target-gamut to manually specify a wider gamut. (--vo=gpu-next only)
@@ -6618,12 +6635,12 @@ have or an infinite contrast when HDR --target-trc is used. If supported by the 
 will be used as reported. inf contrast specifies display with perfect black level, in practice OLED. (Only
 for --vo=gpu-next)
 --target-gamut=<value>
-
 Constrains the gamut of the display. You can use this option to output e.g. DCIP3-in-BT.2020. Set
 --target-prim to the primaries of the containing colorspace (into which values will be encoded), and
 --target-gamut to the gamut you want to limit colors to.
 Accepts either a named primary set (same values as --target-prim) or 8 comma-separated CIE xy
 chromaticity values specifying custom primaries in the format Rx,Ry,Gx,Gy,Bx,By,Wx,Wy (red,
+
 green, blue, white point). All values must be in the range 0.0-1.0. Use --target-gamut=help to list all
 named primaries. (Only for --vo=gpu-next)
 Note
@@ -6660,11 +6677,11 @@ tagged as sRGB, gamma2.2 or bt.1886 will be rendered as-is. If set to yes, it wi
 on the available metadata.
 auto (default) behaves like no, except when --target-trc is explicitly set, in which case it behaves
 like yes.
-
 Generally it's recommended to enable this option, if you can ensure that both source and target
 metadata is correct.
 (Only for --vo=gpu-next)
 --treat-srgb-as-power22=<no|input|output|both|auto>
+
 When enabled, sRGB is (de)linearized using a pure power 2.2 curve instead of the standard sRGB
 piecewise transfer function.
 auto behaves like both, with possible platform-specific adjustments to ensure a consistent
@@ -6709,11 +6726,11 @@ st2094-40
 Dynamic HDR10+ tone-mapping method specified in SMPTE ST2094-40 Annex B. In the absence
 of metadata, falls back to a fixed spline matched to the input/output average brightness
 characteristics. (--vo=gpu-next only)
-
 st2094-10
 Dynamic tone-mapping method specified in SMPTE ST2094-10 Annex B.2. Conceptually simpler
 than ST2094-40, and generally produces worse results.
 --tone-mapping-param=<value>
+
 Set tone mapping parameters. By default, this is set to the special string default, which maps to an
 algorithm-specific default value. Ignored if the tone mapping algorithm is not tunable. This affects the
 following tone mapping algorithms:
@@ -6759,11 +6776,11 @@ information (if available). (--vo=gpu-next only)
 Specifies the algorithm used for reducing the gamut of images for the target display, after any tone
 mapping is done.
 auto
-
 Choose the best mode automatically. (Default)
 clip
 Hard-clip to the gamut (per-channel). Very low quality, but free.
 perceptual
+
 Performs a perceptually balanced gamut mapping using a soft knee function to roll-off clipped
 regions, and a hue shifting function to preserve saturation. (--vo=gpu-next only)
 relative
@@ -6810,12 +6827,12 @@ improve the dynamic brightness range of scenes with very bright isolated highlig
 --hdr-peak-decay-rate=<0.0..1000.0>
 The decay rate used for the HDR peak detection algorithm (default: 20.0). This is only relevant when
 --hdr-compute-peak is enabled. Higher values make the peak decay more slowly, leading to more
-
 stable values at the cost of more "eye adaptation"-like effects (although this is mitigated somewhat by
 --hdr-scene-threshold). A value of 0.0 (the lowest possible) disables all averaging, meaning each
 frame's value is used directly as measured, but doing this is not recommended for "noisy" sources since
 it may lead to excessive flicker. (In signal theory terms, this controls the time constant "tau" of an IIR low
 pass filter)
+
 --hdr-scene-threshold-low=<0.0..100.0>, --hdr-scene-threshold-high=<0.0..100.0>
 The lower and upper thresholds (in dB) for a brightness difference to be considered a scene change
 (default: 1.0 low, 3.0 high). This is only relevant when --hdr-compute-peak is enabled. Normally,
@@ -6861,11 +6878,11 @@ The directory where icc cache is stored. Cache is stored in the system's cache d
 Specifies the ICC intent used for the color transformation (when using --icc-profile).
 0
 perceptual
-
 1
 relative colorimetric (default)
 2
 saturation
+
 3
 absolute colorimetric
 --icc-3dlut-size=<auto|RxGxB>
@@ -6907,10 +6924,10 @@ The downside of enabling this is that it restricts subtitles to the visible port
 have subtitles exist in the black margins below a video (for example).
 If video is selected, the behavior is similar to yes, but subs are drawn at the video's native resolution,
 and scaled along with the video.
-
 Note
 --vo=gpu-next with --blend-subtitles=video will correctly follow --video-rotate if
 rotated in 90-degree steps.
+
 Warning
 With --vo=gpu-next, the --blend-subtitles=video mode blends the subtitles after
 scaling the video, similar to --blend-subtitles=yes. The difference is that the subtitles are
@@ -6944,7 +6961,6 @@ the --sub-color option for how colors are defined.
 Colors used to draw parts of the mpv window not covered by video in --background=tiles mode.
 See the --sub-color option for how colors are defined.
 --background-tile-size=<1-4096>
-
 Tile size used to draw parts of the mpv window not covered by video in --background=tiles mode
 (default: 16).
 --border-background=<none|color|tiles|blur>
@@ -6953,6 +6969,7 @@ only. Defaults to color.
 --background-blur-radius=<radius>
 The blur radius (in pixels) to use for --border-background=blur
 --opengl-rectangle-textures
+
 Force use of rectangle textures (default: no). Normally this shouldn't have any advantages over normal
 textures. Note that hardware decoding overrides this flag. Could be removed any time.
 --gpu-tex-pad-x, --gpu-tex-pad-y
@@ -6992,7 +7009,6 @@ higher. Included for debugging purposes only. For more information, see:
 https://libplacebo.org/options/
 Video Sync
 --mc=<seconds/frame>
-
 Maximum A-V sync correction per frame (in seconds)
 --autosync=<factor>
 Gradually adjusts the A/V sync based on audio delay measurements. Specifying --autosync=0, the
@@ -7002,6 +7018,7 @@ framerate in a video which plays fine with --audio=no can often be helped by set
 value greater than 1. The higher the value, the closer the timing will be to --audio=no. Try
 --autosync=30 to smooth out problems with sound drivers which do not implement a perfect audio
 delay measurement. With this value, if large A/V sync offsets occur, they will only take about 1 or 2
+
 seconds to settle out. This delay in reaction time to sudden A/V offsets should be the only side effect of
 turning this option on, for all sound drivers.
 --video-timing-offset=<seconds>
@@ -7043,8 +7060,7 @@ Time video frames to audio. This is the most robust mode, because the player
 doesn't have to assume anything about how the display behaves. The
 disadvantage is that it can lead to occasional frame drops or repeats. If audio is
 disabled, this uses the system clock. This is the default mode.
-
-display-resam
+ display-resam
  ple:
 Resample audio to match the video. This mode will also try to adjust audio speed
 to compensate for other drift. (This means it will play the audio at a different speed
@@ -7055,7 +7071,8 @@ Resample audio to match the video. Drop video frames to compensate for drift.
  display-resam
  ple-desync:
 Like the previous mode, but no A/V compensation.
- display-tempo:
+
+display-tempo:
 Same as display-resample, but apply audio speed changes to audio filters
 instead of resampling to avoid the change in pitch. Beware that some audio filters
 don't do well with a speed close to 1. It is recommend to use a conditional profile to
@@ -7102,7 +7119,6 @@ values could lead to chaotic frame dropping due to the audio "overshooting" and 
 frames before the sync logic can react.
 Miscellaneous
 --display-tags=tag1,tags2,...
-
 Set the list of tags that should be displayed on the terminal and stats. Tags that are in the list, but are not
 present in the played file, will not be shown. If a value ends with *, all tags are matched by prefix (though
 there is no general globbing). Just passing * essentially filtering.
@@ -7110,6 +7126,7 @@ The default includes a common list of tags, call mpv with --list-options to see 
 This is a string list option. See List Options for details.
 --mf-fps=<value>
 Framerate used when decoding from multiple PNG or JPEG files with mf:// (default: 1).
+
 --mf-type=<value>
 Input file type for mf:// (available: jpeg, png, tga, sgi). By default, this is guessed from the file
 extension.
@@ -7154,7 +7171,6 @@ Warning
 Using realtime priority can cause system lockup.
 --media-controls=<yes|no>
 (Windows only) Enable integration of media control interface SystemMediaTransportControls.
-
 Windows may display "Unknown app" or show a missing mpv icon in the media control panel. To fully
 support it, you need to register mpv using the --register command.
 Default: yes (except for libmpv)
@@ -7162,6 +7178,7 @@ Default: yes (except for libmpv)
 Force the contents of the media-title property to this value. Useful for scripts which want to set a
 title, without overriding the user's setting in --title.
 --external-files=<file-list>
+
 Load a file and add all of its tracks. This is useful to play different files together (for example audio from
 one file, video from another), or for advanced --lavfi-complex used (like playing two video files at
 the same time).
@@ -7206,7 +7223,6 @@ extensions.
 --cover-art-whitelist=filename1,filename2,...
 Filenames to load as cover art, sorted by descending priority. They are combined with the extensions in
 --image-exts. This has no effect if cover-art-auto is no.
-
 Default: AlbumArt,Album,cover,front,AlbumArtSmall,Folder,.folder,thumb
 This is a string list option. See List Options for details.
 --video-exts=ext1,ext2,...
@@ -7214,6 +7230,7 @@ Video file extensions to try to match when using --autocreate-playlist or
 --directory-filter-types.
 This is a string list option. See List Options for details. Use --help=video-exts to see default
 extensions.
+
 --archive-exts=ext1,ext2,...
 Archive file extensions to try to match when using --autocreate-playlist or
 --directory-filter-types.
@@ -7256,8 +7273,7 @@ Currently, the filter graph labels are used to select the participating input tr
 The following rules apply:
  
 A label of the form aidN selects audio track N as input (e.g. aid1).
-
-
+ 
 A label of the form vidN selects video track N as input.
  
 A label named ao will be connected to the audio output.
@@ -7266,6 +7282,7 @@ A label named vo will be connected to the video output.
 Each label can be used only once. If you want to use e.g. an audio stream for multiple filters, you need to
 use the asplit filter. Multiple video or audio outputs are not possible, but you can use filters to merge
 them into one.
+
 It's not possible to change the tracks connected to the filter at runtime, unless you explicitly change the
 lavfi-complex property and set new track assignments. When the graph is changed, the track
 selection is changed according to the used labels as well.
@@ -7306,13 +7323,13 @@ Native clipboard support is enabled by default. To disable this, remove all back
 Note that the default clipboard backends are subject to change, and must not be relied upon.
 The following clipboard backends are implemented:
 win32
-
 Windows backend.
 mac
 macOS backend.
 x11
 X11 backend. This backend is only available if the X server supports the Xfixes extension.
 wayland
+
 Wayland backend. This backend is only available if the compositor supports the
 ext-data-control-v1 protocol.
 vo
@@ -7354,9 +7371,9 @@ can find the necessary DLLs. The specified string will be prepended to the runti
 is executed.
 This is useful for setting up paths to external libraries required by mpv without adding them to the global
 PATH environment variable.
-
 The format of the string follows the same structure as the PATH environment variable, a
 semicolon-separated list of paths.
+
 Note
 This sets the App Paths for mpv in the Windows registry, which Windows Shell uses to locate
 the executable and its dependencies. As a result, mpv can be launched seamlessly in most
@@ -7856,20 +7873,6 @@ half-blocks
 Uses Unicode LOWER HALF BLOCK character to achieve higher vertical resolution. (Default.)
 plain
 Uses spaces. Causes vertical resolution to drop twofolds, but in theory works in more places.
---vo-tct-buffering=<pixel|line|frame>
-Specifies the size of data batches buffered before being sent to the terminal.
-TCT image output is not synchronized with other terminal output from mpv, which can lead to
-broken images. Sending data to the terminal in small batches may improve parallelism between
-terminal processing and mpv processing but incurs a static overhead of generating tens of
-thousands of small writes. Also, depending on the terminal used, sending frames in one chunk
-might help with tearing of the output, especially if not used with --really-quiet and other logs
-interrupt the data stream.
-pixel
-Send data to terminal for each pixel.
-line
-Send data to terminal for each line. (Default)
-frame
-Send data to terminal for each frame.
 --vo-tct-width=<width> --vo-tct-height=<height>
 Assume the terminal has the specified character width and/or height. These default to 80x25 if the
 terminal size cannot be determined.
@@ -7880,7 +7883,6 @@ Graphical output for the terminal, using the kitty graphics protocol. Tested wit
 You may need to use --profile=sw-fast to get decent performance.
 Kitty size and alignment options:
 --vo-kitty-cols=<columns>, --vo-kitty-rows=<rows> (default: 0)
-
 Specify the terminal size in character cells, otherwise (0) read it from the terminal, or fall back to
 80x25.
 --vo-kitty-width=<width>, --vo-kitty-height=<height> (default: 0)
@@ -7895,6 +7897,7 @@ changes).
 --vo-kitty-alt-screen=<yes|no> (default: yes)
 Whether or not to use the alternate screen buffer and return the terminal to its previous state on exit.
 When set to no, the last kitty image stays on screen after quit, with the cursor following it.
+
 --vo-kitty-use-shm=<yes|no> (default: no)
 Use shared memory objects to transfer image data to the terminal. This is much faster than sending
 the data as escape codes, but is not supported by as many terminals. It also only works on the local
@@ -7907,9 +7910,6 @@ the escape sequences directly to the terminal.
 Currently only supports tmux and GNU screen.
 sixel
 Graphical output for the terminal, using sixels. Tested with mlterm and xterm.
-Note: the Sixel image output is not synchronized with other terminal output from mpv, which can lead to
-broken images. The option --really-quiet can help with that, and is recommended. On some
-platforms, using the --vo-sixel-buffered option may work as well.
 You may need to use --profile=sw-fast to get decent performance.
 Note: at the time of writing, xterm does not enable sixel by default - launching it as xterm -ti 340 is
 one way to enable it. Also, xterm does not display images bigger than 1000x1000 pixels by default.
@@ -7921,18 +7921,16 @@ of pixels - like mlterm. Additionally, they may behave differently when maximize
 mpv cannot detect this state using standard methods.
 Sixel size and alignment options:
 --vo-sixel-cols=<columns>, --vo-sixel-rows=<rows> (default: 0)
-Specify the terminal size in character cells, otherwise (0) read it from the terminal, or fall back to
-80x25. Note that mpv doesn't use the the last row with sixel because this seems to result in
-scrolling.
+Size of the area the image may use, in character cells. The default (0) is the terminal size from the
+position the image starts at, or 80x25 if the terminal size cannot be read. The last row is left free for
+the status line.
 --vo-sixel-width=<width>, --vo-sixel-height=<height> (default: 0)
-Specify the available size in pixels, otherwise (0) read it from the terminal, or fall back to 320x240.
-Other than excluding the last line, the height is also further rounded down to a multiple of 6 (sixel
-unit height) to avoid overflowing below the designated size.
+Size of the area the image may use, in pixels. The default (0) is what the terminal reports for the
+rows and columns above, or 320x240 if it reports nothing. Other than excluding the last row, the
+height is rounded down to a multiple of 6, the height of a sixel band.
 --vo-sixel-left=<col>, --vo-sixel-top=<row> (default: 0)
-
-Specify the position in character cells where the image starts (1 is the first column or row). If 0
-(default) then try to automatically determine it according to the other values and the image aspect
-ratio and zoom.
+Position in character cells where the area the image may use starts (1 is the first column or row). 0
+(default) is the same as 1.
 --vo-sixel-pad-x=<pad_x>, --vo-sixel-pad-y=<pad_y> (default: -1)
 Used only when mpv reads the size in pixels from the terminal. Specify the number of padding
 pixels (on one side) which are included at the size which the terminal reports. If -1 (default) then the
@@ -7945,13 +7943,9 @@ changes).
 --vo-sixel-alt-screen=<yes|no> (default: yes)
 Whether or not to use the alternate screen buffer and return the terminal to its previous state on exit.
 When set to no, the last sixel image stays on screen after quit, with the cursor following it.
---vo-sixel-exit-clear is a deprecated alias for this option and may be removed in the future.
---vo-sixel-buffered=<yes|no> (default: no)
-Buffers the full output sequence before writing it to the terminal. On POSIX platforms, this can help
-prevent interruption (including from other applications) and thus broken images, but may come at a
-performance cost with some terminals and is subject to implementation details.
 Sixel image quality options:
 --vo-sixel-dither=<algo>
+
 Selects the dither algorithm which libsixel should apply. Can be one of the below list as per libsixel's
 documentation.
 auto (Default)
@@ -7976,7 +7970,6 @@ Positionally stable arithmetic xor based dither
 Use libsixel's built-in static palette using the XTERM256 profile for dither. Fixed palette uses 256
 colors for dithering. Note that using no (at the time of writing) will slow down xterm.
 --vo-sixel-reqcolors=<colors> (default: 256)
-
 Has no effect with fixed palette. Set up libsixel to use required number of colors for dynamic palette.
 This value depends on the terminal emulator as well. Xterm supports 256 colors. Can set this to a
 lower value for faster performance.
@@ -7999,6 +7992,7 @@ png
 PNG files.
 webp
 WebP files.
+
 --vo-image-png-compression=<0-9>
 PNG compression factor (speed vs. file size tradeoff) (default: 7)
 --vo-image-png-filter=<0-5>
@@ -8021,7 +8015,6 @@ For use with libmpv direct embedding. As a special case, on macOS it is used lik
 mpv (cocoa-cb). Otherwise useless in any other contexts. (See <mpv/render.h>.)
 This also supports many of the options the gpu VO has, depending on the backend.
 drm (Direct Rendering Manager)
-
 Video output driver using Kernel Mode Setting / Direct Rendering Manager. Should be used when one
 doesn't want to install full-blown graphical environment (e.g. no X). Does not support hardware
 acceleration (if you need this, check the drm backend for gpu VO).
@@ -8048,9 +8041,10 @@ modes match, selects the mode that comes first in the EDID list of modes.
 Use --drm-mode=help to get a list of available modes for all active connectors.
 --drm-draw-plane=<primary|overlay|N>
 Select the DRM plane to which video and OSD is drawn to, under normal circumstances. The plane
-can be specified as primary, which will pick the first applicable primary plane; overlay, which will
-pick the first applicable overlay plane; or by index. The index is zero based, and related to the
-CRTC. (default: primary)
+can be specified as primary, which will pick the first applicable primary plane; overlay,
+
+which will pick the first applicable overlay plane; or by index. The index is zero based, and related to
+the CRTC. (default: primary)
 When using this option with the drmprime-overlay hwdec interop, only the OSD is rendered to this
 plane.
 --drm-drmprime-video-plane=<primary|overlay|N>
@@ -8061,21 +8055,21 @@ To be able to successfully play 4K video on various SoCs you might need to set
 --drm-draw-plane=overlay --drm-drmprime-video-plane=primary and setting
 --drm-draw-surface-size=1920x1080, to render the OSD at a lower resolution (the video
 when handled by the hwdec will be on the drmprime-video plane and at full 4K resolution)
---drm-format=<xrgb8888|xbgr8888|xrgb2101010|xbgr2101010|yuyv>
+--drm-format=<xrgb8888|xbgr8888|xrgb2101010|xbgr2101010|rgb565|yuyv>
 Select the DRM format to use (default: xrgb8888). This allows you to choose the bit depth and color
 type of the DRM mode.
 xrgb8888 is your usual 24bpp packed RGB format with 8 bits of padding. xrgb2101010 is a 30bpp
-packed RGB format with 2 bits of padding. yuyv is a 32bpp packed YUV 4:2:2 format. No planar
-formats are currently supported.
+packed RGB format with 2 bits of padding. rgb565 is a 16bpp packed RGB format with reduced
+colour accuracy. yuyv is a 32bpp packed YUV 4:2:2 format. No planar formats are currently
+supported.
 There are cases when xrgb2101010 will work with the drm VO, but not with the drm backend for the
 gpu VO. This is because with the gpu VO, in addition to requiring support in your DRM driver,
 requires support for xrgb2101010 in your EGL driver. yuyv only ever works with the drm VO.
 --drm-draw-surface-size=<[WxH]>
 Sets the size of the surface used on the draw plane. The surface will then be upscaled to the current
-screen resolution. This option can be useful when used together with the
-
-drmprime-overlay hwdec interop at high resolutions, as it allows scaling the draw plane (which in
-this case only handles the OSD) down to a size the GPU can handle.
+screen resolution. This option can be useful when used together with the drmprime-overlay hwdec
+interop at high resolutions, as it allows scaling the draw plane (which in this case only handles the
+OSD) down to a size the GPU can handle.
 When used without the drmprime-overlay hwdec interop this option will just cause the video to get
 rendered at a different resolution and then scaled to screen size.
 (default: display resolution)
@@ -8101,6 +8095,7 @@ along with --gpu-context=android.
 wlshm (Wayland only)
 Shared memory video output driver without hardware acceleration that works whenever Wayland is
 present.
+
 You may need to use --profile=sw-fast to get decent performance.
 Note
 This is a fallback only, and should not be normally used.
@@ -8485,7 +8480,7 @@ Adobe RGB (1998)
 prophoto:
 ProPhoto RGB (ROMM)
  cie1931:
-CIE 1931 RGB
+CIE 1931 RGB, in RGB formats this marks XYZ data (ST 428-1)
  dci-p3:
 DCI-P3 (Digital Cinema)
  v-gamut:
@@ -8586,7 +8581,8 @@ modes.
 <stereo-in>
 Set the stereo mode the video is assumed to be encoded in. Use
 --vf=format:stereo-in=help to list all available modes. Check with the stereo3d filter
-documentation to see what the names mean.
+documentation to see what the names mean. The default no keeps the mode signaled by the
+source.
 <rotate>
 Set the rotation the video is assumed to be encoded with in degrees. The special value -1 uses the
 input format.
@@ -10509,6 +10505,8 @@ filename
 Currently played file, with path stripped. If this is an URL, try to undo percent encoding as well. (The
 result is not necessarily correct, but looks better for display purposes. Use the path property to get an
 unmodified filename.)
+If the server reported a file name for the stream, as with the HTTP Content-Disposition header,
+that name is returned instead of the one derived from the URL.
 This has a sub-property:
 filename/no-ext
 Like the filename property, but if the text contains a ., strip all text after the last .. Usually this
@@ -10537,9 +10535,9 @@ Process-id of mpv.
 path
 Full absolute path of the currently played file.
 stream-open-filename
+
 The full path to the currently played media. This is different from path only in special cases. In
 particular, if --ytdl=yes is used, and the URL is detected by youtube-dl, then the script will set this
-
 property to the actual media URL. This property should be set only during the on_load or
 on_load_fail hooks, otherwise it will have no effect (or may do something implementation defined in
 the future). The property is reset if playback of the current media ends.
@@ -10584,11 +10582,11 @@ especially with bad source timestamps). For example, using the display-desync mo
 change this value from 0.
 vsync-ratio
 For how many vsyncs a frame is displayed on average. This is available if display-sync is active only.
-For 30 FPS video on a 60 Hz screen, this will be 2. This is the moving average of what actually has been
-scheduled, so 24 FPS on 60 Hz will never remain exactly on 2.5, but jitter depending on the last frame
-displayed.
-vo-delayed-frame-count
+For 30 FPS video on a 60 Hz screen, this will be 2. This is the moving average of what actually has
 
+been scheduled, so 24 FPS on 60 Hz will never remain exactly on 2.5, but jitter depending on the last
+frame displayed.
+vo-delayed-frame-count
 Estimated number of frames delayed due to external circumstances in display-sync mode. Note that in
 general, mpv has to guess that this is happening, and the guess can be inaccurate.
 percent-pos (RW)
@@ -10631,11 +10629,11 @@ How many more times the current file is going to be looped. This is initialized 
 --loop-file. This counts the number of times it causes the player to seek to the beginning of the file,
 so it is 0 the last the time is played. -1 corresponds to infinity.
 remaining-ab-loops
+
 How many more times the current A-B loop is going to be looped, if one is active. This is initialized from
 the value of --ab-loop-count. This counts the number of times it causes the player to seek to
 --ab-loop-a, so it is 0 the last the time the loop is played. -1 corresponds to infinity.
 chapter (RW)
-
 Current chapter number. The number of the first chapter is 0. A value of -1 indicates that the current
 playback position is before the start of the first chapter,
 Setting this property results in an absolute seek to the start of the chapter. However, if the property is
@@ -10678,11 +10676,11 @@ mp.get_property_native, this will return a mpv_node with the following contents:
 MPV_FORMAT_NODE_ARRAY
     MPV_FORMAT_NODE_MAP (for each edition)
         "id"                MPV_FORMAT_INT64
+
         "title"             MPV_FORMAT_STRING
         "default"           MPV_FORMAT_FLAG
         "metadata"          MPV_FORMAT_NODE_MAP
 metadata
-
 Metadata key/value pairs.
 If the property is accessed with Lua's mp.get_property_native, this returns a table with metadata
 keys mapping to metadata values. If it is accessed with the client API, this returns a
@@ -10722,13 +10720,13 @@ An example of this kind of metadata are the cropping parameters added by --vf=la
 af-metadata/<filter-label>
 Equivalent to vf-metadata/<filter-label>, but for audio filters.
 deinterlace-active
+
 Returns yes/true if mpv's deinterlacing filter is active. This is only a guess with --deinterlace=auto
 and may not be accurate. Note that it will not detect any manually inserted deinterlacing filters done via
 --vf.
 idle-active
 Returns yes/true if no file is loaded, but the player is staying around because of the --idle option.
 (Renamed from idle.)
-
 core-idle
 Whether the playback core is paused. This can differ from pause in special situations, such as when the
 player pauses itself due to low network cache.
@@ -10771,12 +10769,12 @@ reader-pts is the approximate timestamp of the start of the buffered range. Miss
 cache-duration is demuxer-cache-duration. Missing if unavailable.
 raw-input-rate is the estimated input rate of the network layer (or any other byte-oriented input
 layer) in bytes per second. May be inaccurate or missing.
+
 ts-per-stream is an array containing an entry for each stream type: video, audio, and subtitle. For
 each stream type, the details for the demuxer cache for that stream type are available as
 cache-duration, reader-pts and cache-end.
 When querying the property with the client API using MPV_FORMAT_NODE, or with Lua
 mp.get_property_native, this will return a mpv_node with the following contents:
-
 MPV_FORMAT_NODE_MAP
     "seekable-ranges"   MPV_FORMAT_NODE_ARRAY
         MPV_FORMAT_NODE_MAP
@@ -10819,6 +10817,7 @@ cache-buffering-state
 The percentage (0-100) of the cache fill status until the player will unpause (related to
 paused-for-cache).
 eof-reached
+
 Whether the end of playback was reached. Note that this is usually interesting only if --keep-open is
 enabled, since otherwise the player will immediately play the next file (or exit or enter idle mode), and in
 these cases the eof-reached property will logically be cleared immediately after it's set.
@@ -10826,7 +10825,6 @@ seeking
 Whether the player is currently seeking, or otherwise trying to restart playback. (It's possible that it
 returns yes/true while a file is loaded. This is because the same underlying code is used for seeking and
 resyncing.)
-
 mixer-active
 Whether the audio mixer is active.
 This option is relatively useless.
@@ -10867,13 +10865,13 @@ overridden with the format video filter.
 colormatrix-input-range
 See colormatrix.
 colormatrix-primaries
+
 See colormatrix.
 hwdec (RW)
 Reflects the --hwdec option.
 Writing to it may change the currently used hardware decoder, if possible. (Internally, the player may
 reinitialize the decoder, and will perform a seek to refresh the video properly.) You can watch the other
 hwdec properties to see whether this was successful.
-
 This does not return the currently active hardware decoder. hwdec-current is available for this
 purpose.
 hwdec-current
@@ -10915,13 +10913,13 @@ Display aspect ratio as double.
 video-params/aspect-name
 Display aspect ratio name as string. The name corresponds to motion picture film format that
 introduced given aspect ratio in film.
+
 video-params/par
 Pixel aspect ratio.
 video-params/sar
 Storage aspect ratio.
 video-params/sar-name
 Storage aspect ratio name as string.
-
 video-params/colormatrix
 The colormatrix in use as string. (Exact values subject to change.)
 video-params/colorlevels
@@ -10961,13 +10959,13 @@ video-params/max-pq-y
 Maximum PQ luminance of a frame, as reported by peak detection (in PQ, 0-1)
 video-params/avg-pq-y
 Average PQ luminance of a frame, as reported by peak detection (in PQ, 0-1)
+
 video-params/prim-red-x, video-params/prim-red-y
 Red primary chromaticity coordinates, available only if differs from video-params/primaries
 video-params/prim-green-x, video-params/prim-green-y
 Green primary chromaticity coordinates, available only if differs from video-params/primaries
 video-params/prim-blue-x, video-params/prim-blue-y
 Blue primary chromaticity coordinates, available only if differs from video-params/primaries
-
 video-params/prim-white-x, video-params/prim-white-y
 White point chromaticity coordinates, available only if differs from video-params/primaries
 When querying the property with the client API using MPV_FORMAT_NODE, or with Lua
@@ -11014,6 +11012,7 @@ dwidth, dheight
 Video display size. This is the video size after filters and aspect scaling have been applied. The actual
 video window size can still be different from this, e.g. if the user resized the video window manually.
 These have the same values as video-out-params/dw and video-out-params/dh.
+
 video-dec-params
 Exactly like video-params, but no overrides applied.
 video-out-params
@@ -11021,7 +11020,6 @@ Same as video-params, but after video filters have been applied. If there are no
 this will contain the same values as video-params. Note that this is still not necessarily what the video
 window uses, since the user can change the window size, and all real VOs do their own scaling
 independently from the filter chain.
-
 Has the same sub-properties as video-params.
 video-target-params
 Same as video-params, but with the target properties that VO outputs to.
@@ -11062,6 +11060,7 @@ the last non-fullscreen size of the window. The property is unavailable if no vi
 It is also possible to write to this property. This has the same behavior as writing window-scale. Note
 that writing to current-window-scale will not affect the value of window-scale.
 focused
+
 Whether the window has focus. Might not be supported by all VOs.
 ambient-light
 Ambient lighting condition in lux. Only observable on macOS (macOS and Linux only)
@@ -11069,7 +11068,6 @@ display-names
 Names of the displays that the mpv window covers. On X11, these are the xrandr names (LVDS1,
 HDMI1, DP1, VGA1, etc.). On Windows, these are the GDI names (.DISPLAY1, .DISPLAY2, etc.) and
 the first display in the list will be the one that Windows considers associated with the window (as
-
 determined by the MonitorFromWindow API.) On macOS these are the Display Product Names as used
 in the System Information with a serial number in parentheses and only one display name is returned
 since a window can only be on one screen. On Wayland, these are the wl_output names if protocol
@@ -11111,6 +11109,7 @@ osd-dimensions/h
 Size of the VO window in OSD render units,
 osd-dimensions/par
 Pixel aspect ratio of the OSD (usually 1).
+
 osd-dimensions/aspect
 Display aspect ratio of the VO window. (Computing from the properties above.)
 osd-dimensions/mt, osd-dimensions/mb, osd-dimensions/ml, osd-dimensions/mr
@@ -11118,7 +11117,6 @@ OSD to video margins (top, bottom, left, right). This describes the area into wh
 rendered.
 Any of these properties may be unavailable or set to dummy values if the VO window is not created or
 visible.
-
 term-size
 The current terminal size.
 This has two sub-properties.
@@ -11158,6 +11156,7 @@ Number of active touch points.
 touch-pos/N/x, touch-pos/N/y
 Position of the Nth touch point.
 touch-pos/N/id
+
 Unique identifier of the touch point. This can be used to identify individual touch points when their
 indexes change.
 When querying the property with the client API using MPV_FORMAT_NODE, or with Lua
@@ -11165,7 +11164,6 @@ mp.get_property_native, this will return a mpv_node with the following contents:
 MPV_FORMAT_NODE_ARRAY
     MPV_FORMAT_NODE_MAP (for each touch point)
         "x"        MPV_FORMAT_INT64
-
         "y"        MPV_FORMAT_INT64
         "id"       MPV_FORMAT_INT64
 tablet-pos
@@ -11205,13 +11203,13 @@ dropped-files/time
 The timestamp of the last drag-and-drop event mpv received, in nanoseconds. This uses the same
 clock as mpv_get_time_ns().
 dropped-files/action
+
 The action of the drag-and-drop event. This is normally replace. Depending on the platform, this
 can also be append in some cases, such as shift key being held while files are dropped.
 dropped-files/files
 The dropped file names of the drag-and-drop event.
 When querying the property with the client API using MPV_FORMAT_NODE, or with Lua
 mp.get_property_native, this will return a mpv_node with the following contents:
-
 MPV_FORMAT_NODE_MAP
     "time"    MPV_FORMAT_INT64
     "action"  MPV_FORMAT_STRING
@@ -11252,6 +11250,7 @@ no current subtitle is present, or if it's present but has unknown or incorrect 
 instead.
 This has a sub-property:
 sub-end/full
+
 sub-end with milliseconds.
 secondary-sub-end
 Same as sub-end, but for the secondary subtitles.
@@ -11259,7 +11258,6 @@ sub-lines
 The list of subtitle lines in memory. Not available if the subtitle is not text-based (i.e. DVD/BD subtitles).
 When querying the property with the client API using MPV_FORMAT_NODE, or with Lua
 mp.get_property_native, this will return a mpv_node with the following contents:
-
 MPV_FORMAT_NODE_ARRAY
     MPV_FORMAT_NODE_MAP (for each subtitle line)
         "text"  MPV_FORMAT_STRING
@@ -11299,6 +11297,7 @@ being unloaded. This property is set during the MPV_EVENT_START_FILE (start-file
 MPV_EVENT_START_END (end-file) events. Outside of that, it returns -1. If the playlist entry was
 somehow removed during playback, but playback hasn't stopped yet, or is in progress of being stopped,
 it also returns -1. (This can happen at least during state transitions.)
+
 In the "playing" state, this is usually the same as playlist-pos, except during state changes, or if
 playlist-current-pos was written explicitly.
 playlist-count
@@ -11307,7 +11306,6 @@ playlist-path
 The original path of the playlist for the current entry before mpv expanded the entries. Unavailable if the
 file was not originally associated with a playlist in some way.
 playlist
-
 Playlist, current entry marked. Currently, the raw property value is useless.
 This has a number of sub-properties. Replace N with the 0-based playlist entry index.
 playlist/count
@@ -11347,6 +11345,7 @@ the currently selected edition are listed.
 This has a number of sub-properties. Replace N with the 0-based track index.
 track-list/count
 Total number of tracks.
+
 track-list/video
 The list of video tracks. This is only usable for printing and its value can't be retrieved.
 track-list/audio
@@ -11354,7 +11353,6 @@ The list of audio tracks. This is only usable for printing and its value can't b
 track-list/sub
 The list of sub tracks. This is only usable for printing and its value can't be retrieved.
 track-list/N/id
-
 The ID as it's used for --sid/--aid/--vid. This is unique within tracks of the same type
 (sub/audio/video), but otherwise not.
 track-list/N/type
@@ -11395,6 +11393,7 @@ in MPEG-TS or HLS). Unavailable if the stream does not belong to any program.
 track-list/N/codec
 The codec name used by this track, for example h264. Unavailable in some rare cases.
 track-list/N/codec-desc
+
 The codec descriptive name used by this track.
 track-list/N/codec-profile
 The codec profile used by this track. Available only if the track has been already decoded.
@@ -11402,7 +11401,6 @@ track-list/N/external
 yes/true if the track is an external file, no/false or unavailable otherwise. This is set for separate
 subtitle files.
 track-list/N/external-filename
-
 The filename if the track is from an external file, unavailable otherwise.
 track-list/N/selected
 yes/true if the track is currently decoded, no/false or unavailable otherwise.
@@ -11442,13 +11440,13 @@ track-list/N/demux-par
 Pixel aspect ratio.
 track-list/N/demux-duration
 Track duration as indicated by the container.
+
 track-list/N/format-name
 Short name for format from ffmpeg. If the track is audio, this will be the name of the sample format.
 If the track is video, this will be the name of the pixel format.
 track-list/N/audio-channels (deprecated)
 Deprecated alias for track-list/N/demux-channel-count.
 track-list/N/replaygain-track-peak, track-list/N/replaygain-track-gain
-
 Per-track replaygain values. Only available for audio tracks with corresponding information stored in
 the source file.
 track-list/N/replaygain-album-peak, track-list/N/replaygain-album-gain
@@ -11496,6 +11494,7 @@ MPV_FORMAT_NODE_ARRAY
         "demux-crop-y"      MPV_FORMAT_INT64
         "demux-crop-w"      MPV_FORMAT_INT64
         "demux-crop-h"      MPV_FORMAT_INT64
+
         "demux-channel-count" MPV_FORMAT_INT64
         "demux-channels"    MPV_FORMAT_STRING
         "demux-samplerate"  MPV_FORMAT_INT64
@@ -11503,7 +11502,6 @@ MPV_FORMAT_NODE_ARRAY
         "demux-bitrate"     MPV_FORMAT_INT64
         "demux-rotation"    MPV_FORMAT_INT64
         "demux-par"         MPV_FORMAT_DOUBLE
-
         "format-name"       MPV_FORMAT_STRING
         "audio-channels"    MPV_FORMAT_INT64
         "replaygain-track-peak" MPV_FORMAT_DOUBLE
@@ -11544,12 +11542,12 @@ MPV_FORMAT_NODE_ARRAY
     MPV_FORMAT_NODE_MAP (for each filter entry)
         "name"      MPV_FORMAT_STRING
         "label"     MPV_FORMAT_STRING [optional]
+
         "enabled"   MPV_FORMAT_FLAG [optional]
         "params"    MPV_FORMAT_NODE_MAP [optional]
             (key and string value for each param entry)
 It's also possible to write the property using this format.
 seekable
-
 Whether it's generally possible to seek in the current file.
 partially-seekable
 Whether the current file is considered seekable, but only because the cache is active. This means small
@@ -11589,6 +11587,7 @@ If the --force-window option is used, this usually always returns yes/true.
 vo-passes
 Contains introspection about the VO's active render passes and their execution times. Not implemented
 by all VOs.
+
 This is further subdivided into two frame types, vo-passes/fresh for fresh frames (which have to be
 uploaded, scaled, etc.) and vo-passes/redraw for redrawn frames (which only have to be re-painted).
 The number of passes for any given subtype can change from frame to frame, and should not be relied
@@ -11596,7 +11595,6 @@ upon.
 Each frame type has a number of further sub-properties. Replace TYPE with the frame type, N with the
 0-based pass index, and M with the 0-based sample index.
 vo-passes/TYPE/count
-
 Number of passes.
 vo-passes/TYPE/N/desc
 Human-friendy description of the pass.
@@ -11638,6 +11636,7 @@ two keyframes by their presentation timestamp distance. (This uses the timestamp
 so e.g. playback speed does not influence the returned values.) In particular, the video bitrate will update
 only per keyframe, and show the "past" bitrate. To make the property more UI friendly, updates to these
 properties are throttled in a certain way.
+
 The unit is bits per second. OSD formatting turns these values in kilobits (or megabits, if appropriate),
 which can be prevented by using the raw property value, e.g. with ${=video-bitrate}.
 Note that the accuracy of these properties is influenced by a few factors. If the underlying demuxer
@@ -11645,7 +11644,6 @@ rewrites the packets on demuxing (done for some file formats), the bitrate might
 timestamps are bad or jittery (like in Matroska), even constant bitrate streams might show fluctuating
 bitrate.
 How exactly these values are calculated might change in the future.
-
 In earlier versions of mpv, these properties returned a static (but bad) guess using a completely different
 method.
 audio-device-list
@@ -11686,13 +11684,13 @@ IPC clients, host applications, etc). The player itself does not use any data in
 scripts may). The property is not preserved across player restarts.
 Sub-paths can be accessed directly; e.g. user-data/my-script/state/a can be read, written, or
 observed.
+
 The top-level object itself cannot be written directly; write to sub-paths instead.
 Converting this property or its sub-properties to strings will give a JSON representation. If converting a
 leaf-level object (i.e. not a map or array) and not using raw mode, the underlying content will be given
 (e.g. strings will be printed directly, rather than quoted and JSON-escaped).
 The following sub-paths are reserved for internal uses or have special semantics: user-data/osc,
 user-data/mpv. Unless noted otherwise, the semantics of any properties under these sub-paths can
-
 change at any time and may not be relied upon, and writing to these properties may prevent builtin
 scripts from working properly.
 Currently, the following properties have defined special semantics:
@@ -11732,6 +11730,7 @@ submenu
 Submenu items, which is required if type is submenu.
 When querying the property with the client API using MPV_FORMAT_NODE, or with Lua
 mp.get_property_native, this will return a mpv_node with the following contents:
+
 MPV_FORMAT_NODE_ARRAY
     MPV_FORMAT_NODE_MAP (menu item)
         "type"           MPV_FORMAT_STRING
@@ -11740,7 +11739,6 @@ MPV_FORMAT_NODE_ARRAY
         "shortcut"       MPV_FORMAT_STRING
         "state"          MPV_FORMAT_NODE_ARRAY[MPV_FORMAT_STRING]
         "submenu"        MPV_FORMAT_NODE_ARRAY[menu item]
-
 Writing to this property with the client API using MPV_FORMAT_NODE or with Lua
 mp.set_property_native will trigger an immediate update of the menu if mpv video output is
 currently active. You may observe the current-vo property to check if this is the case.
@@ -11780,6 +11778,7 @@ format or use with --demuxer-lavf-format.
 input-key-list
 List of Key names, same as output by --input-keylist.
 mpv-version
+
 The mpv version/copyright string. Depending on how the binary was built, it might contain either a
 release version, or just a git hash.
 mpv-configuration
@@ -11789,7 +11788,6 @@ ffmpeg-version
 The contents of the av_version_info() API call. This is a string which identifies the build in some
 way, either through a release version number, or a git hash. This property is unavailable if mpv is linked
 against older FFmpeg versions.
-
 libass-version
 The value of ass_library_version(). This is an integer, encoded in a somewhat weird form
 (apparently "hex BCD"), indicating the release version of the libass library linked to mpv.
@@ -11829,6 +11827,7 @@ option-info/<name>/type
 The name of the option type, like String or Integer. For many complex types, this isn't very
 accurate.
 option-info/<name>/set-from-commandline
+
 Whether the option was set from the mpv command line. What this is set to if the option is e.g.
 changed at runtime is left undefined (meaning it could change in the future).
 option-info/<name>/set-locally
@@ -11839,7 +11838,6 @@ option-info/<name>/expects-file
 Whether the option takes file paths as arguments.
 option-info/<name>/default-value
 The default value of the option. May not always be available.
-
 option-info/<name>/min, option-info/<name>/max
 Integer minimum and maximum values allowed for the option. Only available if the options are
 numeric, and the minimum/maximum has been set internally. It's also possible that only one of
@@ -11879,6 +11877,7 @@ MPV_FORMAT_NODE_ARRAY
 command-list
 The list of input commands. This returns an array of maps, where each map node represents a
 command. This map has the following entries:
+
 name
 The name of the command.
 vararg
@@ -11888,7 +11887,6 @@ An array of maps, where each map node represents an argument with the following 
 name
 The name of the argument.
 type
-
 The name of the argument type, like String or Integer.
 optional
 Whether the argument is optional.
@@ -11928,6 +11926,7 @@ A number. Bindings with a higher value are preferred over bindings with a lower 
 negative, this binding is inactive and will not be triggered by input. Note that mpv does not use this
 value internally, and matching of bindings may work slightly differently in some cases. In addition,
 this value is dynamic and can change around at runtime.
+
 comment
 If available, the comment following the command on the same line. (For example, the input.conf
 entry f cycle bla # toggle bla would result in an entry with
@@ -11938,7 +11937,6 @@ MPV_FORMAT_NODE_ARRAY
         "cmd"         MPV_FORMAT_STRING
         "is_weak"     MPV_FORMAT_FLAG
         "owner"       MPV_FORMAT_STRING (optional)
-
         "section"     MPV_FORMAT_STRING
         "priority"    MPV_FORMAT_INT64
         "comment"     MPV_FORMAT_STRING (optional)
@@ -11968,6 +11966,7 @@ current-clipboard-backend
 A string containing the currently active clipboard backend. See --clipboard-backends option for the
 list of available backends.
 player-operation-mode
+
 A read-only string of the current player operation mode, mirroring the --player-operation-mode
 option. To set operation mode, set the option at startup instead.
 clock
@@ -11976,7 +11975,6 @@ Inconsistencies between options and properties
 You can access (almost) all options as properties, though there are some caveats with some properties (due
 to historical reasons):
 vid, aid, sid
-
 While playback is active, these return the actually active tracks. For example, if you set aid=5, and the
 currently played file contains no audio track with ID 5, the aid property will return no.
 display-fps
@@ -12012,6 +12010,7 @@ Expands to the value of the property NAME. If retrieving the property fails, exp
 ${NAME:} with a trailing : to expand to an empty string instead.) If NAME is prefixed with =, expand to
 the raw value of the property (see section below).
 ${NAME:STR}
+
 Expands to the value of the property NAME, or STR if the property cannot be retrieved. STR is expanded
 recursively.
 ${?NAME:STR}
@@ -12021,7 +12020,6 @@ Expands to STR (recursively) if the property NAME cannot be retrieved.
 ${?NAME==VALUE:STR}
 Expands to STR (recursively) if the property NAME expands to a string equal to VALUE. You can prefix
 NAME with = in order to compare the raw value of a property (see section below). If the property is
-
 unavailable, or other errors happen when retrieving it, the value is never considered equal. Note that
 VALUE can't contain any of the characters : or }. Also, it is possible that escaping with " or % might be
 added in the future, should the need arise.
@@ -12531,6 +12529,8 @@ maximize_mbtn_left_command=cycle ${?fullscreen==yes:fullscreen}${!fullscreen==ye
 s:window-maximized}
 maximize_mbtn_mid_command=
 maximize_mbtn_right_command=
+seekbar_wheel_down_command=seek -10
+seekbar_wheel_up_command=seek 10
 
 Custom Buttons
 Additional script-opts are available to define custom buttons in bottombar and topbar layouts.
@@ -13117,7 +13117,8 @@ populate menu-data. It then calls the context-menu command on platforms where in
 native context menu is implemented, while on platforms where it is not, it opens context_menu.lua.
 On platforms without integration with the native context menu, context_menu.lua can be disabled entirely
 using the --load-context-menu=no option. On platforms where the integration is implemented, it is
-already disabled by default, and --load-context-menu=yes will make select.lua use it.
+already disabled by default, and --load-context-menu=yes will make select.lua use it. It is also
+loaded when --d3d11-exclusive-fs is enabled, and select.lua uses it in exclusive fullscreen.
 Script messages
 open
 Show the context menu.
@@ -13135,8 +13136,8 @@ gap
 Default: 0.2
 The gap between menu items, specified as a percentage the font size.
 padding_x
-Default: 8
 
+Default: 8
 The horizontal padding of the menu.
 padding_y
 Default: 4
