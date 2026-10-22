@@ -452,14 +452,22 @@ local function step(label, target, detail)
 	progress(steps, status.total, detail)
 end
 
-local function write_stamp()
+local function write_stamp(screen_drawn)
 	fingerprint.collect(function(result)
 		resume(result)
 	end)
 	local fp = coroutine.yield()
-	-- the screen it was warmed on (main.lua warms again on another one)
-	local w, h = mp.get_property_number('display-width'), mp.get_property_number('display-height')
-	local extra = (w and h and w > 0 and h > 0) and { display = string.format('%dx%d', w, h) } or nil
+	-- the screen it was warmed on (main.lua warms again on another one). A quick check
+	-- that compiled nothing drew no screen sizes: naming this screen, its stamp kept a
+	-- new screen from ever getting them, so it keeps the screen they were drawn for.
+	local display
+	if screen_drawn then
+		local w, h = mp.get_property_number('display-width'), mp.get_property_number('display-height')
+		display = (w and h and w > 0 and h > 0) and string.format('%dx%d', w, h) or nil
+	else
+		display = (fingerprint.read(fingerprint.STAMP) or {}).display
+	end
+	local extra = display and { display = display } or nil
 	if not fingerprint.write(fingerprint.STAMP, fp, fingerprint.count_cache_files(), extra) then
 		out('RESULT FAIL shader cache stamp :: could not write ' .. fingerprint.path(fingerprint.STAMP))
 		return false
@@ -684,7 +692,7 @@ co = coroutine.create(function()
 		return quit(6)
 	end
 	progress(status.total, status.total, 'Saving')
-	if not write_stamp() then
+	if not write_stamp(not quick_ok) then
 		return quit(4)
 	end
 	if quick_ok then
