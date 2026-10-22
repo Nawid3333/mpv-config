@@ -81,6 +81,9 @@ function Invoke-MpvSetup {
     $ErrorActionPreference = 'Stop'
     $ProgressPreference = 'SilentlyContinue'
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    # A reply that stalls halfway: PowerShell 7 waits for ever (-TimeoutSec does not cover the
+    # body); -OperationTimeoutSeconds (7.4 and later) ends a read that gets nothing for 120 s.
+    $StallLimit = if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey('OperationTimeoutSeconds')) { @{ OperationTimeoutSeconds = 120 } } else { @{} }
     $ps = (Get-Process -Id $PID).Path
 
     function Step([string]$Text) { Write-Host "`n== $Text" -ForegroundColor Cyan }
@@ -164,10 +167,10 @@ function Invoke-MpvSetup {
         else {
             # the sync script of exactly the commit that gets installed
             try {
-                $Commit = "$(Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/commits/$Ref" -UseBasicParsing -TimeoutSec 60 `
+                $Commit = "$(Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/commits/$Ref" -UseBasicParsing -TimeoutSec 60 @StallLimit `
                     -Headers @{ Accept = 'application/vnd.github.sha'; 'User-Agent' = 'mpv-config-installer' })".Trim()
                 $sync = Join-Path $tmp 'sync-config.ps1'
-                Invoke-WebRequest -Uri "https://raw.githubusercontent.com/$Repo/$Commit/installer/sync-config.ps1" -OutFile $sync -UseBasicParsing -TimeoutSec 60
+                Invoke-WebRequest -Uri "https://raw.githubusercontent.com/$Repo/$Commit/installer/sync-config.ps1" -OutFile $sync -UseBasicParsing -TimeoutSec 60 @StallLimit
             }
             catch {
                 Write-Host "Could not reach GitHub: $($_.Exception.Message)" -ForegroundColor Red

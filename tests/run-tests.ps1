@@ -132,18 +132,19 @@ function Invoke-OneClickCheck([string]$t) {
     # a download that stalls halfway: PowerShell 7, which updater.bat uses when it is there,
     # waited for ever (measured 2026-10-10); $StallLimit gives it -OperationTimeoutSeconds
     # A call continued on the next line (a backtick at the end) counts as one: a check line by
-    # line did not see such calls.
-    $noLimit = @(foreach ($f in 'install-faststream.ps1', 'install-mpv.ps1', 'sync-config.ps1', 'update.ps1') {
+    # line did not see such calls. A JSON reply (Invoke-RestMethod) stalls the same way: the
+    # lookups of the newest release and commit had no limit (review of 2026-10-22).
+    $noLimit = @(foreach ($f in 'install-faststream.ps1', 'install-mpv.ps1', 'setup.ps1', 'sync-config.ps1', 'update.ps1') {
             $lines = @(Get-Content -LiteralPath (Join-Path $installer $f))
             for ($i = 0; $i -lt $lines.Count; $i++) {
                 # the name, then a space or the backtick that continues it on the next line
-                if ($lines[$i] -notmatch 'Invoke-WebRequest') { continue }
+                if ($lines[$i] -notmatch 'Invoke-(WebRequest|RestMethod)\b') { continue }
                 $call = $lines[$i]
                 for ($j = $i; $j + 1 -lt $lines.Count -and $lines[$j] -match '`\s*$'; $j++) { $call += ' ' + $lines[$j + 1] }
-                if ($call -match '-OutFile' -and $call -notmatch '@StallLimit') { "$f`:$($i + 1)" }
+                if (($call -match '-OutFile' -or $call -match 'Invoke-RestMethod') -and $call -notmatch '@StallLimit') { "$f`:$($i + 1)" }
             }
         })
-    Test-Check $t 'every download updater.bat can run in PowerShell 7 ends when it stalls ($StallLimit)' ($noLimit.Count -eq 0) ($noLimit -join ', ')
+    Test-Check $t 'every download and API reply updater.bat or the setup can run in PowerShell 7 ends when it stalls ($StallLimit)' ($noLimit.Count -eq 0) ($noLimit -join ', ')
     # A GPU run asks Test-GpuFit at its own start, never in a foreach's collection: that one
     # is read whole before the first run, and a lost device did not stop the next (AGENTS.md:
     # a device loss is reproduced at most once).
@@ -972,6 +973,12 @@ function Invoke-StaticCheck {
     $tabbed = @(& git -C $RepoRoot grep -l -e "`t" -- '*.md' '*.ps1' '*.psm1' '*.yml' '*.cs' '*.conf' '*.bat')
     Test-Check $t 'Markdown, PowerShell, workflow, C#, .conf and .bat files hold no TAB (an eaten "\t")' (
         $LASTEXITCODE -le 1 -and $tabbed.Count -eq 0) "git grep exit $LASTEXITCODE; $($tabbed -join ', ')"
+    # Any other control character is such an escape too: "\b" in a regex became a backspace,
+    # and the stall check above matched no line at all (2026-10-22). The license texts' page
+    # breaks and the manual extracted from a PDF are the only ones on purpose.
+    $controls = @(& git -C $RepoRoot grep -l -I -P '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]' -- . ':!LICENSES' ':!doc/manual.txt')
+    Test-Check $t 'no tracked text file holds a control character (an eaten "\b", "\f" ...)' (
+        $LASTEXITCODE -le 1 -and $controls.Count -eq 0) "git grep exit $LASTEXITCODE; $($controls -join ', ')"
     if (-not $env:GITHUB_ACTIONS) {
         # INFO, not FAIL: the folder may lag behind the pin until updater.bat runs
         $exe = Join-Path $RepoRoot 'mpv.exe'
@@ -1280,6 +1287,21 @@ function Invoke-StaticCheck {
             if ($got -ne $c.Want) { "$($c.Name): got '$got', want '$($c.Want)'" }
         })
     Test-Check $t "gpu-flag.ps1 flags what CI cannot test on a GPU, and nothing else ($($flagCases.Count) cases)" ($flagBad.Count -eq 0) ($flagBad -join '; ')
+
+    # mpv-auto-update.yml cancelled between pushing mpv-update and opening its pull request
+    # left a branch that read as "waits for the owner's merge" on every later run: its
+    # cancel step deletes that branch, and only that one (tests/lib/cancel-step.sh). Git for
+    # Windows' bash, found from git itself: a bare "bash" can be WSL's.
+    $cancelCheck = "mpv-auto-update.yml's cancel step deletes an mpv-update left without its pull request, and nothing else"
+    $gitPath = & git --exec-path 2>$null
+    $bash = if ($gitPath) { Join-Path (Split-Path (Split-Path (Split-Path $gitPath))) 'bin/bash.exe' }
+    if ($bash -and (Test-Path -LiteralPath $bash)) {
+        $out = @(& $bash (Join-Path $RepoRoot 'tests/lib/cancel-step.sh') (Join-Path $RepoRoot '.github/workflows/mpv-auto-update.yml') 2>&1)
+        Test-Check $t $cancelCheck ($LASTEXITCODE -eq 0) (@($out | Where-Object { "$_" -notlike 'PASS *' }) -join '; ')
+    }
+    else {
+        Add-Result $t $cancelCheck 'SKIP' "no Git for Windows bash next to git ($bash)"
+    }
 
     # -- commit and push guards (.githooks), tried in a throwaway repo ------------------
     # 2026-09-27: an mpv update was committed on a feature branch and a pull deleted
@@ -1789,6 +1811,9 @@ function Invoke-RegisterCheck([string]$t) {
         & $set $merged 'io.mpv.mkv' 'play' "`"C:\Other mpv\mpv.exe`" -- `"%L`""
         foreach ($root in $merged, $user) { & $set $root 'io.mpv.file' 'open' $userCommand }
         foreach ($root in $merged, $user) { & $set $root 'io.mpv.wav' 'open' $userCommand }
+        # another program in a type's Open with: it stays when unregister has gone
+        $null = New-Item -Path "$user\.mkv\OpenWithProgids" -Force
+        Set-ItemProperty -LiteralPath "$user\.mkv\OpenWithProgids" -Name 'Other.File' -Value ''
 
         $r = & $run 'mpv-single-register.ps1' @('-MergedRoot', $merged, '-Quiet')
         Test-Check $t 'mpv-single-register.ps1 runs' ($r.Code -eq 0) $r.Out
@@ -1829,6 +1854,11 @@ function Invoke-RegisterCheck([string]$t) {
         Test-Check $t "... and 'mpv (single instance)' is gone" (
             -not (Test-Path -LiteralPath "$user\mpv-single.File") -and
             -not (Get-ItemProperty -LiteralPath "$user\.mp3\OpenWithProgids" -Name 'mpv-single.File' -ErrorAction SilentlyContinue)) ''
+        # register made a key for every type that had none; they went with it
+        $typeKeys = @(Get-ChildItem -LiteralPath $user | Where-Object PSChildName -Like '.*' | ForEach-Object PSChildName)
+        Test-Check $t '... with the type keys it made, and another program in a type''s Open with kept' (
+            ($typeKeys -join ',') -eq '.mkv' -and
+            $null -ne (Get-ItemProperty -LiteralPath "$user\.mkv\OpenWithProgids" -Name 'Other.File' -ErrorAction SilentlyContinue)) "type keys left: $($typeKeys -join ', ')"
     }
     finally {
         Remove-Item -LiteralPath 'HKCU:\Software\mpv-config-tests' -Recurse -Force -ErrorAction SilentlyContinue
@@ -2437,7 +2467,7 @@ if ($RunHeadless) {
         Test-Check 'config-load' 'mpv loads mpv.conf, profiles and scripts with no warning or error' (
             $said.Count -eq 0 -and -not $r.TimedOut -and $r.ExitCode -eq 0) (($said -join ' | ') + ($r.TimedOut ? ' (timed out)' : ''))
     }
-    # installer/check-keys.ps1 (2026-10-12, TODO item 3): asks every running mpv over its
+    # installer/check-keys.ps1 (2026-10-12): asks every running mpv over its
     # IPC pipe which keys it uses. Two test mpvs on pipes of their own (never FastStream's):
     # one with this setup's config, one with --no-config; in Windows PowerShell 5.1, which
     # check-keys.bat uses on a PC without PowerShell 7.

@@ -142,7 +142,7 @@ function Get-Source([string]$Base, [string]$Rel, [string]$OutFile) {
 
 function Read-Json([string]$PathOrUrl) {
     if (Test-Path -LiteralPath $PathOrUrl -PathType Leaf) { return Get-Content -Raw -Encoding UTF8 -LiteralPath $PathOrUrl | ConvertFrom-Json }
-    try { return Invoke-RestMethod -Uri $PathOrUrl -UseBasicParsing -TimeoutSec 60 -UserAgent 'mpv-config-installer' }
+    try { return Invoke-RestMethod -Uri $PathOrUrl -UseBasicParsing -TimeoutSec 60 -UserAgent 'mpv-config-installer' @StallLimit }
     catch {
         $script:failCode = 2
         throw "download failed: $PathOrUrl : $($_.Exception.Message)"

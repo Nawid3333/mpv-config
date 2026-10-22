@@ -564,13 +564,26 @@ jobs:
       # result, and the step above deletes the build's branch only on the failures it sees
       # itself: left there, the branch reads as "failed its tests", and the build was never
       # tried again. Deleted here, the next run tries it anew.
+      # Cancelled after mpv-update was pushed with the build but before its pull request
+      # was opened, the branch alone read as "waits for the owner's merge" on every later
+      # run, and nobody saw it: deleted when it offers this run's build and no pull request
+      # is open from it. One that offers an older build stays (its pull request closed by
+      # the owner: that build is skipped).
       - name: A cancelled run does not count as a test result
         if: cancelled() && steps.offer.outputs.tried_branch != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BRANCH: ${{ steps.offer.outputs.tried_branch }}
-        run: gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$BRANCH" || true
+          PR_BRANCH: mpv-update
+        run: |
+          gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$BRANCH" || true
+          offered=$(gh api -H 'Accept: application/vnd.github.raw' "repos/$GH_REPO/contents/mpv-build.json?ref=$PR_BRANCH" 2>/dev/null | jq -r .tag) || offered=''
+          pr=$(gh pr list --repo "$GH_REPO" --state open --head "$PR_BRANCH" --base main --json number,isCrossRepository \
+            --jq '[.[] | select(.isCrossRepository | not)][0].number // ""') || pr=unknown
+          if [ "$offered" = "${BRANCH#mpv/}" ] && [ -z "$pr" ]; then
+            gh api -X DELETE "repos/$GH_REPO/git/refs/heads/$PR_BRANCH" || true
+          fi
 
       - name: Report this workflow's own failure
         if: failure() && github.event_name != 'pull_request'
