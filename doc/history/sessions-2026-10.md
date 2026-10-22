@@ -827,12 +827,18 @@ same answer: all of mpv's off). It came from a trap: after `g` (2x) mpv's built-
 playlist menu took a `p` pressed any time later. mpv.conf has `input-default-bindings=no`;
 input.conf binds the basics itself, by his pick ("mute, Ctrl+w, Alt+s, what a player
 generally needs, not the specialist stuff"): the window's X / Alt+F4 (`CLOSE_WIN`, without
-which the window would not close), Ctrl+w / Ctrl+c / Q, f / Esc, PgUp / PgDn chapters, T,
-Alt+s (one screenshot; mpv's Alt+s recorded every frame until pressed again), Ctrl+s,
-Ctrl+v, and the media keys (Play/Pause as Space, with faststream-pause). About 140 of
+which the window would not close), Ctrl+w / Ctrl+c, f / Esc, PgUp / PgDn chapters,
+Ctrl+s, Ctrl+v, and the media keys (Play/Pause as Space, with faststream-pause). About 140 of
 mpv's keys went (zoom, pan, rotate, align, track and delay steps, `[ ] { }`, its g-menus,
 the console, F8/F9, Ctrl+h hwdec "auto", Ctrl+r, the mouse side buttons); their functions
 stay in the right-click menu and uosc's buttons. The "Disabled defaults" ignore lines (BS,
 Z, R, W, J) went with them. The static tier checks the option, the quit lines, `q` = 3x
 and that no key is bound twice; test-keys.lua presses dropped keys (nothing happens) and
 the kept basics.
+
+Caps Lock (his question: "with Caps Lock on, a speed key or quit?"): mpv reads a letter
+as the character Windows makes, so Caps Lock + q arrived as Q, mpv's quit-and-save, which
+quit the player instead of 3x (always so, not new with the keys off). Quit-and-save moved
+to Ctrl+q; Q is unbound (a static check). Capitals doing what their letters do were tried
+and taken out again: mpv reads Shift+r as R too, so they put Shift keys on his speed keys
+that he had not asked for. Alt+s is gone too (he uses Windows' own screenshot tool).

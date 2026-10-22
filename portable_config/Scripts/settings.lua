@@ -1059,11 +1059,11 @@ local function tour_items()
 		},
 		{
 			title = 'Window and information',
-			hint = 'i, Q',
+			hint = 'i, Ctrl+q',
 			items = {
 				info('Play / pause, fullscreen, menu', 'click / double / right'),
 				run('File and stream information', 'i', 'script-binding stats/display-page-1'),
-				info('Quit and keep the position', 'Q'),
+				info('Quit and keep the position', 'Ctrl+q'),
 				info('Every key and menu entry', 'Tools > Key bindings'),
 			},
 		},

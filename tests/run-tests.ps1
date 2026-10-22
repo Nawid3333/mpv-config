@@ -762,9 +762,9 @@ function Invoke-StaticCheck {
     # mpv's own keys are off: input.conf binds every key that works, the window's close
     # button (CLOSE_WIN) and the quit keys too - without them the window would not close
     Test-Check $t "mpv.conf: input-default-bindings=no (only input.conf's keys)" (@($mpvConf | Where-Object { $_ -match '^\s*input-default-bindings\s*=\s*no\s*$' }).Count -eq 1)
-    # -cmatch: a one-letter key is case-sensitive (q is the 3x speed key, Q quits and saves)
+    # -cmatch: a one-letter key is case-sensitive (q is the 3x key; Q, Caps Lock's q, is unbound)
     # (pairs, not a hashtable: its keys ignore case, and Q and q are two keys)
-    $mustBind = @(@('CLOSE_WIN', 'quit'), @('Ctrl+w', 'quit'), @('Ctrl+c', 'quit 4'), @('Q', 'quit-watch-later'),
+    $mustBind = @(@('CLOSE_WIN', 'quit'), @('Ctrl+w', 'quit'), @('Ctrl+c', 'quit 4'), @('Ctrl+q', 'quit-watch-later'),
         @('q', 'script-binding speed_presets/preset 3'))
     $unbound = @($mustBind | Where-Object { $inputConf -cnotmatch "(?m)^$([regex]::Escape($_[0]))\s+$([regex]::Escape($_[1]))\s*(#|$)" } |
             ForEach-Object { $_[0] })
@@ -772,17 +772,29 @@ function Invoke-StaticCheck {
     # A key bound twice does what its later line says: mpv compares a one-letter key with its
     # case (q, Q) and a named key or modifier without it (ESC = esc, Ctrl+w = ctrl+w); Shift
     # with a letter is that letter's capital (Shift+A = A, Shift+q = Q).
-    $keyNames = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]' } | ForEach-Object {
-            $null = ($_.Trim() -split '\s+')[0] -match '^((?i:(shift|ctrl|alt|meta)\+)*)(.+)$'
-            $mods, $name = $Matches[1].ToLowerInvariant(), $Matches[3]
-            if ($name.Length -eq 1) {
-                if ($mods -match 'shift\+') { $mods = $mods -replace 'shift\+'; if ($name -cmatch '^[a-z]$') { $name = $name.ToUpperInvariant() } }
-            } else { $name = $name.ToLowerInvariant() }
-            # one order for the modifiers: Ctrl+Alt+x = Alt+Ctrl+x
-            (@($mods -split '\+' | Where-Object { $_ } | Sort-Object) + $name) -join '+'
-        })
+    $normKey = {
+        param([string]$Key)
+        $null = $Key -match '^((?i:(shift|ctrl|alt|meta)\+)*)(.+)$'
+        $mods, $name = $Matches[1].ToLowerInvariant(), $Matches[3]
+        if ($name.Length -eq 1) {
+            if ($mods -match 'shift\+') { $mods = $mods -replace 'shift\+'; if ($name -cmatch '^[a-z]$') { $name = $name.ToUpperInvariant() } }
+        } else { $name = $name.ToLowerInvariant() }
+        # one order for the modifiers: Ctrl+Alt+x = Alt+Ctrl+x
+        (@($mods -split '\+' | Where-Object { $_ } | Sort-Object) + $name) -join '+'
+    }
+    # key -> command (its trailing comment and repeated spaces dropped)
+    $keyNames = @()
+    $binds = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::Ordinal)
+    foreach ($line in @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]' })) {
+        $key, $cmd = $line.Trim() -split '\s+', 2
+        $name = & $normKey $key
+        $keyNames += $name
+        $binds[$name] = (($cmd -replace '\s+#.*$') -replace '\s+', ' ').Trim()
+    }
     $twice = @($keyNames | Group-Object -CaseSensitive | Where-Object Count -gt 1 | ForEach-Object Name)
     Test-Check $t "input.conf: no key is bound twice ($($keyNames.Count) keys)" ($twice.Count -eq 0) ($twice -join ', ')
+    # Caps Lock + q (the 3x key) arrives as Q: bound to mpv's quit-and-save it quit the player
+    Test-Check $t 'input.conf: Q is unbound (Caps Lock + q must not quit)' (-not $binds.ContainsKey('Q'))
 
     # -- uosc: config + the local changes that an update would drop --------------
     Test-Check $t 'uosc.conf: animation_duration=0 (the controls appear at once, no fades)' ($uoscConf -match '(?m)^animation_duration=0\s*$')

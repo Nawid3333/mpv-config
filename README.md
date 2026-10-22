@@ -296,11 +296,10 @@ that needs a login session will not play in mpv.
 | `F1` | Welcome menu: settings and every feature |
 | `f` / `Esc` | Fullscreen / leave fullscreen |
 | `PgUp` / `PgDn` | Next / previous chapter |
-| `T` | Window always on top |
-| `Alt+s` / `Ctrl+s` | Screenshot of the video / of the window as you see it |
+| `Ctrl+s` | Screenshot of the window as you see it |
 | `Ctrl+v` | Play a copied link |
 | Media keys | Play/pause, stop (quits), forward / back 60 s, volume, mute |
-| `Q` | Quit and save the position (`Ctrl+w`, `Alt+F4` or the window's X quit) |
+| `Ctrl+q` | Quit and save the position (`Ctrl+w`, `Alt+F4` or the window's X quit) |
 
 These are all the keys: mpv's own default keys are switched off, so a key does only what
 this table says. What mpv's other keys did (zoom, rotate, track and delay steps, ...) is in

@@ -67,23 +67,37 @@ H.run(function()
 	H.key('m')
 
 	-- mpv's own keys are off (mpv.conf input-default-bindings=no): keys input.conf does not
-	-- bind do nothing, also the siblings of keys that got a new job (Z, R, W, J, BS).
+	-- bind do nothing.
 	H.eq('input-default-bindings is off', mp.get_property_native('input-default-bindings'), false)
-	local sub_delay, sub_pos = mp.get_property_number('sub-delay'), mp.get_property_number('sub-pos')
-	local panscan = mp.get_property_number('panscan')
-	local audio_delay, sub_scale = mp.get_property_number('audio-delay'), mp.get_property_number('sub-scale')
+	local sub_pos, sub_scale = mp.get_property_number('sub-pos'), mp.get_property_number('sub-scale')
+	local audio_delay, subs = mp.get_property_number('audio-delay'), mp.get_property_native('sub-visibility')
+	local window_scale, hwdec = mp.get_property_number('window-scale'), mp.get_property('hwdec')
 	mp.set_property_number('speed', 2)
-	for _, key in ipairs({ 'Z', 'R', 'W', 'BS', ']', '}', 'Ctrl++', 'G', 'p' }) do
+	local ass_override = mp.get_property('sub-ass-override')
+	for _, key in ipairs({ 'BS', ']', '}', 'Ctrl++', 'p', 'v', 'u', 'Alt+1', 'Ctrl+h' }) do
 		H.key(key)
 	end
 	H.sleep(0.3)
-	H.eq('Z is unbound (was sub-delay +0.1)', mp.get_property_number('sub-delay'), sub_delay)
-	H.eq('R is unbound (was subtitle position)', mp.get_property_number('sub-pos'), sub_pos)
-	H.eq('W is unbound (was pan-and-scan)', mp.get_property_number('panscan'), panscan)
 	H.eq('BS, ] and } are unbound (were speed keys)', mp.get_property_number('speed'), 2)
 	H.eq('Ctrl++ is unbound (was audio delay)', mp.get_property_number('audio-delay'), audio_delay)
-	H.eq('G is unbound (was subtitle size)', mp.get_property_number('sub-scale'), sub_scale)
 	H.eq('p is unbound (was pause; Space pauses)', mp.get_property_native('pause'), true)
+	H.eq('v is unbound (was subtitles on/off; c does it)', mp.get_property_native('sub-visibility'), subs)
+	H.eq('Alt+1 is unbound (was window size)', mp.get_property_number('window-scale'), window_scale)
+	H.eq('Ctrl+h is unbound (was hwdec no/auto)', mp.get_property('hwdec'), hwdec)
+	H.eq('u is unbound (was the subtitle style override)', mp.get_property('sub-ass-override'), ass_override)
+	H.eq(
+		'... and none of them moved or sized the subtitles',
+		mp.get_property_number('sub-pos') + mp.get_property_number('sub-scale'),
+		sub_pos + sub_scale
+	)
+
+	-- Caps Lock + q (the 3x key) arrives as Q, which was mpv's quit-and-save: unbound now, as
+	-- are the capitals of the other letter keys (a Q that quits ends this test here)
+	for _, key in ipairs({ 'Q', 'R', 'G', 'W', 'Z', 'X' }) do
+		H.key(key)
+	end
+	H.sleep(0.3)
+	H.eq('Q, R, G, W, Z, X are unbound (Caps Lock + q does not quit)', mp.get_property_number('speed'), 2)
 
 	mp.set_property_number('speed', 1)
 	H.key('d')
@@ -123,13 +137,6 @@ H.run(function()
 	H.expect('Esc leaves fullscreen', function()
 		return mp.get_property_native('fullscreen')
 	end, false)
-	local ontop = mp.get_property_native('ontop')
-	H.key('T')
-	H.expect('T puts the window on top', function()
-		return mp.get_property_native('ontop')
-	end, not ontop)
-	H.key('T')
-
 	local pauses = 0
 	mp.register_script_message('faststream-pause', function()
 		pauses = pauses + 1
