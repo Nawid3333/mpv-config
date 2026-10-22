@@ -26,16 +26,3 @@ back as "what is set + the lift". With the user's own `sub-pos` near the top (10
 of 30 points, the written value is 0; a step to 5 then counts as a user position of 35, and
 the bar hiding puts the subtitles there. Goes with the item above (the same code), with a
 test that steps `sub-pos` while lifted.
-
-## install-faststream.ps1: a lost Firefox registration is never repaired
-
-The "helper is up to date" shortcut checks the helper's files and its marker, not Firefox's
-registration (`HKCU\Software\Mozilla\NativeMessagingHosts\com.faststream.mpv`, which
-FastStream's `install.ps1` writes). With that key gone (a registry cleaner), every run of
-the setup, the updater or `install-faststream.ps1` says "up to date", and Firefox can no
-longer start the helper; only `-Replace` repairs it.
-
-- The fix: the shortcut also needs the key, pointing at this helper's manifest (not with
-  `-NoRegister`).
-- The test must never touch the real key (it holds the owner's working registration): a
-  `-RegistrationKey` for tests, and the suite's stand-in for `install.ps1` writing there.

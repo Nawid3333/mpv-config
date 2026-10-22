@@ -370,6 +370,25 @@ Set-Content (Join-Path $InstallDir "com.faststream.mpv.json") "{}"
         $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd) + $common)
         Test-Check $t '... a helper file gone (an antivirus): installed again, not "up to date"' (
             $r.Code -eq 0 -and $r.Out -notmatch 'helper is up to date' -and (Test-Path (Join-Path $hd 'faststream-mpv-host.mjs'))) $r.Out
+        # Firefox's registration gone (a registry cleaner), the files there: installed again, not
+        # "up to date". In a key of the tests' own (-RegistrationKey), never Firefox's.
+        $regTests = 'HKCU:\Software\mpv-config-tests'
+        $regKey = "$regTests\faststream-registration"
+        try {
+            $null = New-Item -Path $regKey -Force
+            Set-ItemProperty -LiteralPath $regKey -Name '(default)' -Value (Join-Path $hd 'com.faststream.mpv.json')
+            $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd, '-RegistrationKey', $regKey) + $common)
+            Test-Check $t '... registered for Firefox: up to date' ($r.Code -eq 0 -and $r.Out -match 'helper is up to date') $r.Out
+            Remove-Item -LiteralPath $regKey -Force
+            $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd, '-RegistrationKey', $regKey) + $common)
+            Test-Check $t "... Firefox's registration gone: installed again, not ""up to date""" (
+                $r.Code -eq 0 -and $r.Out -notmatch 'helper is up to date' -and $r.Out -match 'registration of the FastStream helper is gone') $r.Out
+        }
+        finally {
+            Remove-Item -LiteralPath $regKey -Force -ErrorAction SilentlyContinue
+            $left = Get-Item -LiteralPath $regTests -ErrorAction SilentlyContinue
+            if ($left -and $left.SubKeyCount -eq 0 -and $left.ValueCount -eq 0) { Remove-Item -LiteralPath $regTests -Force }
+        }
         $other = Join-Path $ob 'other/mpv.exe'
         $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $other, '-HelperDir', $hd, '-HelperOnly', '-Yes') + $common)
         $cfg = Get-Content -Raw (Join-Path $hd 'config.json') | ConvertFrom-Json
