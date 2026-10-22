@@ -50,6 +50,9 @@ local opts = {
 	ffmpeg = '',
 	-- seconds the timeline shows (the wheel on the time row zooms 5-180 s)
 	view_seconds = 30,
+	-- the second mpv that reads the audio: empty = the mpv.exe next to this one (a
+	-- test's stand-in otherwise)
+	analyser = '',
 }
 local ffmpeg_exe = nil -- nil = not looked for yet, false = none
 local view -- seconds shown, set below
@@ -547,7 +550,7 @@ local function analyser_args(src, t0, t1)
 		'ametadata=mode=print:key=lavfi.astats.Overall.RMS_level:file=-',
 	}, ',')
 	local args = {
-		utils.join_path(exe_dir(), 'mpv.exe'),
+		opts.analyser ~= '' and opts.analyser or utils.join_path(exe_dir(), 'mpv.exe'),
 		'--no-config',
 		'--load-scripts=no',
 		'--ytdl=no',
@@ -909,8 +912,12 @@ local function draw_wave(g, c, ev)
 	end
 end
 
+-- the subtitle blocks as last drawn, for a click to find the one under the pointer
+local drawn_cues = {}
+
 local function draw_cues(g, c, ev)
 	local px, row = g.px, g.subs
+	drawn_cues = {}
 	local delay = get_delay('sub-delay')
 	local now = mp.get_property_number('time-pos') or 0
 	local list = cues_between(c - delay - (g.cx - g.tx0) / g.pps, c - delay + (g.tx1 - g.cx) / g.pps)
@@ -936,6 +943,7 @@ local function draw_cues(g, c, ev)
 		local y1 = math.floor(y0 + lane_h - px(2) + 0.5)
 		local on_screen = now >= cue.s + delay and now < cue.e + delay
 		ev[#ev + 1] = rect(x0, y0, x1 - 1, y1, on_screen and CUE_NOW or CUE, clip(g.tx0, row.y0, g.tx1, row.y1))
+		drawn_cues[#drawn_cues + 1] = { x0 = x0, x1 = x1, y0 = y0, y1 = y1, cue = cue }
 		local cx0, cx1 = math.max(x0, g.tx0), math.min(x1 - px(3), g.tx1)
 		if cx1 - cx0 > px(8) then
 			ev[#ev + 1] = text(
@@ -1073,6 +1081,10 @@ local function publish()
 			state.rows[name] = { x0 = g.tx0, x1 = g.tx1, y0 = g[name].y0, y1 = g[name].y1 }
 		end
 		state.panel = { x0 = g.x0, y0 = g.y0, x1 = g.x1, y1 = g.y1 }
+		state.blocks = {}
+		for _, b in ipairs(drawn_cues) do
+			state.blocks[#state.blocks + 1] = { x0 = b.x0, x1 = b.x1, y0 = b.y0, y1 = b.y1, s = b.cue.s }
+		end
 	end
 	local json = utils.format_json(state)
 	if json ~= last_published then
@@ -1195,17 +1207,29 @@ local function on_release()
 			end
 		end
 	else
-		-- a click: jump there, on a subtitle block to its start
-		local x = mouse()
+		-- a click: jump there, on a subtitle block to its start - the block under the
+		-- pointer: with overlapping lines on two lanes, the first line running at that
+		-- time was often the other one
+		local x, y = mouse()
 		local t = center() + (x - g.cx) / g.pps
 		if d.row == 'subs' then
 			local delay = get_delay('sub-delay')
-			for _, cue in ipairs(cues_between(t - delay, t - delay)) do
-				t = cue.s + delay
-				break
+			local hit
+			for _, b in ipairs(drawn_cues) do
+				if x >= b.x0 and x < b.x1 and y >= b.y0 and y <= b.y1 then
+					hit = b.cue
+				end
+			end
+			hit = hit or cues_between(t - delay, t - delay)[1]
+			if hit then
+				t = hit.s + delay
 			end
 		end
-		seek(t, true)
+		-- the row labels are no timeline: a click there jumped to a time the panel did
+		-- not show (before 0 near a file's start: back to its beginning)
+		if x >= g.tx0 and x <= g.tx1 then
+			seek(t, true)
+		end
 	end
 	tick()
 end
@@ -1305,6 +1329,14 @@ local function close(revert, quiet)
 			end
 		end
 	end
+	-- a read that failed (a stream's hiccup) is tried again next time too: kept, its 30 s
+	-- stayed empty, and three of them said "unavailable", for as long as the file played
+	for i, state in pairs(audio.chunks) do
+		if state == 'failed' then
+			audio.chunks[i] = nil
+		end
+	end
+	audio.error, audio.failures = nil, 0
 	if revert then
 		set_delay('sub-delay', start_sub)
 		set_delay('audio-delay', start_audio)
