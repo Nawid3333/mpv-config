@@ -9,7 +9,8 @@
 #
 #   pwsh .github/scripts/gpu-flag.ps1 -Pr <number>   (GH_TOKEN, GH_REPO set; gh on PATH)
 #
-# Dot-sourced without -Pr it only defines Get-GpuReason, for the static tier's checks.
+# Dot-sourced without -Pr it only defines its functions (Get-GpuReason, Get-GpuTag), for the
+# static tier's checks.
 param([int]$Pr, [string]$Repo = $env:GH_REPO)
 
 $GpuStatus = 'GPU tier (local)'

@@ -31,7 +31,7 @@
     Works in Windows PowerShell 5.1 and PowerShell 7.
 
 .PARAMETER Root
-    The installed folder. Default: the folder this script sits in.
+    The installed folder. Default: the folder above this script's (installer\).
 
 .PARAMETER Repo
     The GitHub repository. Default: Nawid3333/mpv-config.
@@ -152,7 +152,7 @@ try {
     if ($Zip -and -not $Commit) { throw '-Zip needs -Commit (the commit the ZIP was made from)' }
     if (-not $Commit) {
         try {
-            $Commit = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/commits/$Ref" -UseBasicParsing -TimeoutSec 60 `
+            $Commit = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/commits/$Ref" -UseBasicParsing -TimeoutSec 60 @StallLimit `
                 -Headers @{ Accept = 'application/vnd.github.sha'; 'User-Agent' = 'mpv-config-installer' }
         }
         catch {
