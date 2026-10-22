@@ -1,0 +1,58 @@
+name: Auto release
+
+# Every push to main that passes CI becomes a release, as in the owner's other repositories:
+# tag vYYYY.MM.DD.N on exactly the commit CI tested, and notes listing the pull requests
+# since the last release (.github/scripts/auto-release.ps1 says how).
+#
+# It runs when "Regression tests" ends (workflow_run), so a push whose suite fails is never
+# released; the script also waits for the commit's Lua and PowerShell lint, which must pass
+# when they run (a docs-only push runs neither). Only main's newest commit is released: when
+# main moved on while CI ran, the newer commit's run releases, its notes covering both.
+#
+# Only a push to this repository's main may release: workflow_run fires for pull requests'
+# runs too, forks' included, and `branches: [main]` matches a fork's branch called main by
+# name. The job condition requires a push event from this repository.
+#
+# The tag and the release are made with GITHUB_TOKEN, which starts no other workflow: nothing
+# here needs one.
+
+on:
+  workflow_run:
+    workflows: ["Regression tests"]
+    types: [completed]
+    branches: [main]
+
+permissions: {} # the job asks for what it needs
+
+jobs:
+  release:
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    # up to 15 min waiting for the lint runs, then two API calls
+    timeout-minutes: 20
+    permissions:
+      contents: write # the tag and the release
+      actions: read # the commit's lint runs
+    # One run per commit: a second run of the same commit (a re-run) finds the first one's
+    # release and stops. Per commit, not one group for all: GitHub keeps one pending run per
+    # group and cancels the one it replaces, and a cancelled run is a red X on main.
+    concurrency:
+      group: auto-release-${{ github.event.workflow_run.head_sha }}
+      cancel-in-progress: false
+    steps:
+      # Only the script, from main; the token is not kept in .git/config.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Release the commit CI tested
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: pwsh .github/scripts/auto-release.ps1 -Sha "$SHA"

@@ -99,6 +99,10 @@ as ONE rolling pull request (`mpv-update`); CI has no GPU, so the owner merges i
 shinchiro builds mpv's newest commit daily: a build of a commit mpv's own CI failed is
 never offered (one that it still tests waits a day).
 mpv's own files and `yt-dlp.exe` are gitignored; the pre-commit hook refuses them.
+**Releases**: every push to main whose CI passes (the suite, and both linters when they run)
+is released by `auto-release.yml`: tag `vYYYY.MM.DD.N` on the tested commit, GitHub's list of
+the pull requests since the last release, the mpv build named. Nothing downloads them (the
+one-click install takes main's ZIP).
 
 **One-click install** for other PCs (`install.bat` / `installer/setup.ps1`): into
 `%LOCALAPPDATA%\Programs\mpv`, no admin, no git: the config comes as GitHub's ZIP

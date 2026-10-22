@@ -23,7 +23,7 @@ re-created by the scripts in `installer/`.
 | `portable_config/script-opts/*.conf` | Script settings: `uosc.conf` (uosc), `gpu_toggles.conf`, `autoload.conf` |
 | `mpv-single.cs`, `mpv-single.exe` (LFS), `mpv-single-register.bat` / `.ps1`, `mpv-single-unregister.bat` / `.ps1` | Ours: the launcher Explorer opens files with (one window for local files, AGENTS.md "Opening files"); the exe is built from the .cs (command in its header) |
 | `check-keys.bat`, `installer/check-keys.ps1` | Ours: a read-only check of which keys each running mpv uses, for when one seems to ignore this setup's keys (a FastStream window) |
-| `.githooks/`, `.github/` | The commit and push guards (step 2 switches them on) and CI: workflows, Dependabot, the GPU flag |
+| `.githooks/`, `.github/` | The commit and push guards (step 2 switches them on) and CI: workflows, Dependabot, the GPU flag, a release of every tested push to main |
 | `7z/7zr.exe` (LFS) | 7-Zip's console extractor, for unpacking mpv's archive on a PC without 7-Zip |
 | `lua-api/` | mpv API stubs for Lua language server (editor support only) |
 | `tests/` | Regression suite: `pwsh tests/run-tests.ps1` (see `tests/README.md`) |
