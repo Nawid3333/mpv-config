@@ -136,17 +136,27 @@ try {
             # Firefox keeps the helper's node.exe running while the add-on talks to it, and a
             # running program cannot be deleted: only a process started from this folder ends.
             $inside = $HelperDir.TrimEnd('\') + '\'
+            $stopped = @()
             foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue)) {
                 if ($p.ExecutablePath -and $p.ExecutablePath.StartsWith($inside, [StringComparison]::OrdinalIgnoreCase)) {
                     Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+                    $stopped += $p.ProcessId
                 }
             }
-            try {
-                Remove-Item -LiteralPath $HelperDir -Recurse -Force
-                Write-Host 'FastStream helper removed. The FastStream add-on stays in Firefox (about:addons removes it).'
-            }
-            catch {
-                Write-Host "The FastStream helper could not be removed completely ($($_.Exception.Message)). Close Firefox and run uninstall.bat again." -ForegroundColor Yellow
+            # Stop-Process returns before Windows has let go of the program file: deleted at
+            # once, node.exe was still "in use" now and then (Access denied).
+            if ($stopped.Count) { Wait-Process -Id $stopped -Timeout 10 -ErrorAction SilentlyContinue }
+            # A virus scanner can hold a file it just saw freed for a moment: three tries.
+            for ($try = 1; $try -le 3; $try++) {
+                try {
+                    Remove-Item -LiteralPath $HelperDir -Recurse -Force
+                    Write-Host 'FastStream helper removed. The FastStream add-on stays in Firefox (about:addons removes it).'
+                    break
+                }
+                catch {
+                    if ($try -lt 3) { Start-Sleep -Milliseconds 500; continue }
+                    Write-Host "The FastStream helper could not be removed completely ($($_.Exception.Message)). Close Firefox and run uninstall.bat again." -ForegroundColor Yellow
+                }
             }
         }
     }

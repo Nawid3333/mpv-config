@@ -428,6 +428,44 @@ Set-Content (Join-Path $InstallDir "com.faststream.mpv.json") "{}"
         Test-Check $t '... nodejs.org out of reach keeps the helper''s Node.js, and the run succeeds' (
             $r.Code -eq 0 -and $r.Out -match 'could not be asked' -and (Test-Path $privateNode)) $r.Out
 
+        # The helper's files run only as the release lists them (native-host.sha256): from the
+        # tag, whatever answered there ran - a moved tag, a changed or broken download.
+        $sha = { param($p) (Get-FileHash -LiteralPath $p -Algorithm SHA256).Hash.ToLower() }
+        $goodSums = Join-Path $ob 'native-host.sha256'
+        Set-Content $goodSums ("{0}  install.ps1`n{1}  faststream-mpv-host.mjs" -f (& $sha (Join-Path $hs 'install.ps1')), (& $sha (Join-Path $hs 'faststream-mpv-host.mjs')))
+        $badSums = Join-Path $ob 'native-host-bad.sha256'
+        Set-Content $badSums ("{0}  install.ps1`n{1}  faststream-mpv-host.mjs" -f ('0' * 64), (& $sha (Join-Path $hs 'faststream-mpv-host.mjs')))
+        $hdSums = Join-Path $ob 'helper-sums'
+        $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hdSums, '-HelperSums', $goodSums) + $common)
+        Test-Check $t 'install-faststream.ps1 installs helper files that match the release''s native-host.sha256' (
+            $r.Code -eq 0 -and (Test-Path (Join-Path $hdSums 'config.json'))) $r.Out
+        $hdBad = Join-Path $ob 'helper-badsums'
+        $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hdBad, '-HelperSums', $badSums) + $common)
+        Test-Check $t '... and refuses one that does not, before running anything of it' (
+            $r.Code -ne 0 -and $r.Out -match 'install\.ps1 is not the one FastStream 9\.9\.9 released' -and -not (Test-Path (Join-Path $hdBad 'config.json'))) $r.Out
+        $installerText = Get-Content -Raw (Join-Path $installer 'install-faststream.ps1')
+        Test-Check $t '... and downloads always check them against the release''s own list' (
+            $installerText.Contains('"https://github.com/$Repo/releases/download/v$version/native-host.sha256"') -and
+            $installerText -match 'elseif \(-not \$HelperSource\)')
+
+        # node.exe's SHA-256 comes from a list nodejs.org serves the same way: it must also be
+        # signed by the OpenJS Foundation (one byte changed: the signature no longer holds).
+        $distBad = Join-Path $ob 'nodedist-bad'
+        $nzBad = Join-Path $ob 'nodezip-bad'
+        New-Item -ItemType Directory -Force (Join-Path $nzBad $nn), (Join-Path $distBad $nv) | Out-Null
+        $bytes = [IO.File]::ReadAllBytes($nodeExe)
+        $bytes[[int]($bytes.Length / 2)] = $bytes[[int]($bytes.Length / 2)] -bxor 0xFF
+        [IO.File]::WriteAllBytes((Join-Path $nzBad "$nn/node.exe"), $bytes)
+        [IO.Compression.ZipFile]::CreateFromDirectory($nzBad, (Join-Path $distBad "$nv/$nn.zip"))
+        Set-Content (Join-Path $distBad "$nv/SHASUMS256.txt") "$((Get-FileHash (Join-Path $distBad "$nv/$nn.zip") -Algorithm SHA256).Hash.ToLower())  $nn.zip"
+        Set-Content (Join-Path $distBad 'index.json') (@(@{ version = $nv; lts = 'Stand-in'; files = @('win-x64-zip') }) | ConvertTo-Json -Depth 3)
+        $hdNode = Join-Path $ob 'helper-badnode'
+        $r = Invoke-Script install-faststream.ps1 @('-MpvExe', $mpvStandIn, '-HelperDir', $hdNode, '-NoRegister', '-NoFirefox',
+            '-UpdatesJson', $updatesJson, '-HelperSource', $hs, '-NodeDist', $distBad)
+        Test-Check $t 'install-faststream.ps1 refuses a node.exe the OpenJS Foundation did not sign, and installs no helper' (
+            $r.Code -ne 0 -and $r.Out -match 'not signed by the OpenJS Foundation' -and -not (Test-Path (Join-Path $hdNode 'node\node.exe')) -and
+            -not (Test-Path (Join-Path $hdNode 'config.json'))) $r.Out
+
         # -- uninstall.ps1 (the folder itself stays: -KeepFolder) -----------------------------------
         $marker = @{ version = '9.9.9'; mpv = (Join-Path $sr 'mpv.exe') } | ConvertTo-Json
         $ours = Join-Path $ob 'helper-ours'
@@ -610,9 +648,18 @@ function Invoke-StaticCheck {
     # '#', the last of a name counting); six copies of its loop had to change alike.
     # A search for a tag's text (find('fs-...')) is a parser too: source-info's failure banner
     # had one, which the gmatch pattern alone did not see (review of 2026-10-14).
+    # Any of Lua's searches (find, match, gmatch, gsub), in either spelling of the tag: a Lua
+    # pattern writes fs%-page, which the check for 'fs-' alone did not see. Not one anchored
+    # at the start ('^fs%-'): that checks one item the module already split (source-info).
+    $fsSearch = "(find|match|gmatch|gsub)\(\s*['""](?!\^)[^'""]*fs(%-|-)"
+    $guardSees = @(@("path:find('fs-page=')", "path:find('#fs-id=')", "path:find('fs%-page=')", "url:match('[#&]fs%-id=([^&]+)')",
+            "s:gsub('fs%-content=%a+', '')", "u:gmatch('fs%-quality=([^&]*)')") | Where-Object { $_ -match $fsSearch })
+    $guardLeaves = @(@("item:find('^fs%-')", "fragment.value(path, 'fs-content=')") | Where-Object { $_ -match $fsSearch })
+    Test-Check $t "the fragment guard sees every spelling of a search for a tag ($($guardSees.Count) of 6), and not an item's own check" (
+        $guardSees.Count -eq 6 -and $guardLeaves.Count -eq 0) ($guardLeaves -join ', ')
     $ownParsers = @(foreach ($f in $ownLua) {
             Select-String -LiteralPath $f.FullName -SimpleMatch -Pattern ".. '&'):gmatch(" | ForEach-Object { "$($f.Name):$($_.LineNumber)" }
-            Select-String -LiteralPath $f.FullName -Pattern "find\(\s*['""]#?fs-" | ForEach-Object { "$($f.Name):$($_.LineNumber)" }
+            Select-String -LiteralPath $f.FullName -Pattern $fsSearch | ForEach-Object { "$($f.Name):$($_.LineNumber)" }
         })
     Test-Check $t 'no script reads the FastStream fragment by itself (script-modules/faststream-fragment.lua)' ($ownParsers.Count -eq 0) ($ownParsers -join ', ')
 
@@ -831,7 +878,8 @@ function Invoke-StaticCheck {
     }
     $uoscMain = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/main.lua')
     Test-Check $t 'uosc local change present: main.lua publishes user-data/uosc/bottom-ui (music-info.lua, subtitle-sync.lua)' (
-        $uoscMain.Contains("'user-data/uosc/bottom-ui'") -and $uoscMain.Contains('volume = volume_box')) 're-apply it after a uosc update (AGENTS.md)'
+        $uoscMain.Contains("'user-data/uosc/bottom-ui'") -and $uoscMain.Contains('volume = volume_box') -and
+        $uoscMain.Contains('Also with both gone (disable-elements') -and -not $uoscMain.Contains('if controls or timeline then')) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t 'uosc local change present: main.lua publishes user-data/uosc/ui-scale (notify, subtitle-sync, music-info)' (
         $uoscMain.Contains("'user-data/uosc/ui-scale'")) 're-apply it after a uosc update (AGENTS.md)'
     # without it the seek keys' 2500 is dropped and the timeline flashes for flash_duration (1 s)

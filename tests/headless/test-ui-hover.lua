@@ -104,4 +104,14 @@ H.run(function()
 	H.sleep(1.8)
 	H.eq('... released: it stays the rest time first', visibility(), 1)
 	H.expect('... then goes', visibility, 0, nil, 3)
+
+	-- The controls and the timeline both switched off (uosc's disable-elements): bottom-ui
+	-- kept the value it last had, and bottom-bar.lua drew its scrim and lifted the subtitles
+	-- over a bar that was not there.
+	-- another pixel: the same one is no move
+	move(440, timeline_y)
+	H.expect('the pointer on the timeline shows the bar again', visibility, 1)
+	mp.commandv('script-message-to', 'uosc', 'disable-elements', 'test', 'controls,timeline')
+	H.expect('both switched off: bottom-ui says the bar is gone', visibility, 0)
+	mp.commandv('script-message-to', 'uosc', 'disable-elements', 'test', '')
 end)

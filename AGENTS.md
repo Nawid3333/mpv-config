@@ -94,7 +94,9 @@ mpv's own files and `yt-dlp.exe` are gitignored; the pre-commit hook refuses the
 **One-click install** for other PCs (`install.bat` / `installer/setup.ps1`): into
 `%LOCALAPPDATA%\Programs\mpv`, no admin, no git: the config comes as GitHub's ZIP
 (`sync-config.ps1`, a manifest of what it wrote, user changes set aside as
-`.mine-<time>`), FastStream's helper on a private Node.js, `uninstall.bat`.
+`.mine-<time>`), FastStream's helper on a private Node.js, `uninstall.bat`. The helper's
+two files run only when they match the release's `native-host.sha256`, node.exe only when
+signed by the OpenJS Foundation (`install-faststream.ps1`).
 Installer scripts are plain ASCII and run native programs through `Invoke-Native`
 (Windows PowerShell 5.1 turns a redirected stderr line into a terminating error).
 
