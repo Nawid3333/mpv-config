@@ -2354,6 +2354,8 @@ $HeadlessTests = @(
     @{ Name = 'subtitles'; Phases = @(@{ Script = 'headless/test-subtitles.lua'; File = 'subs/movie.mkv' }) }
     @{ Name = 'subtitle-folder'; Phases = @(@{ Script = 'headless/test-subtitle-folder.lua'; File = 'subs-folder/movie.mkv' }) }
     @{ Name = 'subtitle-sync'; Phases = @(@{ Script = 'headless/test-subtitle-sync.lua'; File = 'sync/talk.mkv' }) }
+    @{ Name = 'subtitle-sync-retry'; Phases = @(@{ Script = 'headless/test-subtitle-sync-retry.lua'; File = 'sync/talk.mkv' }) }
+    @{ Name = 'subtitle-sync-lanes'; Phases = @(@{ Script = 'headless/test-subtitle-sync-lanes.lua'; File = 'sync/talk.mkv' }) }
     @{ Name = 'menus'; Phases = @(@{ Script = 'headless/test-menus.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'autoload'; Phases = @(@{ Script = 'headless/test-autoload.lua'; File = 'autoload/episode1.mkv' }) }
     @{ Name = 'upscale'; Phases = @(@{ Script = 'headless/test-upscale.lua'; File = 'plain/clip.mkv' }) }
