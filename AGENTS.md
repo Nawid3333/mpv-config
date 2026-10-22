@@ -239,7 +239,8 @@ linters skip docs-only changes too; its privacy job runs on every push. `tests/R
 changes, `H.sleep` then `H.eq` for one that must not; a new feature gets a test, and
 a deliberate break of it must turn it red. Before a Lua change: `stylua --check .`
 (pinned version) and lua-language-server in directory mode (`--check .` in a copy
-next to `.luarc.json` and `lua-api/`; its single-file mode checks nothing).
+next to `.luarc.json` and `lua-api/`; its single-file mode checks nothing). CI's Lua lint
+runs both on every push and pull request (lls pinned with its SHA-256 in lint-lua.yml).
 
 **Validation checklist** (code comments cite these numbers):
 

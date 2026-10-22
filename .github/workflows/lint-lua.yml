@@ -1,6 +1,6 @@
-name: Lua style
+name: Lua lint
 
-# Runs the same stylua check the editor applies on save (format-on-save in
+# stylua: the same check the editor applies on save (format-on-save in
 # .vscode/settings.json), so a change made outside the editor - another tool,
 # a quick edit on GitHub, an agent - cannot silently drift the code style.
 # Vendored Lua (uosc, thumbfast, autoload, lua-api) is excluded by .styluaignore.
@@ -9,6 +9,13 @@ name: Lua style
 # editor (stylua.targetReleaseVersion): an unpinned "latest" can start formatting
 # differently overnight and fail a push for no reason of ours. stylua-update.yml
 # moves both when StyLua releases, with the code reformatted, on a pull request.
+#
+# lua-language-server: its diagnostics (an undefined global, an unused local, a call
+# with the wrong arguments) over every Lua file, which AGENTS.md asks for before each
+# Lua change. In directory mode, where .luarc.json and lua-api/ (mpv's API) apply: its
+# single-file mode checks nothing. Pinned with the release asset's SHA-256, for the
+# same reason as stylua; moved by hand (each release lists its assets' digests).
+#
 # Runs for every change but a docs-only one (*.md, doc/), as the suite does - not
 # only for Lua files, at the owner's wish.
 on:
@@ -45,3 +52,27 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           version: v2.6.0
           args: --check .
+
+  lua-language-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # not "version:" - stylua-update.yml reads the one such line in this file
+      LLS_VERSION: 3.19.2
+      LLS_SHA256: 93ad326b10f6c00911dd8c450fa098332dbd8f9f45d1052f5636a2d54479b947
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install lua-language-server
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/lls.tar.gz"
+          curl -fsSL --retry 3 -o "$archive" \
+            "https://github.com/LuaLS/lua-language-server/releases/download/$LLS_VERSION/lua-language-server-$LLS_VERSION-linux-x64.tar.gz"
+          echo "$LLS_SHA256  $archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/lls"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/lls"
+      # Exits 1 when it finds a problem, and prints each one with its file and line.
+      - name: Check every Lua file
+        run: '"$RUNNER_TEMP/lls/bin/lua-language-server" --check . --checklevel=Warning --logpath "$RUNNER_TEMP/lls-log"'
