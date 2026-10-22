@@ -310,6 +310,6 @@ runs both on every push and pull request (lls pinned with its SHA-256 in lint-lu
 
 ## Open items
 
-`TODO.md`: three items from the review of 2026-10-22 (bottom-bar with a moved `sub-pos`, twice;
-the FastStream registration check), each with what it needs. A new open item or hand test goes
+`TODO.md`: two items from the review of 2026-10-22 (bottom-bar with a moved `sub-pos`), each
+with what it needs. A new open item or hand test goes
 there; finished work goes to doc/history, and the file goes when it is empty.
