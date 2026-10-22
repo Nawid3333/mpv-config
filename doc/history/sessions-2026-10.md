@@ -934,3 +934,20 @@ be merged here once every check is green.
 - On the way: a rebase whose conflict a pipe hid pushed main's commit to #14's branch (GitHub
   closed it; repaired, reopened, explained); a GitHub job stayed "in progress" after all its
   steps succeeded, and a rerun gave the check its result.
+
+## 2026-10-23 (night): the review's open items done, the GPU tier on a quiet PC
+
+- **#17** (a quick shader check keeps the screen it drew nothing for): the gpu tier failed once
+  on one dropped frame (Movie 1080p @3x, render 1.44 ms of a far larger budget) while another
+  session compiled and an orphaned grep from 2026-10-22 burned a core; the PC at 87-97 %. On a
+  quiet PC, under the three sessions' new shared locks (`shared-resources\resource_lock.py`,
+  gpu + build), it passed: 1347, 0 failed.
+- **#21**: install-faststream's "up to date" also needs Firefox's registration (a key of the
+  tests' own in the test, never the owner's).
+- **bottom-bar**: the lift starts from where the user's `sub-pos` puts the subtitles. Measured on
+  rendered frames (sixel, with and without bars): `sub-pos` moves text by % of the window and
+  ASS by % of the video; with the fix the lifted line ends in the same place for 90, 100 and
+  110, before 53-66 px apart. A step while lifted is taken as the step from what was written,
+  and a new `sub-pos` computes the lift again; main's code, run against the new test, ended
+  at 113.3 instead of 100 after closing the sync panel. TODO.md is gone: nothing is open.
+

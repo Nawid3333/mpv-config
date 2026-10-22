@@ -58,6 +58,17 @@ H.run(function()
 	H.expect('bar shown: text subtitles rise above it (sub-margin-y-offset)', offset, 76)
 	H.eq('... through the margin, the option meant for it', state('mode')(), 'margin')
 	H.eq('... sub-pos untouched', pos(), 100)
+	-- the user's own sub-pos moves text subtitles by % of the window (720 lines here,
+	-- measured on rendered frames): the lift starts from there, so the line still ends
+	-- 10 above the controls - it rose by the full 76 whatever sub-pos said
+	mp.set_property_number('sub-pos', 90)
+	H.expect('sub-pos 90 (72 higher): only the rest is lifted, 4', offset, 4)
+	mp.set_property_number('sub-pos', 110)
+	H.expect('sub-pos 110 (72 lower): 148', offset, 148)
+	mp.set_property_number('sub-pos', 80)
+	H.expect('sub-pos 80 (above the bar already): not lifted', offset, 0)
+	mp.set_property_number('sub-pos', 100)
+	H.expect('sub-pos 100 again: 76', offset, 76)
 	bar(0)
 	H.expect('bar hidden: back down', offset, 0)
 	-- from hidden, so the value read cannot be the one left by the step before
@@ -116,12 +127,28 @@ H.run(function()
 	H.eq('... in pos mode', state('mode')(), 'pos')
 	H.eq('... the margin offset is not used for it', offset(), 0)
 	-- the user moves the subtitles up while they are lifted: that is one step
-	-- from the user's OWN position, which the fade then returns to
+	-- from the user's OWN position, which the fade then returns to; the lifted
+	-- line stays just above the bar (sub-pos moves ASS by % of the video)
 	mp.commandv('add', 'sub-pos', '-1')
 	H.expect("a step while lifted: the user's position is 99", state('sub_pos'), 99, 0.001)
-	H.expect('... the lift stays on top of it', pos, 99 - 95.6 / 720 * 100, 0.05)
+	H.expect('... the line stays just above the bar', pos, 100 - 95.6 / 720 * 100, 0.05)
 	bar(0)
 	H.expect("bar hidden: back at the user's own position", pos, 99, 0.001)
+	-- lifted from where the user's sub-pos puts the line: 90 (72 higher) and 110 end
+	-- at the same place above the bar, 80 is above it already
+	for _, user in ipairs({ 90, 110 }) do
+		mp.set_property_number('sub-pos', user)
+		H.expect('user sub-pos ' .. user .. ': hidden bar, there', pos, user, 0.001)
+		bar(1)
+		H.expect('... shown: just above the bar, as from 100', pos, 100 - 95.6 / 720 * 100, 0.05)
+		bar(0)
+		H.expect('... hidden: back at ' .. user, pos, user, 0.001)
+	end
+	mp.set_property_number('sub-pos', 80)
+	bar(1)
+	H.sleep(0.3)
+	H.eq('user sub-pos 80, above the bar already: not lifted', pos(), 80, 0.001)
+	bar(0)
 	mp.set_property_number('sub-pos', 100)
 	os.remove(ass)
 

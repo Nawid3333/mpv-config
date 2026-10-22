@@ -993,10 +993,11 @@ function Invoke-StaticCheck {
     Test-Check $t 'Markdown, PowerShell, workflow, C#, .conf and .bat files hold no TAB (an eaten "\t")' (
         $LASTEXITCODE -le 1 -and $tabbed.Count -eq 0) "git grep exit $LASTEXITCODE; $($tabbed -join ', ')"
     # Any other control character is such an escape too: "\b" in a regex became a backspace,
-    # and the stall check above matched no line at all (2026-10-22). The license texts' page
-    # breaks and the manual extracted from a PDF are the only ones on purpose.
-    $controls = @(& git -C $RepoRoot grep -l -I -P '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]' -- . ':!LICENSES' ':!doc/manual.txt')
-    Test-Check $t 'no tracked text file holds a control character (an eaten "\b", "\f" ...)' (
+    # and the stall check above matched no line at all (2026-10-22); "\r" a carriage return
+    # in the middle of a history line. The license texts' page breaks, the manual extracted
+    # from a PDF and the batch files' CRLF (.gitattributes) are the only ones on purpose.
+    $controls = @(& git -C $RepoRoot grep -l -I -P '[\x00-\x08\x0B-\x1F\x7F]' -- . ':!LICENSES' ':!doc/manual.txt' ':!*.bat' ':!*.cmd')
+    Test-Check $t 'no tracked text file holds a control character (an eaten "\b", "\r" ...)' (
         $LASTEXITCODE -le 1 -and $controls.Count -eq 0) "git grep exit $LASTEXITCODE; $($controls -join ', ')"
     if (-not $env:GITHUB_ACTIONS) {
         # INFO, not FAIL: the folder may lag behind the pin until updater.bat runs
