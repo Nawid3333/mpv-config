@@ -54,6 +54,11 @@
 .PARAMETER NoRegister
     Do not register the helper for Firefox (the tests).
 
+.PARAMETER RegistrationKey
+    The tests: the key "up to date" checks instead of Firefox's own
+    (HKCU:\Software\Mozilla\NativeMessagingHosts\com.faststream.mpv, which the helper's
+    install.ps1 writes), also with -NoRegister.
+
 .PARAMETER UpdatesJson
     The release information (a URL or a file; the tests pass a file).
 
@@ -79,6 +84,7 @@ param(
     [switch]$Yes,
     [switch]$NoFirefox,
     [switch]$NoRegister,
+    [string]$RegistrationKey,
     [string]$UpdatesJson,
     [string]$HelperSource,
     [string]$HelperSums,
@@ -255,6 +261,16 @@ function Find-Firefox {
     return $null
 }
 
+# Firefox finds the helper only through this key. With it gone (a registry cleaner) and the
+# files there, every run said "up to date" and wrote it never again: no stream reached mpv.
+# Without -RegistrationKey, -NoRegister (nothing written) means nothing to check.
+function Test-Registration {
+    if ($NoRegister -and -not $RegistrationKey) { return $true }
+    $key = if ($RegistrationKey) { $RegistrationKey } else { 'HKCU:\Software\Mozilla\NativeMessagingHosts\com.faststream.mpv' }
+    $manifest = try { Get-ItemPropertyValue -LiteralPath $key -Name '(default)' -ErrorAction Stop } catch { $null }
+    return "$manifest" -eq (Join-Path $HelperDir 'com.faststream.mpv.json')
+}
+
 function Test-AddonInstalled {
     $profiles = Join-Path $env:APPDATA 'Mozilla\Firefox\Profiles'
     if (-not (Test-Path -LiteralPath $profiles)) { return $false }
@@ -320,12 +336,17 @@ try {
                 $doHelper = $false
             }
             elseif ($m -and "$($m.version)" -eq $version -and "$($m.mpv)" -eq $MpvExe -and (Get-NodeMajor "$($m.node)") -ge $NodeMinMajor -and $gone.Count -eq 0) {
-                Write-Host "The FastStream helper is up to date ($version)." -ForegroundColor Green
-                $doHelper = $false
-                # its private Node.js all the same: a helper can stay at one version for long,
-                # and a Node.js security release does not wait for the next one (issue #96)
-                $privateNode = Join-Path (Join-Path $HelperDir 'node') 'node.exe'
-                if ("$($m.node)" -eq $privateNode) { $null = Install-PrivateNode (Split-Path $privateNode) $work $NodeDist }
+                if (-not (Test-Registration)) {
+                    Write-Host "Firefox's registration of the FastStream helper is gone: installing it again." -ForegroundColor Yellow
+                }
+                else {
+                    Write-Host "The FastStream helper is up to date ($version)." -ForegroundColor Green
+                    $doHelper = $false
+                    # its private Node.js all the same: a helper can stay at one version for long,
+                    # and a Node.js security release does not wait for the next one (issue #96)
+                    $privateNode = Join-Path (Join-Path $HelperDir 'node') 'node.exe'
+                    if ("$($m.node)" -eq $privateNode) { $null = Install-PrivateNode (Split-Path $privateNode) $work $NodeDist }
+                }
             }
         }
         if ($doHelper) {
