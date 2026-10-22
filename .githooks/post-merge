@@ -5,7 +5,11 @@
 # mpv.exe is not the pinned one (or is missing, e.g. right after the pull that
 # took the binaries out of git): updater.bat installs it.
 # (Until 2026-10-03 this put back mpv's files when a pull deleted them.)
-if [ -f mpv-build.json ]; then
+# Only where mpv runs from: a linked worktree (git worktree add, a dev's) has no mpv of
+# its own by design, and the advice to install one there was wrong at every pull.
+gitdir=$(git rev-parse --path-format=absolute --git-dir 2>/dev/null)
+common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+if [ -f mpv-build.json ] && [ "$gitdir" = "$common" ]; then
 	want=$(tr -d '\r' < mpv-build.json | sed -n 's/^ *"mpv\.exe": *"\([0-9a-f]\{64\}\)".*/\1/p')
 	tag=$(tr -d '\r' < mpv-build.json | sed -n 's/^ *"tag": *"\([^"]*\)".*/\1/p')
 	have=''
