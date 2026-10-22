@@ -27,7 +27,7 @@
 --     sub-margin-y-offset, the option mpv provides for dynamic margin
 --     adjustments at runtime (mpv's own OSC uses it the same way)
 --   - ASS and picture subtitles (their own margins, which that option does not
---     touch): through sub-pos, on top of whatever the user set. libass moves
+--     touch): through sub-pos, from where the user's sub-pos puts them. libass moves
 --     only bottom-aligned dialogue with it - signs and anything placed with
 --     \pos stay where the typesetter put them. mpv.conf removes sub-pos from
 --     the watch-later options, so a lifted position is never saved for a file.
@@ -144,9 +144,12 @@ local function adopt_user_pos()
 	if written_pos == nil then
 		user_pos = current
 	elseif math.abs(current - written_pos) > 0.001 then
-		-- a step made while lifted is a step from the user's own position
-		user_pos = current + (applied.mode == 'pos' and applied.offset or 0)
-		written_pos = nil
+		-- a step made while lifted is a step from the user's own position: the step
+		-- from what was written (set_pos clamps, so the lift is not always the difference)
+		user_pos = (user_pos or written_pos) + (current - written_pos)
+		-- the value there is no user position (a lifted one, moved): taken as
+		-- this script's, which the lift computed again then overwrites
+		written_pos = current
 	end
 end
 
@@ -195,6 +198,11 @@ local function update_lift(h, dims, controls_top, visibility)
 	end
 	local k = scale(h)
 	target = target - GAP * k
+	-- where the user's own sub-pos puts them: every point above 100 is 1 % lower
+	-- (of the video for ASS and pictures, of the window for text - measured on
+	-- rendered frames), each below 100 1 % higher. The lift went from the default
+	-- place, and after Subtitles > Position steps the line rose too far or not enough.
+	local below_default = ((user_pos or mp.get_property_number('sub-pos') or 100) - 100) / 100
 	local codec = track.codec or ''
 	if codec == 'ass' or codec == 'ssa' or IMAGE_CODECS[codec] then
 		-- the libass frame of ASS/picture subtitles is the video, not the window
@@ -205,7 +213,7 @@ local function update_lift(h, dims, controls_top, visibility)
 			apply(nil, 0, 0)
 			return
 		end
-		local sub_bottom = h - (dims.mb or 0) - ASS_MARGIN * frame_h
+		local sub_bottom = h - (dims.mb or 0) - ASS_MARGIN * frame_h + below_default * frame_h
 		local lift = math.max(0, sub_bottom - target)
 		if lift < 0.5 then
 			apply(nil, 0, 0)
@@ -217,7 +225,7 @@ local function update_lift(h, dims, controls_top, visibility)
 		-- (720-line units, scaled with the window unless sub-scale-by-window=no)
 		local per_px = mp.get_property_bool('sub-scale-by-window', true) and 720 / h or 1
 		local margin = mp.get_property_number('sub-margin-y', 34) / per_px
-		local lift = math.max(0, (h - target) - margin)
+		local lift = math.max(0, (h - margin + below_default * h) - target)
 		if lift < 0.5 then
 			apply(nil, 0, 0)
 			return
@@ -257,14 +265,12 @@ mp.observe_property('user-data/subtitle-sync', 'native', function(_, value)
 end)
 mp.observe_property('sub-pos', 'number', function()
 	-- the user (or a menu entry) moved the subtitles: that is the new
-	-- position to come back to, and the lift goes on top of it
+	-- position to come back to, and the lift is computed again from there
+	-- (this script's own write changes no user position: no loop)
 	local before = user_pos
 	adopt_user_pos()
 	if user_pos ~= before then
-		if applied.mode == 'pos' then
-			apply('pos', applied.lift, applied.offset)
-		end
-		publish()
+		update()
 	end
 end)
 for _, name in ipairs({ 'osd-dimensions', 'current-tracks/sub', 'sub-visibility' }) do
