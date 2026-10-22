@@ -131,9 +131,9 @@ function Invoke-OneClickCheck([string]$t) {
     Test-Check $t 'installer scripts and .bat files are plain ASCII (Windows PowerShell 5.1, cmd)' ($nonAscii.Count -eq 0) ($nonAscii -join ', ')
     # a download that stalls halfway: PowerShell 7, which updater.bat uses when it is there,
     # waited for ever (measured 2026-10-10); $StallLimit gives it -OperationTimeoutSeconds
-    # A call continued on the next line (a backtick at the end) counts as one: install-uosc's
-    # were, and a check line by line did not see them.
-    $noLimit = @(foreach ($f in 'install-faststream.ps1', 'install-mpv.ps1', 'sync-config.ps1', 'update.ps1', 'install-shaders.ps1', 'install-uosc.ps1') {
+    # A call continued on the next line (a backtick at the end) counts as one: a check line by
+    # line did not see such calls.
+    $noLimit = @(foreach ($f in 'install-faststream.ps1', 'install-mpv.ps1', 'sync-config.ps1', 'update.ps1') {
             $lines = @(Get-Content -LiteralPath (Join-Path $installer $f))
             for ($i = 0; $i -lt $lines.Count; $i++) {
                 # the name, then a space or the backtick that continues it on the next line
@@ -149,15 +149,6 @@ function Invoke-OneClickCheck([string]$t) {
     # a device loss is reproduced at most once).
     $gpuAskedEarly = @(Select-String -LiteralPath $PSCommandPath -Pattern 'foreach\s*\([^)]*Test-GpuFit' | ForEach-Object LineNumber)
     Test-Check $t 'run-tests.ps1: every GPU run asks whether the GPU is fit at its own start' ($gpuAskedEarly.Count -eq 0) "line(s) $($gpuAskedEarly -join ', ')"
-    # uosc's fonts: copied after main.lua and never checked, a stopped run left uosc without
-    # its icons, and every later run took main.lua for "installed" (review of 2026-10-14)
-    $uoscInstaller = Get-Content -Raw (Join-Path $installer 'install-uosc.ps1')
-    Test-Check $t 'install-uosc.ps1 counts uosc as installed only with both fonts, copies them first, and fails when a part is missing' (
-        $uoscInstaller -match "uosc_icons\.otf', 'uosc_textures\.ttf'" -and
-        $uoscInstaller -match '\$installed = \(Test-Path \(Join-Path \$uoscDir ''main\.lua''\)\) -and' -and
-        $uoscInstaller.IndexOf('Copy-Item (Join-Path $tmp ''fonts\*'')') -ge 0 -and
-        $uoscInstaller.IndexOf('Copy-Item (Join-Path $tmp ''fonts\*'')') -lt $uoscInstaller.IndexOf('Copy-Item $src $scripts') -and
-        $uoscInstaller -match '(?s)\$checks\.Values -contains \$false\)\s*\{.*exit 1') ''
     # updater.bat while its update replaces it (git pull, sync-config), and install.bat run
     # from an installed folder while the setup syncs it: cmd reads a batch file by byte
     # offset, and went on in the new file at the old offset - pieces of lines run as commands,
@@ -682,15 +673,21 @@ function Invoke-StaticCheck {
     Test-Check $t 'mpv.conf styles mpv OSD text like the banners (osd-box, top right)' ($osdStyle.Count -eq 0) ($osdStyle -join ', ')
     Test-Check $t 'uosc.conf: adjust_osd_margins=no (notify.lua places mpv OSD text)' ($uoscConf -match '(?m)^adjust_osd_margins=no\s*$')
 
-    # -- shader presets: files exist, are installed, and nothing is orphaned ----
+    # -- shader presets: files exist, match their source, and nothing is orphaned --
     $toggles = Get-Content -Raw (Join-Path $Cfg 'Scripts/gpu-toggles.lua')
     $named = @([regex]::Matches($toggles, "'([\w.-]+\.glsl)'") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
     $shaderDir = Join-Path $Cfg 'shaders'
     $absent = @($named | Where-Object { -not (Test-Path (Join-Path $shaderDir $_)) })
     Test-Check $t "every shader gpu-toggles.lua names exists ($($named.Count) files)" ($absent.Count -eq 0) ($absent -join ', ')
-    $installer = Get-Content -Raw (Join-Path $RepoRoot 'installer/install-shaders.ps1')
-    $notInstalled = @($named | Where-Object { $installer -notmatch [regex]::Escape($_) })
-    Test-Check $t 'install-shaders.ps1 installs every preset shader' ($notInstalled.Count -eq 0) ($notInstalled -join ', ')
+    # The committed shaders are the only copy (no installer fetches them again): a changed byte
+    # shows against the SHA-256 the notices list with each one's source.
+    $notices = Get-Content -Raw (Join-Path $RepoRoot 'THIRD-PARTY-NOTICES.md')
+    $listed = @{}
+    foreach ($m in [regex]::Matches($notices, '(?m)^\| `([\w.-]+\.glsl)` \|.*\| `([0-9a-f]{64})` \|\s*$')) { $listed[$m.Groups[1].Value] = $m.Groups[2].Value }
+    $shaderNames = @(Get-ChildItem $shaderDir -Filter *.glsl | ForEach-Object Name)
+    $hashBad = @($shaderNames | Where-Object { $listed[$_] -ne (Get-FileHash -LiteralPath (Join-Path $shaderDir $_) -Algorithm SHA256).Hash.ToLowerInvariant() }) +
+        @($listed.Keys | Where-Object { $_ -notin $shaderNames } | ForEach-Object { "$_ (listed, no such file)" })
+    Test-Check $t "THIRD-PARTY-NOTICES.md names every shader's source and SHA-256, and each file matches ($($listed.Count) rows)" ($hashBad.Count -eq 0) ($hashBad -join ', ')
     $orphans = @(Get-ChildItem $shaderDir -Filter *.glsl | Where-Object Name -NotIn $named | ForEach-Object Name)
     Test-Check $t 'no unused shader files in portable_config/shaders' ($orphans.Count -eq 0) ($orphans -join ', ')
 
@@ -882,6 +879,10 @@ function Invoke-StaticCheck {
         $uoscMain.Contains('Also with both gone (disable-elements') -and -not $uoscMain.Contains('if controls or timeline then')) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t 'uosc local change present: main.lua publishes user-data/uosc/ui-scale (notify, subtitle-sync, music-info)' (
         $uoscMain.Contains("'user-data/uosc/ui-scale'")) 're-apply it after a uosc update (AGENTS.md)'
+    # uosc's macOS and Linux ziggy: 11.8 MB of LFS that every install and update fetched for a
+    # Windows-only setup, and a uosc update brings them back
+    $ziggy = @(Get-ChildItem -Force (Join-Path $Cfg 'Scripts/uosc/bin') | ForEach-Object Name)
+    Test-Check $t 'uosc local change present: bin/ holds only ziggy-windows.exe' (($ziggy -join ',') -eq 'ziggy-windows.exe') "$($ziggy -join ', ') - re-apply it after a uosc update (AGENTS.md)"
     # without it the seek keys' 2500 is dropped and the timeline flashes for flash_duration (1 s)
     $uoscElement = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/elements/Element.lua')
     $uoscElements = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/elements/Elements.lua')

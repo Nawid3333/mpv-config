@@ -74,10 +74,11 @@ local copy of mpv's manual: grep it before guessing what an option does.
 menu from trailing menu comments - uosc reads them), `Scripts/*.lua`,
 `script-modules/` (code the scripts load with `dofile`, not scripts themselves: mpv
 runs every file and folder in `Scripts/`; `state-file.lua` writes every state file
-whole or not at all and keeps a damaged one aside), `script-opts/*.conf`, `shaders/` (only the files the presets use; installed by
-`installer/install-shaders.ps1`, except the locally modified `adaptive-sharpen.glsl`).
-A new shader goes into BOTH `gpu-toggles.lua` and `install-shaders.ps1` (a preset
-naming a missing file drops it with only a warning). Never write `//!` inside a
+whole or not at all and keeps a damaged one aside), `script-opts/*.conf`, `shaders/` (only the files the presets use, committed as
+their sources published them, except the locally modified `adaptive-sharpen.glsl`).
+A new shader goes into `shaders/`, `gpu-toggles.lua` (a preset naming a missing file
+drops it with only a warning) and THIRD-PARTY-NOTICES.md's shader table (its source and
+SHA-256, which the static tier checks against the file). Never write `//!` inside a
 shader, comments included: libplacebo ends the block there.
 
 **The mpv build is pinned, not committed.** `mpv-build.json` names one of
@@ -147,7 +148,8 @@ keyframe; `flash-elements` takes a duration (ms) of its own, for the seek keys' 
 `lib/intl.lua` reads the UI language from settings.json; `lib/cursor.lua` takes the
 pointer back over the window at the same pixel (another window covered it) for no move,
 and hides the UI with the pointer resting on it too (`autohide_over_controls`, 3 s; not
-while the left button is held or a menu is open).
+while the left button is held or a menu is open); `bin/` keeps only `ziggy-windows.exe` (the
+macOS and Linux builds were 11.8 MB of LFS that every install fetched).
 
 **FastStream contract** (the extension and helper live in `Nawid3333/FastStream`):
 the helper starts mpv with `--force-window=immediate` and appends URL-fragment

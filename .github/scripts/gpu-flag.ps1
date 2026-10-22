@@ -25,7 +25,6 @@ $GpuOption = '^(vo|gpu-.*|vulkan-.*|d3d11-.*|spirv-.*|hwdec.*|vd-lavc-film-grain
 # Files of this repository that are GPU work as a whole, by area.
 $GpuFile = [ordered]@{
     '^portable_config/shaders/'                  = 'shaders'
-    '^installer/install-shaders\.ps1$'           = 'shaders'
     '^portable_config/Scripts/gpu-toggles\.lua$' = 'gpu-toggles'
     '^portable_config/script-opts/gpu_toggles'   = 'gpu-toggles'
     '^portable_config/Scripts/shader-cache/'     = 'shader cache'
