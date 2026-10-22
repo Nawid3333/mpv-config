@@ -899,3 +899,38 @@ sharing the three glm workers through a local queue.
 The owner, the same evening: work from data, not guesses or assumptions, and learn from
 mistakes without being told each step; glm's answers are leads to check, never facts; PRs may
 be merged here once every check is green.
+
+## 2026-10-22 (night): a release per push; review round 4
+
+- **#16, releases** (the owner: "a release which updates every push", like FastStream and his
+  other repositories): `auto-release.yml` runs when "Regression tests" ends green on a push to
+  this repository's main, waits for the commit's two linters, and tags exactly that commit
+  `vYYYY.MM.DD.N` (no version number of its own, so no version commit on main), with GitHub's
+  list of pull requests since the last release and the mpv build named. Tried as a dry run
+  against the repository first; the merge of #16 itself became v2026.10.22.1, #18's
+  v2026.10.22.2 (the count and the notes since .1 as meant).
+- **The full review** (the owner: "did you do a full review of the finished repo now?"): glm
+  got all of the repository's own code in 11 windows with AGENTS.md and the "checked before"
+  list; every answer was checked against the code or measured. Of 23 distinct claims, 9 were
+  false and 14 real (11 fixed below, 3 in TODO.md); two more came from the checking itself
+  (the blind stall check, and a fifth unguarded call it then found beyond glm's four). Among the false ones, measured: `height` is known at file-loaded (HLS, EDL, a FastStream clip);
+  `total-bytes` counts only metadata with the cache on disk (1,179,136 against 16,884,480 in
+  RAM); host.ps1's job flag at offset 16 is the one Windows reads back and kills by; a hook of
+  priority 10 runs before 11; mpv itself treats a same-value option write as no change
+  (`m_config_core.c`), so a lift written every fade step costs libass nothing. An mpv probe
+  that "showed" the opposite on the disk cache had in fact no cache folder (`--no-config`):
+  its log said so, and the run was repeated.
+- **Fixed** (each with a test that failed without the fix): #18 - the static stall check had
+  matched no line since #7 (its `\b` was a backspace byte), now it checks `Invoke-RestMethod`
+  too and found five calls without the limit; a new check refuses control characters in
+  tracked text; mpv-auto-update's cancel step, stylua-update's dispatch order, unregister's 49
+  empty type keys, five false comments. #17 - a quick shader check kept the screen it drew
+  nothing for (GPU tier pending). #19 - subtitle-sync: failed audio reads are read again, a
+  click takes the block under the pointer, a click on a label seeks nowhere.
+- **Left, in TODO.md:** bottom-bar's lift with a moved `sub-pos` (needs rendered frames to
+  settle which height it counts in) and the clamped case next to it; install-faststream's
+  shortcut that never checks Firefox's registration (its test needs a registration key of its
+  own, never the owner's).
+- On the way: a rebase whose conflict a pipe hid pushed main's commit to #14's branch (GitHub
+  closed it; repaired, reopened, explained); a GitHub job stayed "in progress" after all its
+  steps succeeded, and a rerun gave the check its result.
