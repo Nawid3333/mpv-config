@@ -819,3 +819,20 @@ wraps its detail again; a custom value a setting does not take says so instead o
 silently; the static stall-limit guard also sees `Invoke-WebRequest` followed by a backtick.
 AGENTS.md: the file-loaded re-evaluation counts in gpu-toggles' `applied` on purpose (the
 warm-up counts it in).
+
+## 2026-10-22: mpv's own keys off
+
+The owner: "no mpv bindings, only my own, so I know which keys do what" (asked twice, the
+same answer: all of mpv's off). It came from a trap: after `g` (2x) mpv's built-in `g-p`
+playlist menu took a `p` pressed any time later. mpv.conf has `input-default-bindings=no`;
+input.conf binds the basics itself, by his pick ("mute, Ctrl+w, Alt+s, what a player
+generally needs, not the specialist stuff"): the window's X / Alt+F4 (`CLOSE_WIN`, without
+which the window would not close), Ctrl+w / Ctrl+c / Q, f / Esc, PgUp / PgDn chapters, T,
+Alt+s (one screenshot; mpv's Alt+s recorded every frame until pressed again), Ctrl+s,
+Ctrl+v, and the media keys (Play/Pause as Space, with faststream-pause). About 140 of
+mpv's keys went (zoom, pan, rotate, align, track and delay steps, `[ ] { }`, its g-menus,
+the console, F8/F9, Ctrl+h hwdec "auto", Ctrl+r, the mouse side buttons); their functions
+stay in the right-click menu and uosc's buttons. The "Disabled defaults" ignore lines (BS,
+Z, R, W, J) went with them. The static tier checks the option, the quit lines, `q` = 3x
+and that no key is bound twice; test-keys.lua presses dropped keys (nothing happens) and
+the kept basics.

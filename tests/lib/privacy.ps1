@@ -18,11 +18,13 @@ function ConvertTo-PublicText([string]$Text, [string[]]$Words = @()) {
         $dir = [Environment]::GetEnvironmentVariable($name)
         if ($dir) { $Text = [regex]::Replace($Text, [regex]::Escape($dir.TrimEnd('\')), "%$name%", 'IgnoreCase') }
     }
-    $Text = [regex]::Replace($Text, '(?i)([A-Za-z]:[\\/]+Users[\\/]+)[^\s\\/<%$*".]+', '$1<name>')
+    # The names before the folder rule: a user name with a space ("Ana Lee") in a path written
+    # with / was cut at the space by it, and the rest ("Lee") was published.
     $hide = @($Words | ForEach-Object { "$_".Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }) + @($env:USERNAME, $env:COMPUTERNAME)
     foreach ($word in $hide) {
         if ($word) { $Text = [regex]::Replace($Text, [regex]::Escape($word), '***', 'IgnoreCase') }
     }
+    $Text = [regex]::Replace($Text, '(?i)([A-Za-z]:[\\/]+Users[\\/]+)[^\s\\/<%$*".]+', '$1<name>')
     $Text
 }
 
@@ -67,7 +69,13 @@ function Get-PrivacyFinding {
     if ($Words.Count) {
         $e = @($Words | ForEach-Object { '-e'; $_ })
         $r["none of the $($Words.Count) private words"] = & $at (& $git (@('grep', '-I', '-n', '-i', '-F') + $e + @('--', '.')) 1)
-        $r['no file name holds a private word'] = @((& $git @('ls-files', '--', '.')) | Where-Object {
+        # As written, not quoted: git prints a name with a letter outside ASCII as
+        # "M\303\274ller.md" by default, and a word in it was never found; read as UTF-8.
+        $encoding = [Console]::OutputEncoding
+        [Console]::OutputEncoding = [Text.Encoding]::UTF8
+        try { $tracked = & $git @('-c', 'core.quotePath=false', 'ls-files', '--', '.') }
+        finally { [Console]::OutputEncoding = $encoding }
+        $r['no file name holds a private word'] = @($tracked | Where-Object {
                 $path = $_
                 @($Words | Where-Object { $path.IndexOf($_, [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count
             })

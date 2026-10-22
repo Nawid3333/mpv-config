@@ -144,6 +144,11 @@ function Invoke-OneClickCheck([string]$t) {
             }
         })
     Test-Check $t 'every download updater.bat can run in PowerShell 7 ends when it stalls ($StallLimit)' ($noLimit.Count -eq 0) ($noLimit -join ', ')
+    # A GPU run asks Test-GpuFit at its own start, never in a foreach's collection: that one
+    # is read whole before the first run, and a lost device did not stop the next (AGENTS.md:
+    # a device loss is reproduced at most once).
+    $gpuAskedEarly = @(Select-String -LiteralPath $PSCommandPath -Pattern 'foreach\s*\([^)]*Test-GpuFit' | ForEach-Object LineNumber)
+    Test-Check $t 'run-tests.ps1: every GPU run asks whether the GPU is fit at its own start' ($gpuAskedEarly.Count -eq 0) "line(s) $($gpuAskedEarly -join ', ')"
     # uosc's fonts: copied after main.lua and never checked, a stopped run left uosc without
     # its icons, and every later run took main.lua for "installed" (review of 2026-10-14)
     $uoscInstaller = Get-Content -Raw (Join-Path $installer 'install-uosc.ps1')
@@ -663,7 +668,10 @@ function Invoke-StaticCheck {
         if ($l -eq '' -or $l.StartsWith('#')) { continue }
         if ($l -match '^\[(.+)\]$') { $section = $Matches[1]; $profiles[$section] = @(); continue }
         $key = ($l -split '=', 2)[0].Trim()
-        if ($section) { $profiles[$section] += $key } else { $global[$key] = ($l -split '=', 2)[1] }
+        # a bare flag (save-position-on-quit) has no "=": under strict mode [1] threw, and
+        # the whole suite stopped with no result
+        $parts = @($l -split '=', 2)
+        if ($section) { $profiles[$section] += $key } else { $global[$key] = if ($parts.Count -gt 1) { $parts[1] } else { 'yes' } }
     }
     # '#' starts a comment ANYWHERE on an mpv.conf line, inside a value too:
     # "osd-back-color=#FF000000" is read as an empty value, mpv logs one error
@@ -751,9 +759,30 @@ function Invoke-StaticCheck {
     Test-Check $t 'uosc.conf: the timeline wheel seeks by keyframe (timeline_step without !)' ($uoscConf -match '(?m)^timeline_step=\d+\s*$')
     Test-Check $t 'input.conf: mbtn_left = play/pause' ($inputConf -match '(?m)^mbtn_left\s+cycle pause')
     Test-Check $t 'input.conf: mbtn_left_dbl = fullscreen' ($inputConf -match '(?m)^mbtn_left_dbl\s+cycle fullscreen')
-    # -cmatch: mpv key names are case-sensitive (q is a speed key here, Q is mpv's quit-watch-later)
-    $quitKeys = @(($inputConf -split "`n") | Where-Object { $_ -cmatch '^\s*((?i:ctrl\+[wc])|Q)\s' })
-    Test-Check $t "input.conf: mpv's own quit keys (Ctrl+w, Ctrl+c, Q) are not rebound" ($quitKeys.Count -eq 0) ($quitKeys -join ' | ')
+    # mpv's own keys are off: input.conf binds every key that works, the window's close
+    # button (CLOSE_WIN) and the quit keys too - without them the window would not close
+    Test-Check $t "mpv.conf: input-default-bindings=no (only input.conf's keys)" (@($mpvConf | Where-Object { $_ -match '^\s*input-default-bindings\s*=\s*no\s*$' }).Count -eq 1)
+    # -cmatch: a one-letter key is case-sensitive (q is the 3x speed key, Q quits and saves)
+    # (pairs, not a hashtable: its keys ignore case, and Q and q are two keys)
+    $mustBind = @(@('CLOSE_WIN', 'quit'), @('Ctrl+w', 'quit'), @('Ctrl+c', 'quit 4'), @('Q', 'quit-watch-later'),
+        @('q', 'script-binding speed_presets/preset 3'))
+    $unbound = @($mustBind | Where-Object { $inputConf -cnotmatch "(?m)^$([regex]::Escape($_[0]))\s+$([regex]::Escape($_[1]))\s*(#|$)" } |
+            ForEach-Object { $_[0] })
+    Test-Check $t "input.conf: the close button and quit keys quit, q stays the 3x key ($($mustBind.Count) keys)" ($unbound.Count -eq 0) ($unbound -join ', ')
+    # A key bound twice does what its later line says: mpv compares a one-letter key with its
+    # case (q, Q) and a named key or modifier without it (ESC = esc, Ctrl+w = ctrl+w); Shift
+    # with a letter is that letter's capital (Shift+A = A, Shift+q = Q).
+    $keyNames = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]' } | ForEach-Object {
+            $null = ($_.Trim() -split '\s+')[0] -match '^((?i:(shift|ctrl|alt|meta)\+)*)(.+)$'
+            $mods, $name = $Matches[1].ToLowerInvariant(), $Matches[3]
+            if ($name.Length -eq 1) {
+                if ($mods -match 'shift\+') { $mods = $mods -replace 'shift\+'; if ($name -cmatch '^[a-z]$') { $name = $name.ToUpperInvariant() } }
+            } else { $name = $name.ToLowerInvariant() }
+            # one order for the modifiers: Ctrl+Alt+x = Alt+Ctrl+x
+            (@($mods -split '\+' | Where-Object { $_ } | Sort-Object) + $name) -join '+'
+        })
+    $twice = @($keyNames | Group-Object -CaseSensitive | Where-Object Count -gt 1 | ForEach-Object Name)
+    Test-Check $t "input.conf: no key is bound twice ($($keyNames.Count) keys)" ($twice.Count -eq 0) ($twice -join ', ')
 
     # -- uosc: config + the local changes that an update would drop --------------
     Test-Check $t 'uosc.conf: animation_duration=0 (the controls appear at once, no fades)' ($uoscConf -match '(?m)^animation_duration=0\s*$')
@@ -964,6 +993,19 @@ function Invoke-StaticCheck {
         $named = @((Get-PrivacyFinding -Root $pr -Words @('Jane Example'))['no file name holds a private word'])
         Test-Check $t '... a reported path holds no private word (*** in its place)' (
             $named.Count -eq 1 -and $named[0] -eq 'by ***.txt') ($named -join ', ')
+        # a name with a letter outside ASCII, which git prints quoted unless told otherwise
+        $umlaut = 'M' + [char]0x00FC + 'ller'
+        Set-Content -LiteralPath (Join-Path $pr "notes of $umlaut.txt") 'x'
+        & git -C $pr add -A 2>&1 | Out-Null
+        $named = @((Get-PrivacyFinding -Root $pr -Words @($umlaut))['no file name holds a private word'])
+        Test-Check $t '... also a word with a letter outside ASCII in a file name' ($named.Count -eq 1) ($named -join ', ')
+        $savedUser = $env:USERNAME
+        try {
+            $env:USERNAME = 'Ana Lee'
+            $spaced = ConvertTo-PublicText ('C:/' + 'Users/Ana Lee/AppData/run.log')
+        }
+        finally { $env:USERNAME = $savedUser }
+        Test-Check $t "privacy: a user name with a space is hidden whole, also in a path written with /" ($spaced -notmatch 'Lee|Ana') $spaced
         # what tests/try-gpu.ps1 posts to a pull request's status and comment (public)
         $raw = "log: $env:TEMP\mpv-try-gpu\work\logs\gpu-1.log on $env:COMPUTERNAME by $env:USERNAME, see D:" + '\Users\' + 'jane\notes, by Jane Example'
         $public = ConvertTo-PublicText $raw @('# a comment', 'Jane Example')
@@ -2375,7 +2417,10 @@ if ($RunGpu) {
             }
             $null = Test-GpuLost 'gpu-warm-cache' '' $warmLog
         }
-        foreach ($test in $GpuTests | Where-Object { $_.Name -like $Filter -and (Test-GpuFit $_.Name) }) {
+        # Each one asked at its own start: in the foreach's pipeline every test was asked before
+        # the first ran, and a device lost in one did not stop the next from rendering again.
+        foreach ($test in @($GpuTests | Where-Object { $_.Name -like $Filter })) {
+            if (-not (Test-GpuFit $test.Name)) { continue }
             Invoke-RuntimeTest $exe $media $test @('--fs', '--ao=null', "--gpu-shader-cache-dir=$cacheCopy", $ShaderCacheOff) -TimeoutSeconds 300
         }
 

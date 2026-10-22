@@ -205,7 +205,11 @@ at startup was rejected as a visible race.
   what plays in the mpv window used last that plays a local file or nothing; a stream's
   window (FastStream, any URL) is never taken over. The second window is the banner's click
   or Ctrl - no ask-every-time dialog.
-- `q` is a speed key; quit is Ctrl+w / Ctrl+c (mpv's), Q quits and saves.
+- **mpv's own keys are off** (`input-default-bindings=no`, the owner, 2026-10-22: only his
+  keys, so he knows what each does): input.conf binds every key that works, the basics too
+  (`CLOSE_WIN` = the window's X and Alt+F4, Ctrl+w / Ctrl+c, Q quits and saves, f/Esc,
+  PgUp/PgDn, T, Alt+s/Ctrl+s, Ctrl+v, media keys); the rest of mpv's is in the right-click
+  menu. `q` is his 3x speed key, `Q` another key (a one-letter key is case-sensitive).
 
 ## Testing
 

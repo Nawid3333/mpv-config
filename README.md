@@ -294,9 +294,17 @@ that needs a login session will not play in mpv.
 | `↑` `↓`, wheel, `m` | Volume ±10, ±2, mute |
 | `i`, `I` | Stats |
 | `F1` | Welcome menu: settings and every feature |
-| `Q` | Quit and save the position (`Ctrl+w` quits) |
+| `f` / `Esc` | Fullscreen / leave fullscreen |
+| `PgUp` / `PgDn` | Next / previous chapter |
+| `T` | Window always on top |
+| `Alt+s` / `Ctrl+s` | Screenshot of the video / of the window as you see it |
+| `Ctrl+v` | Play a copied link |
+| Media keys | Play/pause, stop (quits), forward / back 60 s, volume, mute |
+| `Q` | Quit and save the position (`Ctrl+w`, `Alt+F4` or the window's X quit) |
 
-Every key and menu entry is in [`input.conf`](portable_config/input.conf).
+These are all the keys: mpv's own default keys are switched off, so a key does only what
+this table says. What mpv's other keys did (zoom, rotate, track and delay steps, ...) is in
+the right-click menu. Every key and menu entry is in [`input.conf`](portable_config/input.conf).
 
 ## Settings
 
