@@ -11,10 +11,16 @@ needs PowerShell 7 and the real `mpv.exe` (`updater.bat` installs the pinned bui
 | `pwsh tests/run-tests.ps1 -Tier gpu` | + the real renderer, **fullscreen**, on this PC's GPU | ~5 min |
 | `... -Filter upscale` | only tests whose name matches | |
 | `... -ConfigDir <copy>` | test another `portable_config` (a worktree, an experiment) | |
+| `... -Shard 1/2` | only shard 1 of 2 of the headless tests (no static checks); CI runs both and `-Tier static` on three runners | |
 
 Exit code 0 = everything passed. Failures print their mpv log path
 (`%TEMP%\mpv-regression\logs`). CI (`.github/workflows/regression-tests.yml`)
-runs static + headless on every push; the gpu tier is local only.
+runs static + headless on every push, on three runners at once: the static checks, and the
+headless tests in two shards. `Get-ShardPlan` computes them from the full list and the seconds
+each test took on CI (`$ShardSeconds`, a new test counts 5 s until it is added), the heaviest
+first into the lighter shard, so a new test is always in exactly one; the static check `shards`
+proves it for 1-4 shards and that no weight names a test that is gone. Each shard runs one mpv
+at a time, as one job did. The gpu tier is local only.
 
 ## Rules the suite follows (keep them when adding tests)
 

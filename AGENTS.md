@@ -246,7 +246,9 @@ areas yourself. Manual probes: give the clip no siblings
 (`autoload.lua` queues them) and back up `speed.json` (remember-speed restores and
 rewrites it); judge upscaling on `test-media/`'s clean clips (gitignored), never on
 a soft low-bitrate film - one misled a Movie decision once. CI runs static + headless on every
-push that changes more than docs (`*.md`, `doc/`; such a run ends green at once), and the
+push that changes more than docs (`*.md`, `doc/`; such a run ends green at once), on three
+runners at once: `-Tier static`, and `-Shard 1/2` and `2/2`, the headless tests split by
+`Get-ShardPlan` from the full list and its measured weights (`$ShardSeconds`), and the
 linters skip docs-only changes too; its privacy job runs on every push. `tests/README.md` has the harness rules: `H.expect` for a value an action
 changes, `H.sleep` then `H.eq` for one that must not; a new feature gets a test, and
 a deliberate break of it must turn it red. Before a Lua change: `stylua --check .`
