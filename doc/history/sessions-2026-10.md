@@ -951,3 +951,14 @@ be merged here once every check is green.
   and a new `sub-pos` computes the lift again; main's code, run against the new test, ended
   at 113.3 instead of 100 after closing the sync panel. TODO.md is gone: nothing is open.
 
+## 2026-10-23: the GPU tier on main
+
+- The gpu tier on main `9676d5a` (mpv 20261021), with #17, #21 and #22 in, in a folder of its
+  own as try-gpu.ps1 makes one, under both shared locks while the other sessions held their
+  builds and tests: 1356 passed, 4 failed, the GPU device kept.
+- The four were source-info's clipboard checks: every `clipboard/text` write in that test
+  answered "error accessing property" for 13 s, so nothing reached the clipboard. source-info
+  alone, run again at once: 0 failed; the gpu tier runs for #17 and #4 had passed the same
+  checks. Why the clipboard refused is not established (nothing held it open afterwards), and
+  nothing was changed. If it comes back: look at `GetOpenClipboardWindow` while the test runs.
+
