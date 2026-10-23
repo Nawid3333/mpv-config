@@ -64,7 +64,9 @@ param(
     [string]$Filter = '*',
     [string]$MpvExe,
     [string]$WorkDir = (Join-Path ([System.IO.Path]::GetTempPath()) 'mpv-regression'),
-    [string]$ConfigDir
+    [string]$ConfigDir,
+    [ValidatePattern('^(\d+/\d+)?$')]
+    [string]$Shard = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -75,6 +77,12 @@ $Cfg = $ConfigDir ? (Resolve-Path $ConfigDir).Path : (Join-Path $RepoRoot 'porta
 $TestsDir = $PSScriptRoot
 if (-not $MpvExe) { $MpvExe = Join-Path $RepoRoot 'mpv.exe' }
 $RunHeadless = $Tier -ne 'static'
+# -Shard i/n: only the headless tests of shard i of n (CI runs the shards on runners of their own,
+# and the static checks on another with -Tier static); see Get-ShardPlan.
+$ShardIndex, $ShardCount = $Shard ? @($Shard.Split('/') | ForEach-Object { [int]$_ }) : @(0, 0)
+if ($Shard -and ($Tier -ne 'headless' -or $ShardIndex -lt 1 -or $ShardIndex -gt $ShardCount)) {
+    throw "-Shard $Shard runs headless tests only, with 1 <= i <= n (-Tier headless)"
+}
 $RunGpu = $Tier -in @('gpu', 'all')
 
 # ---------------------------------------------------------------------------
@@ -2464,10 +2472,106 @@ $GpuTests = @(
 )
 
 # ---------------------------------------------------------------------------
+# shards
+# ---------------------------------------------------------------------------
+# CI runs the headless tests on two runners at once (-Shard 1/2, 2/2) and the static checks on a
+# third: about 7 minutes in one job before. The plan is computed from the full list, so each test
+# is in exactly one shard, a new one too, and each shard runs its own in the list's order. The
+# weights are the seconds each took on CI (2026-10-22); a test without one counts 5.
+$ShardSeconds = @{
+    'auto-start' = 3.4
+    'autoload' = 0.5
+    'bottom-bar' = 2.8
+    'check-keys' = 1.1
+    'config-load' = 1.1
+    'config' = 0.6
+    'faststream-episodes' = 10.6
+    'faststream-quality' = 12.4
+    'keys' = 9.1
+    'menus' = 1.5
+    'mouse' = 3.4
+    'mpv-single' = 15.4
+    'music-info' = 1.0
+    'notify-narrow' = 0.6
+    'notify-render' = 1.1
+    'notify' = 2.7
+    'pause-flash' = 3.7
+    'remember-speed' = 4.8
+    'screens' = 3.3
+    'seek-flash' = 8.8
+    'settings' = 7.8
+    'shader-cache' = 44.5
+    'sharpness-memory' = 1.4
+    'single-instance' = 8.1
+    'source-info-idle' = 1.4
+    'source-info' = 2.0
+    'speed' = 5.4
+    'state-file' = 0.5
+    'stream-buffer' = 25.4
+    'stream-resume' = 6.7
+    'subtitle-folder' = 0.5
+    'subtitle-sync-lanes' = 2.9
+    'subtitle-sync-retry' = 3.5
+    'subtitle-sync' = 7.7
+    'subtitles' = 1.6
+    'ui-hover' = 18.4
+    'upscale' = 14.9
+    'video-info' = 3.2
+    'welcome' = 6.8
+    'ytdl-node' = 1.0
+}
+$HeadlessUnits = @('config-load', 'check-keys') + @($HeadlessTests | ForEach-Object { $_.Name }) + @('mpv-single')
+
+# Test name -> its shard (1..Count): the heaviest first, each to the lightest shard so far.
+function Get-ShardPlan([string[]]$Units, [int]$Count) {
+    $load = [double[]]::new($Count)
+    $plan = @{}
+    $order = $Units | Sort-Object @{ Expression = { $ShardSeconds[$_] ?? 5 }; Descending = $true }, @{ Expression = { $_ } }
+    foreach ($u in $order) {
+        $i = 0
+        for ($k = 1; $k -lt $Count; $k++) { if ($load[$k] -lt $load[$i]) { $i = $k } }
+        $plan[$u] = $i + 1
+        $load[$i] += $ShardSeconds[$u] ?? 5
+    }
+    $plan
+}
+
+# Whether a headless test runs: its name matches -Filter and, with -Shard, it is one of the shard's.
+function Test-Selected([string]$Name) {
+    ($Name -like $Filter) -and (-not $script:ShardPlan -or $script:ShardPlan[$Name] -eq $ShardIndex)
+}
+
+# The plans CI could use cover every test once, none empty, and no weight names a test that is gone.
+function Test-ShardPlan {
+    $t = 'shards'
+    Write-Host ''
+    Write-Host "-- $t" -ForegroundColor White
+    foreach ($n in 1..4) {
+        $plan = Get-ShardPlan $HeadlessUnits $n
+        $missing = @($HeadlessUnits | Where-Object { -not $plan.ContainsKey($_) })
+        $empty = @(1..$n | Where-Object { $i = $_; -not @($plan.PSBase.Values | Where-Object { $_ -eq $i }) })
+        Test-Check $t "$n shard(s): every headless test in exactly one, none empty" (
+            $missing.Count -eq 0 -and $plan.PSBase.Count -eq @($HeadlessUnits | Select-Object -Unique).Count -and $empty.Count -eq 0) (
+            "missing: $($missing -join ', '); empty: $($empty -join ', ')")
+    }
+    # .PSBase: a test named "keys" would answer .Keys with its weight
+    $stale = @($ShardSeconds.PSBase.Keys | Where-Object { $_ -notin $HeadlessUnits })
+    Test-Check $t 'every shard weight names a headless test' ($stale.Count -eq 0) ($stale -join ', ')
+}
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-Invoke-StaticCheck
+$ShardPlan = $Shard ? (Get-ShardPlan $HeadlessUnits $ShardCount) : $null
+if ($Shard) {
+    Write-Section "shard $Shard (the static checks run without -Shard)"
+    Write-Host ('  ' + (@($HeadlessUnits | Where-Object { $ShardPlan[$_] -eq $ShardIndex }) -join ', '))
+}
+else {
+    Invoke-StaticCheck
+    Test-ShardPlan
+}
 
 if ($RunHeadless) {
     Write-Section 'headless tests (mpv --vo=null, isolated copy)'
@@ -2478,7 +2582,7 @@ if ($RunHeadless) {
     # after an mpv update) and plays on without it, so this is the one place
     # such a break shows. --keep-open=no: mpv.conf's keep-open=yes would wait
     # on the last frame forever.
-    if ('config-load' -like $Filter) {
+    if (Test-Selected 'config-load') {
         Write-Host ''
         Write-Host '-- config-load' -ForegroundColor White
         $r = Invoke-Mpv $exe @('--vo=null', '--ao=null', '--idle=no', '--keep-open=no', '--frames=1', '--msg-level=all=warn',
@@ -2491,7 +2595,7 @@ if ($RunHeadless) {
     # IPC pipe which keys it uses. Two test mpvs on pipes of their own (never FastStream's):
     # one with this setup's config, one with --no-config; in Windows PowerShell 5.1, which
     # check-keys.bat uses on a PC without PowerShell 7.
-    if ('check-keys' -like $Filter) {
+    if (Test-Selected 'check-keys') {
         Write-Host ''
         Write-Host '-- check-keys' -ForegroundColor White
         $own = "mpv-regression-keys-own-$PID"
@@ -2517,10 +2621,10 @@ if ($RunHeadless) {
             $procs | ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
         }
     }
-    foreach ($test in $HeadlessTests | Where-Object { $_.Name -like $Filter }) {
+    foreach ($test in $HeadlessTests | Where-Object { Test-Selected $_.Name }) {
         Invoke-RuntimeTest $exe $media $test @('--vo=null', '--ao=null', $ShaderCacheOff)
     }
-    if ('mpv-single' -like $Filter) { Invoke-LauncherCheck $exe $media }
+    if (Test-Selected 'mpv-single') { Invoke-LauncherCheck $exe $media }
 }
 
 if ($RunGpu) {
@@ -2578,7 +2682,7 @@ $fail = @($script:Results | Where-Object Status -EQ 'FAIL')
 $pass = @($script:Results | Where-Object Status -EQ 'PASS')
 $skip = @($script:Results | Where-Object Status -EQ 'SKIP')
 Write-Host ''
-Write-Host ('{0} passed, {1} failed, {2} skipped  ({3:n0} s, tier {4})' -f $pass.Count, $fail.Count, $skip.Count, $sw.Elapsed.TotalSeconds, $Tier) `
+Write-Host ('{0} passed, {1} failed, {2} skipped  ({3:n0} s, tier {4})' -f $pass.Count, $fail.Count, $skip.Count, $sw.Elapsed.TotalSeconds, ($Shard ? "$Tier, shard $Shard" : $Tier)) `
     -ForegroundColor ($fail.Count ? 'Red' : 'Green')
 if ($fail.Count) {
     Write-Host 'Failed:' -ForegroundColor Red
