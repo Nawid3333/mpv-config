@@ -124,12 +124,14 @@ function Get-Watch([hashtable]$Rec) {
     & $commit 'SSimSuperRes' 'dyphire/mpv-config' 'shaders/igv/SSimSuperRes.glsl' 'new file and SHA-256; the gpu tier'
     & $commit 'CfL_Prediction' 'Artoriuz/glsl-chroma-from-luma-prediction' 'CfL_Prediction.glsl' 'new file and SHA-256; the gpu tier'
     try {
-        # The gist's newest revision, by its date (its own version string inside the shader is another thing)
-        $gist = Invoke-GhJson @('api', 'gists/8a77e4eb8276753b54bb94c1c50c317e')
-        $rev = Get-First ($gist.history | Sort-Object { [datetime]$_.committed_at } -Descending)
-        if (-not $rev) { throw 'the gist has no revision' }
-        $revDate = ([datetime]$rev.committed_at).ToUniversalTime().ToString('yyyy-MM-dd')
-        & $add 'adaptive-sharpen' "$($rev.version.Substring(0, 12)) ($revDate)" (-not $rev.version.StartsWith($Rec['adaptive-sharpen'].Recorded)) 'https://gist.github.com/igv/8a77e4eb8276753b54bb94c1c50c317e/revisions' 're-apply the local curve_height change, new SHA-256; the gpu tier'
+        # The gist's newest revision (its own version string inside the shader is another thing),
+        # read from its git repository: the gists API refuses the Actions token (HTTP 403,
+        # "Resource not accessible by integration"). A gist revision is that repository's commit.
+        $head = git ls-remote https://gist.github.com/8a77e4eb8276753b54bb94c1c50c317e.git HEAD 2>&1
+        if ($LASTEXITCODE) { throw "git ls-remote of the gist failed: $($head -join ' ')" }
+        $rev = ("$head" -split '\s+')[0]
+        if ($rev -notmatch '^[0-9a-f]{40}$') { throw "the gist's HEAD is no commit: $head" }
+        & $add 'adaptive-sharpen' $rev.Substring(0, 12) (-not $rev.StartsWith($Rec['adaptive-sharpen'].Recorded)) 'https://gist.github.com/igv/8a77e4eb8276753b54bb94c1c50c317e/revisions' 're-apply the local curve_height change, new SHA-256; the gpu tier'
     }
     catch { & $fail 'adaptive-sharpen' $_.Exception.Message }
     $rows
