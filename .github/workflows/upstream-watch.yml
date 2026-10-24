@@ -1,0 +1,54 @@
+name: Upstream watch
+
+# What no other workflow keeps current (his request, 2026-10-24): Dependabot moves only the
+# GitHub Actions here, mpv-auto-update.yml the mpv build, stylua-update.yml stylua. Once a
+# week .github/scripts/upstream-watch.ps1 compares the rest with its upstream's newest: the
+# linters' pins (lua-language-server, PSScriptAnalyzer; stylua as a second look), the copied
+# code (uosc, thumbfast, autoload.lua) and the shaders' sources, from the versions
+# THIRD-PARTY-NOTICES.md and the workflow files record. One issue, "Upstream updates to look
+# at", lists what is behind, and closes once nothing is. autoload.lua, kept unchanged from
+# mpv, comes on ONE rolling pull request (branch autoload-update) with the regression tests
+# and the Lua lint started on it (a pull request opened with GITHUB_TOKEN starts none by
+# itself). The linters' pins stay on the issue: GITHUB_TOKEN may not push a change to
+# .github/workflows/*. A pull request that changes this workflow or its script runs it
+# read-only (-DryRun), its report in the run's summary.
+
+on:
+  schedule:
+    - cron: "20 5 * * 1"
+  workflow_dispatch: {}
+  pull_request:
+    paths:
+      - .github/workflows/upstream-watch.yml
+      - .github/scripts/upstream-watch.ps1
+
+permissions:
+  contents: write # push autoload-update
+  issues: write # the issue that lists what is behind
+  pull-requests: write # the pull request that offers autoload.lua
+  actions: write # start the regression tests and the Lua lint on autoload-update
+
+concurrency:
+  group: upstream-watch-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # persist-credentials: false - the token never lands in .git/config.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Compare with upstream's newest
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+          DRY_RUN: ${{ github.event_name == 'pull_request' || github.ref != 'refs/heads/main' }}
+          # this job reads no binary; the checkout must not fetch LFS objects
+          GIT_LFS_SKIP_SMUDGE: '1'
+        run: ./.github/scripts/upstream-watch.ps1 -Run -DryRun:($env:DRY_RUN -eq 'true')

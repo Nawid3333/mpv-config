@@ -1227,6 +1227,17 @@ function Invoke-StaticCheck {
             'rebuild it with the command in mpv-single.cs (with /resource:mpv-single.cs) and commit both'
     }
 
+    # -- what upstream-watch.ps1 compares with its upstream ---------------------------------
+    # It reads each version this repository records from THIRD-PARTY-NOTICES.md and the
+    # linters' workflow files; a row reworded there would leave it comparing nothing, and the
+    # weekly run would only fail. Each one is found, and has the shape of a version, a commit
+    # or a revision.
+    . (Join-Path $RepoRoot '.github/scripts/upstream-watch.ps1')
+    $watched = Get-Recorded $RepoRoot
+    $watchBad = @($watched.Keys | Where-Object { "$($watched[$_].Recorded)" -notmatch '^(v?[0-9]+(\.[0-9]+)+|[0-9a-f]{7,40})$' } |
+            ForEach-Object { "$_ ('$($watched[$_].Recorded)')" })
+    Test-Check $t "upstream-watch.ps1 finds every version it watches ($($watched.Count))" ($watchBad.Count -eq 0) ($watchBad -join ', ')
+
     # -- what a pull request changes that CI cannot test on a GPU (gpu-flag.ps1) ----------
     # Its title gets "[GPU: <areas>]" and its check "GPU tier (local)" waits for the gpu
     # tier on the PC; a change outside the GPU pipeline must stay unflagged, or the flag
