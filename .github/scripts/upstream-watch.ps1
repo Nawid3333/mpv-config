@@ -4,8 +4,8 @@
 #   - the linters' pins in the workflow files (lua-language-server, PSScriptAnalyzer, and
 #     stylua as a second look): GITHUB_TOKEN may not push a change to .github/workflows/*,
 #     so they go on the issue;
-#   - the copied code (uosc, thumbfast, autoload.lua) and the shaders' sources, from the
-#     versions THIRD-PARTY-NOTICES.md records.
+#   - the copied code (uosc, thumbfast, autoload.lua), the shaders' sources and 7-Zip's
+#     7zr.exe, from the versions THIRD-PARTY-NOTICES.md records.
 # One issue, "Upstream updates to look at", lists what is behind and is closed once nothing is.
 # autoload.lua, kept unchanged from mpv, is offered on ONE rolling pull request (branch
 # autoload-update) with its notice moved, and the regression tests started on it.
@@ -37,6 +37,7 @@ function Get-Recorded([string]$Root) {
         'FSRCNNX'             = @{ Recorded = (& $first $notices 'FSRCNN-TensorFlow release ([0-9][0-9.]*)'); File = 'portable_config/shaders/FSRCNNX_x2_16-0-4-1.glsl' }
         'SSimSuperRes'        = @{ Recorded = (& $first $notices 'dyphire/mpv-config at `([0-9a-f]{7,40})`'); File = 'portable_config/shaders/SSimSuperRes.glsl' }
         'CfL_Prediction'      = @{ Recorded = (& $first $notices 'glsl-chroma-from-luma-prediction at `([0-9a-f]{7,40})`'); File = 'portable_config/shaders/CfL_Prediction.glsl' }
+        '7-Zip'               = @{ Recorded = (& $first $notices '\[7-Zip\]\(https://www\.7-zip\.org/\) ([0-9][0-9.]*)'); File = '7z/7zr.exe' }
         'adaptive-sharpen'    = @{ Recorded = (& $first $notices "\[igv's port\]\(https://gist\.github\.com/igv/8a77e4eb8276753b54bb94c1c50c317e\) at revision ``([0-9a-f]{7,40})``"); File = 'portable_config/shaders/adaptive-sharpen.glsl' }
     }
 }
@@ -123,6 +124,8 @@ function Get-Watch([hashtable]$Rec) {
     & $tag 'FSRCNNX' 'igv/FSRCNN-TensorFlow' 'new file and SHA-256; the gpu tier'
     & $commit 'SSimSuperRes' 'dyphire/mpv-config' 'shaders/igv/SSimSuperRes.glsl' 'new file and SHA-256; the gpu tier'
     & $commit 'CfL_Prediction' 'Artoriuz/glsl-chroma-from-luma-prediction' 'CfL_Prediction.glsl' 'new file and SHA-256; the gpu tier'
+    # 7-Zip's own site links its downloads to these releases; each asset has its SHA-256 there.
+    & $tag '7-Zip' 'ip7z/7zip' 'replace 7z/7zr.exe with the release''s 7zr.exe (its SHA-256 on the release), and its row in THIRD-PARTY-NOTICES.md'
     try {
         # The gist's newest revision (its own version string inside the shader is another thing),
         # read from its git repository: the gists API refuses the Actions token (HTTP 403,
