@@ -16,7 +16,7 @@ license texts are in `LICENSES/`.
 | `portable_config/shaders/SSimSuperRes.glsl` | SSimSuperRes by Shiandow (igv's port, as pinned from [dyphire/mpv-config](https://github.com/dyphire/mpv-config)) | LGPL-3.0-or-later |
 | `portable_config/shaders/CfL_Prediction.glsl` | [glsl-chroma-from-luma-prediction](https://github.com/Artoriuz/glsl-chroma-from-luma-prediction) by Artoriuz | MIT |
 | `portable_config/shaders/adaptive-sharpen.glsl` | Adaptive sharpen by bacondither, mpv port by igv. Changed locally: `curve_height` is a tunable PARAM (described in the file's header) | BSD-style (text in the file) |
-| `7z/7zr.exe` | [7-Zip](https://www.7-zip.org/) by Igor Pavlov | GNU LGPL, some parts BSD-3-Clause ([license](https://www.7-zip.org/license.txt)) |
+| `7z/7zr.exe` | [7-Zip](https://www.7-zip.org/) 26.05 by Igor Pavlov: the `7zr.exe` of [its release](https://github.com/ip7z/7zip/releases/tag/26.05), unchanged (SHA-256 `9bf582b894dfa665f852d7e9112b02290a1c303c2d95a21fcdc41ffcb03143b7`) | GNU LGPL, some parts BSD-3-Clause ([license](https://www.7-zip.org/license.txt)) |
 | `portable_config/Scripts/shader-cache/clips/*.mp4` | 12-frame cuts of [Jellyfin's test videos](https://repo.jellyfin.org/test-videos/), courtesy of Gnattu | CC BY-SA 4.0. The cuts are shared under the same license (`clips/README.txt`) |
 
 **Not in this repository:** mpv itself (shinchiro's Windows builds of
