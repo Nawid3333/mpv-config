@@ -962,3 +962,35 @@ be merged here once every check is green.
   checks. Why the clipboard refused is not established (nothing held it open afterwards), and
   nothing was changed. If it comes back: look at `GetOpenClipboardWindow` while the test runs.
 
+
+## 2026-10-28: the number keys keep the buffer
+
+- The owner's report: a jump with the number keys or a click on the timeline threw the
+  buffered video away and loaded it again.
+- Measured on a 6-minute HLS stream (4 s segments, 1.6 Mbit/s) served throttled to 2 MB/s from
+  a local server, mpv headless, with this setup's buffering (predownload all, no limits) and
+  with `--no-config` and the same cache options alike:
+  - key 2 (`seek 20 absolute-percent+keyframes`) with 0-152 s buffered: a new cache range at
+    68 s, and the server sent segments 17-30 (68-122 s) a second time; the log said "queuing
+    seek to 0.200000" and no in-cache seek;
+  - a timeline click there (uosc's `seek 72 absolute+keyframes`): "using this range for
+    in-cache seek", nothing sent again;
+  - a click outside the buffer (300 s) and back inside (60 s): the first range kept, read on
+    from its end, and joined to the second ("ranges joined!"); the same for an MP4 stream,
+    where key 2 came from the buffer too.
+- Cause (mpv's code at the pinned commit): `player/playloop.c` turns a keyframe percent seek
+  into a `SEEK_FACTOR` demuxer seek when the demuxer may reset timestamps
+  (`ts_resets_possible`: lavf's HLS and MPEG-TS demuxers), and `demux.c`'s
+  `find_cache_seek_range` refuses every `SEEK_FACTOR` seek.
+- Fix: `percent-seek.lua`. A key's target inside a range `demuxer-cache-state` reports goes as
+  the time mpv itself makes of a percent seek elsewhere (percent x duration,
+  `absolute+keyframes`); any other target stays mpv's percent seek (for a TS file whose
+  timestamps jump, the byte seek is the one that lands). The new test `percent-seek` failed with
+  the old keys (each jump into the buffer added demuxer seeks, and key 5 on the local HLS
+  playlist landed at 0 instead of 10 s) and passes with the script (full suite: 1339 passed).
+  The throttled HLS stream with the fix: key 2 came from the buffer and the download went on
+  from 152 s; key 9 (outside) stayed mpv's percent seek, and key 1 after it came from the first
+  range again.
+- The timeline click: the click cases above came from the buffer, so a click was not
+  reproduced as losing it, and nothing was changed for it; why the owner saw one is not
+  established.
