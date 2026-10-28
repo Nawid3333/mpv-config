@@ -134,6 +134,7 @@ a stream's window; `single-instance.lua` takes it and offers the banner. Ctrl he
 | `speed-presets.lua` | preset keys: same key again = back to the speed before it (per key) |
 | `speed-button.lua` | toolbar speed button (badge, click = next step, right-click = menu), the speed banner |
 | `remember-speed.lua` | `~~state/speed.json`; videos only; a song/video switch sets that kind's speed; a speed picked while a file loads wins |
+| `percent-seek.lua` | number keys: N x 10 %, as a time seek when the buffer holds the spot (mpv's own percent seek reads HLS/MPEG-TS again there), else mpv's percent seek |
 | `pause-flash.lua` | each step into pause flashes uosc's whole UI (`flash-ui`, uosc.conf's `flash_duration`, shared with the volume/speed flashes) |
 | `auto-start.lua` | an inherited pause is cleared at file-loaded, except for a quality switch made while paused (`user-data/auto-start/keep-pause`); sub/audio delay back to 0 at unload |
 | `gpu-toggles.lua` | the upscale state (Off/Auto/Anime/Movie), quality High/Fast/Auto (measured per GPU, `~~state/upscale.json`), screen override, Movie sharpness, the upscale button and menus |

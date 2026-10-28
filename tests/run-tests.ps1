@@ -820,7 +820,8 @@ function Invoke-StaticCheck {
     Test-Check $t 'input.conf: every seek binding is no-osd' ($seekLines.Count -eq 0) ($seekLines -join ' | ')
     # every seek key is an instant keyframe seek (2026-10-09, the user: "make it instant ... I can
     # live with it when it is not exact"); absolute seeks are exact unless they say keyframes
-    $seekKeys = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]+\s+no-osd\s+seek\s' })
+    # (the number keys seek through percent-seek.lua, which keeps a buffered spot in the buffer)
+    $seekKeys = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]+\s+(no-osd\s+seek|script-message-to\s+percent_seek\s+jump)\s' })
     # and shows where it landed: the timeline for 2.5 s (the owner, 2026-10-21), the same on every key
     $unflashed = @($seekKeys | Where-Object { $_ -notmatch ';\s*script-message-to uosc flash-elements timeline 2500(\s|$)' })
     Test-Check $t "input.conf: every seek key shows the timeline for 2.5 s ($($seekKeys.Count) keys)" (
@@ -828,6 +829,12 @@ function Invoke-StaticCheck {
     $exactKeys = @($seekKeys | Where-Object { $_ -match '\bexact\b' -or ($_ -match '\babsolute' -and $_ -notmatch '\+keyframes\b') })
     Test-Check $t "input.conf: every seek key is an instant keyframe seek ($($seekKeys.Count) keys)" (
         $seekKeys.Count -ge 16 -and $exactKeys.Count -eq 0) ($exactKeys -join ' | ')
+    $percentKeys = @(0..9 | Where-Object { $inputConf -notmatch "(?m)^$_\s+script-message-to percent_seek jump $($_ * 10);" })
+    Test-Check $t 'input.conf: key N jumps to N x 10 % through percent-seek.lua' ($percentKeys.Count -eq 0) ($percentKeys -join ', ')
+    $percentSeeks = @(Get-Content -LiteralPath (Join-Path $Cfg 'Scripts/percent-seek.lua') | Where-Object { $_ -match "commandv\('seek'" })
+    $percentExact = @($percentSeeks | Where-Object { $_ -match '\bexact\b' -or $_ -notmatch '\+keyframes''' })
+    Test-Check $t "percent-seek.lua: both of its seeks are keyframe seeks ($($percentSeeks.Count))" (
+        $percentSeeks.Count -eq 2 -and $percentExact.Count -eq 0) ($percentExact -join ' | ')
     Test-Check $t 'uosc.conf: the timeline wheel seeks by keyframe (timeline_step without !)' ($uoscConf -match '(?m)^timeline_step=\d+\s*$')
     Test-Check $t 'input.conf: mbtn_left = play/pause' ($inputConf -match '(?m)^mbtn_left\s+cycle pause')
     Test-Check $t 'input.conf: mbtn_left_dbl = fullscreen' ($inputConf -match '(?m)^mbtn_left_dbl\s+cycle fullscreen')
@@ -1977,6 +1984,8 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
     Initialize-Clip $Exe (Join-Path $m 'plain/clip.mkv') 320x180 20
     Initialize-Clip $Exe (Join-Path $m 'second/clip2.mkv') 320x180 12
     Initialize-Clip $Exe (Join-Path $m 'long/long.mkv') 320x180 180
+    # percent-seek: MPEG-TS, a source mpv's own percent seek asks for a fraction of the file
+    Initialize-Clip $Exe (Join-Path $m 'ts/long.ts') 320x180 180
     Initialize-Clip $Exe (Join-Path $m 'subs/movie.mkv') 320x180 20
     # faststream-quality.lua: one video in two sizes, as a stream's own qualities. two.edl
     # makes them editions the way ytdl_hook makes YouTube's formats (one program_id each,
@@ -2393,6 +2402,10 @@ $HeadlessTests = @(
     }
     @{ Name = 'music-info'; Phases = @(@{ Script = 'headless/test-music-info.lua'; File = 'music-tagged/Nova Lane - Paper Lanterns.mp3' }) }
     @{ Name = 'keys'; Phases = @(@{ Script = 'headless/test-keys.lua'; File = 'long/long.mkv' }) }
+    @{ Name = 'percent-seek'; Phases = @(
+            @{ Script = 'headless/test-percent-seek.lua'; File = 'variants/v180.m3u8'; Phase = 'hls' }
+            @{ Script = 'headless/test-percent-seek.lua'; File = 'ts/long.ts'; Phase = 'ts' })
+    }
     @{ Name = 'faststream-episodes'; Phases = @(
             @{ Script = 'headless/test-faststream-episodes.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=faststream_episodes-heartbeat_stale=2') }
             # the script alone, no uosc: its buttons must not be shown before uosc has them
