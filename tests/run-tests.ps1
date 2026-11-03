@@ -1986,6 +1986,11 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
     Initialize-Clip $Exe (Join-Path $m 'long/long.mkv') 320x180 180
     # percent-seek: MPEG-TS, a source mpv's own percent seek asks for a fraction of the file
     Initialize-Clip $Exe (Join-Path $m 'ts/long.ts') 320x180 180
+    # skip-to-end: an HLS stream, whose demuxer refuses a seek past the end (one 180 s
+    # MPEG-TS segment; loaded by its .m3u8 name, for which autoload.lua queues no neighbours)
+    Initialize-Clip $Exe (Join-Path $m 'hls-long/long.ts') 320x180 180
+    [IO.File]::WriteAllText((Join-Path $m 'hls-long/long.m3u8'), ("#EXTM3U`n#EXT-X-VERSION:3`n#EXT-X-TARGETDURATION:180`n" +
+            "#EXT-X-MEDIA-SEQUENCE:0`n#EXT-X-PLAYLIST-TYPE:VOD`n#EXTINF:180.0,`nlong.ts`n#EXT-X-ENDLIST`n"))
     Initialize-Clip $Exe (Join-Path $m 'subs/movie.mkv') 320x180 20
     # faststream-quality.lua: one video in two sizes, as a stream's own qualities. two.edl
     # makes them editions the way ytdl_hook makes YouTube's formats (one program_id each,
@@ -2402,6 +2407,11 @@ $HeadlessTests = @(
     }
     @{ Name = 'music-info'; Phases = @(@{ Script = 'headless/test-music-info.lua'; File = 'music-tagged/Nova Lane - Paper Lanterns.mp3' }) }
     @{ Name = 'keys'; Phases = @(@{ Script = 'headless/test-keys.lua'; File = 'long/long.mkv' }) }
+    # keys: paused, on a stream read only ~6 s ahead; timeline: uosc's timeline needs an OSD surface
+    @{ Name = 'skip-to-end'; Phases = @(
+            @{ Script = 'headless/test-skip-to-end.lua'; File = 'hls-long/long.m3u8'; Phase = 'keys' }
+            @{ Script = 'headless/test-skip-to-end.lua'; File = 'plain/clip.mkv'; Phase = 'timeline'; Args = $RealOsd })
+    }
     @{ Name = 'percent-seek'; Phases = @(
             @{ Script = 'headless/test-percent-seek.lua'; File = 'variants/v180.m3u8'; Phase = 'hls' }
             @{ Script = 'headless/test-percent-seek.lua'; File = 'ts/long.ts'; Phase = 'ts' })
