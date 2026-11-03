@@ -92,6 +92,9 @@ test-media/
 # mpv's watch-later saves (Q / menu "Save position now"; in portable mode
 # ~~state is portable_config) and its optional watch history
 portable_config/watch_later/
+# subtitles uosc downloads for a stream (uosc.conf subtitles_directory): named after
+# the film or episode; subtitle-cleanup.lua deletes them after a week
+portable_config/subtitles/
 portable_config/watch_history.jsonl
 # screenshots go to the folder mpv was started from (default name mpv-shot%n)
 mpv-shot*

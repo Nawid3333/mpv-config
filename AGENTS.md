@@ -55,7 +55,7 @@ Keep it short: a new fact goes here in one line, its story into doc/history.
   action only when it is pinned to a full commit SHA (Dependabot moves the pins). Nothing checks a
   pull request's or issue's title, text and comments: write them the same way. Every
   file that records viewing (watch_later/, watch_history.jsonl, stream-resume.json,
-  screenshots, yt-dlp cookies, root `*.txt` notes) is gitignored: a new kind of state
+  screenshots, downloaded subtitles, yt-dlp cookies, root `*.txt` notes) is gitignored: a new kind of state
   file goes into `.gitignore` AND the static tier's sample list.
 - **Helpers.** Side work (reviews, drafts, second opinions) goes to Ollama's
   `glm-5.3-flash:cloud` only (the owner's global instructions); no Claude
@@ -153,6 +153,7 @@ a stream's window; `single-instance.lua` takes it and offers the banner. Ctrl he
 | `video-info.lua`, `music-info.lua` | resolution banner; song title and details panel |
 | `subtitle-sync.lua` | `t`: the sync timeline (audio loudness + subtitle lines, drag to shift) |
 | `subtitle-toggle.lua`, `title-bar.lua` | `c` smart subtitles; black Windows title bar (DWM) |
+| `subtitle-cleanup.lua` | at each start, deletes the subtitles uosc downloaded for a stream (`~~/subtitles`, which mpv never loads again) once they are older than a week |
 | `single-instance.lua` | takes mpv-single.exe's hand-off (`open replace\|append`); after a replace mid-file the banner "Play this in a new window" (8 s; click: the old playlist back at its second, the new file on in a new window) |
 | `uosc/`, `thumbfast.lua`, `autoload.lua` | vendored (uosc 5.13.0, current) |
 

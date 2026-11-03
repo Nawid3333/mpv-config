@@ -847,6 +847,11 @@ function Invoke-StaticCheck {
     Test-Check $t "percent-seek.lua: both of its seeks are keyframe seeks ($($percentSeeks.Count))" (
         $percentSeeks.Count -eq 2 -and $percentExact.Count -eq 0) ($percentExact -join ' | ')
     Test-Check $t 'uosc.conf: the timeline wheel seeks by keyframe (timeline_step without !)' ($uoscConf -match '(?m)^timeline_step=\d+\s*$')
+    # subtitle-cleanup.lua sweeps the folder uosc downloads a stream's subtitles into
+    $cleanup = Join-Path $Cfg 'Scripts/subtitle-cleanup.lua'
+    Test-Check $t "subtitle-cleanup.lua sweeps uosc's download folder (subtitles_directory=~~/subtitles)" (
+        $uoscConf -match '(?m)^subtitles_directory=~~/subtitles\s*$' -and (Test-Path -LiteralPath $cleanup) -and
+        (Get-Content -Raw -LiteralPath $cleanup).Contains("local DIR = '~~/subtitles'"))
     Test-Check $t 'input.conf: mbtn_left = play/pause' ($inputConf -match '(?m)^mbtn_left\s+cycle pause')
     Test-Check $t 'input.conf: mbtn_left_dbl = fullscreen' ($inputConf -match '(?m)^mbtn_left_dbl\s+cycle fullscreen')
     # mpv's own keys are off: input.conf binds every key that works, the window's close
@@ -1049,7 +1054,8 @@ function Invoke-StaticCheck {
         'portable_config/cache/shader_0123456789abcdef', 'portable_config/watch_later/0123456789ABCDEF',
         'portable_config/watch_history.jsonl', 'mpv-shot0001.jpg', 'yt-dlp.conf', 'cookies.txt', 'notes.txt',
         'portable_config/settings.json', 'portable_config/upscale.json', 'portable_config/welcome.json',
-        'test-media/clip.mkv', '.claude/settings.local.json', '.env'
+        'test-media/clip.mkv', '.claude/settings.local.json', '.env',
+        'portable_config/subtitles/Some Film (2026).Retail.srt'
     )
     $notIgnored = @($private | Where-Object { & git -C $RepoRoot check-ignore -q --no-index -- $_; $LASTEXITCODE -ne 0 })
     Test-Check $t ".gitignore covers what mpv and the scripts write while you watch ($($private.Count) kinds)" ($notIgnored.Count -eq 0) ($notIgnored -join ', ')
@@ -1989,16 +1995,18 @@ function Initialize-TestRoot {
         Copy-Item $item.FullName $exe -Force
     }
     # fresh config copy every run; no caches, no state (nor the shader capture
-    # log and learned cases an older config left behind, the watch history, or a damaged
-    # state file kept aside: they hold real viewing)
+    # log and learned cases an older config left behind, the watch history, downloaded
+    # subtitles, or a damaged state file kept aside: they hold real viewing)
     $dst = Join-Path $root 'portable_config'
-    & robocopy $Cfg $dst /MIR /XD cache watch_later /XF speed.json stream-resume.json shader-misses.log shader-cases.json settings.json upscale.json welcome.json watch_history.jsonl '*.corrupt-*' '*.tmp' /NFL /NDL /NJH /NJS /NP | Out-Null
+    & robocopy $Cfg $dst /MIR /XD cache watch_later subtitles /XF speed.json stream-resume.json shader-misses.log shader-cases.json settings.json upscale.json welcome.json watch_history.jsonl '*.corrupt-*' '*.tmp' /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE)" }
     $global:LASTEXITCODE = 0
     # /MIR leaves an excluded file alone: one copied by an older run goes here
     Get-ChildItem -LiteralPath $dst -File -Force -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -eq 'watch_history.jsonl' -or $_.Name -like '*.corrupt-*' } |
         Remove-Item -Force -ErrorAction SilentlyContinue
+    # and an excluded folder: subtitle-cleanup's first process starts with none
+    Remove-Item -LiteralPath (Join-Path $dst 'subtitles') -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force (Join-Path $WorkDir 'logs') | Out-Null
     return $exe
 }
@@ -2422,6 +2430,20 @@ $ForgetWelcome = {
     Remove-Item -LiteralPath (Join-Path $root 'portable_config/welcome.json') -ErrorAction SilentlyContinue
 }
 
+# subtitle-cleanup: between its two processes, uosc's download folder with two subtitles
+# 8 days old (one with an upper-case extension), one of now, an old file of another kind
+# and a folder; the second start must delete only the two
+$OldSubtitles = {
+    $dir = Join-Path $root 'portable_config/subtitles'
+    New-Item -ItemType Directory -Force (Join-Path $dir 'folder') | Out-Null
+    $old = (Get-Date).AddDays(-8)
+    foreach ($n in 'old.srt', 'Old Film.ASS', 'old.jpg', 'new.srt') { Set-Content -LiteralPath (Join-Path $dir $n) 'x' }
+    foreach ($n in 'old.srt', 'Old Film.ASS', 'old.jpg') { (Get-Item -LiteralPath (Join-Path $dir $n)).LastWriteTime = $old }
+}
+$DropSubtitles = {
+    Remove-Item -LiteralPath (Join-Path $root 'portable_config/subtitles') -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 # stream-resume: a damaged state file (not JSON). Every save skipped it, so resuming had
 # ended for every stream for good (2026-10-10 review): the next save keeps it beside and
 # writes a new one.
@@ -2506,6 +2528,10 @@ $HeadlessTests = @(
     @{ Name = 'source-info-idle'; Phases = @(@{ Script = 'headless/test-source-idle.lua'; File = $null }) }
     @{ Name = 'subtitles'; Phases = @(@{ Script = 'headless/test-subtitles.lua'; File = 'subs/movie.mkv' }) }
     @{ Name = 'subtitle-folder'; Phases = @(@{ Script = 'headless/test-subtitle-folder.lua'; File = 'subs-folder/movie.mkv' }) }
+    @{ Name = 'subtitle-cleanup'; Phases = @(
+            @{ Script = 'headless/test-subtitle-cleanup.lua'; File = 'plain/clip.mkv'; Phase = 'none'; After = $OldSubtitles }
+            @{ Script = 'headless/test-subtitle-cleanup.lua'; File = 'plain/clip.mkv'; Phase = 'start'; After = $DropSubtitles })
+    }
     @{ Name = 'subtitle-sync'; Phases = @(@{ Script = 'headless/test-subtitle-sync.lua'; File = 'sync/talk.mkv' }) }
     @{ Name = 'subtitle-sync-retry'; Phases = @(@{ Script = 'headless/test-subtitle-sync-retry.lua'; File = 'sync/talk.mkv' }) }
     @{ Name = 'subtitle-sync-lanes'; Phases = @(@{ Script = 'headless/test-subtitle-sync-lanes.lua'; File = 'sync/talk.mkv' }) }
