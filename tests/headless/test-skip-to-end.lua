@@ -2,9 +2,10 @@
 -- keep-open), so a skip past the end, or into its last second, has to arrive there - and
 -- from a pause too: playback goes on to the end, where keep-open pauses again.
 -- Two processes (tests/run-tests.ps1, "skip-to-end"):
---   keys     - hls-long/long.m3u8 (one 180 s MPEG-TS segment) read only ~6 s ahead
---              (demuxer-max-bytes 512 KiB, set after stream-buffer.lua's own), paused: x,
---              k, Right and the media Forward key from spots whose end is not buffered.
+--   keys     - hls-long/long.m3u8 (one 180 s MPEG-TS segment) read only ~1.5 s ahead
+--              (demuxer-max-bytes 128 KiB, set after stream-buffer.lua's own), paused: x,
+--              k, Right and the media Forward key, each from a spot whose end is not
+--              buffered (drop-buffers first: an earlier case's end stays in the buffer).
 --              mpv's own `seek <n>` past the end asks the demuxer, which FFmpeg's HLS
 --              demuxer refuses, and mpv went on from the end of the buffer: no end
 --              (skip-forward.lua). A skip that stays inside the file is the keyframe
@@ -20,7 +21,7 @@ local PHASE = os.getenv('MPV_TEST_PHASE') or 'keys'
 if PHASE == 'keys' then
 	-- after stream-buffer.lua's on_load (priority 50), which sets the file's limits
 	mp.add_hook('on_load', 60, function()
-		mp.set_property('file-local-options/demuxer-max-bytes', '512KiB')
+		mp.set_property('file-local-options/demuxer-max-bytes', '128KiB')
 	end)
 end
 
@@ -48,9 +49,12 @@ local function seek_to(t)
 	H.expect('not at the end at ' .. t, eof, false)
 end
 
--- Presses a skip key from `from` and checks that it ends the file.
+-- Presses a skip key from `from`, with the end not buffered, and checks that it ends the file.
 local function ends(key, from, duration)
+	mp.commandv('drop-buffers')
 	seek_to(from)
+	H.sleep(0.5)
+	H.eq(string.format('%s from %g: the end is not buffered', key, from), cache()['eof-cached'], false)
 	local skips = skip().skips or 0
 	mp.commandv('keypress', key)
 	H.expect(string.format('%s from %g: the file ends', key, from), eof, true, nil, 10)
@@ -70,16 +74,11 @@ H.run(function()
 			mp.get_property('file-format') == 'hls' and duration > 170,
 			tostring(mp.get_property('file-format')) .. ' ' .. duration
 		)
-		-- from 120 s on, nothing is buffered but the seconds after each seek
-		seek_to(120)
-		H.expect('the end is not buffered', function()
-			return cache()['eof-cached']
-		end, false)
 		ends('x', 150, duration)
-		ends('k', duration - 6, duration)
+		ends('k', duration - 8, duration)
 		-- 5 s from 5.5 s before the end: it would land in the last second
 		ends('RIGHT', duration - 5.5, duration)
-		ends('FORWARD', duration - 30, duration)
+		ends('FORWARD', duration - 40, duration)
 		-- a skip inside the file is mpv's keyframe seek, as before (the clip's keyframes
 		-- are 1 s apart)
 		seek_to(100)
