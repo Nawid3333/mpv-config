@@ -1,25 +1,25 @@
 {
-  "tag": "20261021",
+  "tag": "20261103",
   "arch": "x86_64-v3",
-  "asset": "mpv-x86_64-v3-20261021-git-e471496c56.7z",
-  "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261021/mpv-x86_64-v3-20261021-git-e471496c56.7z",
-  "sha256": "897029529dc6c62c1f6c9bcfe8662a7ab18fe5a2fd1715fb8835037ee0def9a7",
-  "mpv_version": "v0.41.0-1227-ge471496c5",
-  "git": "e471496c56",
-  "libplacebo": "v7.377.0 (v7.360.0-176-g285d1cc-dirty)",
-  "ffmpeg": "N-127893-g9a861e968",
-  "verified": "2026-10-21",
+  "asset": "mpv-x86_64-v3-20261103-git-a687796d9d.7z",
+  "url": "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261103/mpv-x86_64-v3-20261103-git-a687796d9d.7z",
+  "sha256": "e76b475f94caf22ea43ed325120d6590287338457899c3ee4b36b0fb2a697b6a",
+  "mpv_version": "v0.41.0-1421-ga687796d9",
+  "git": "a687796d9d",
+  "libplacebo": "v7.387.0 (v7.387.0-9-ga5cd2c0-dirty)",
+  "ffmpeg": "N-128341-ga1a7737c4",
+  "verified": "2026-11-03",
   "upstream_files": {
     "d3dcompiler_43.dll": "4b074a3976399dc735484f5d43d04b519b7bdee8ac719d9ab8ed6bd4e6be0345",
-    "doc/manual.pdf": "ab272c5e3a7e3b3c2a4d21ec5f5e07c8fb0739f7945897c72c7923b10306bc66",
+    "doc/manual.pdf": "3f364b385e0d98769a16011fed6a7495fa343889467c1e498689087638644e55",
     "doc/mpbindings.png": "d27b24e45be912eb14935c3540147a65ad3be513c3fe444f010ad543ae4cc352",
     "installer/mpv-icon.ico": "c42ee25aeddb88e741cf94fb12867f61edd012cd82ef346e43c5f01c27898434",
     "installer/mpv-install.bat": "906669f7c397d5137fd3e3dde5d78beff27dd0c51edd4b22ef7d27ae578f0436",
     "installer/mpv-uninstall.bat": "5770710c6e39549db0df6a0e88491f862b12d90ae14177968bbf2dbcce60ea27",
     "mpv-register.bat": "e3c354d13bfe4ae2b9bafbd1b7609753c47f78a3a4989b082f34d5a938aa7a09",
     "mpv-unregister.bat": "d40f2f76e00e08287c39c15654e9350831e4418f1bd9619bc8dcff0dfb055e91",
-    "mpv.com": "b999b851e70370b151389f2a9e9bae80ceca0fb2fd0ae1b55bc900b0c6667f39",
-    "mpv.exe": "39fa3f4ac42ce67952a5f381b0170955d06b13710f8a205d9fe43016df87216a",
-    "mpv/fonts.conf": "f141c1b89b172d22f213531646c21e288f0ebf3ec46484698896e1b33c626756"
+    "mpv.com": "865705863b3dd7ebb69acb450a00545c6fba66030b9f3c2a0ff393196ead3127",
+    "mpv.exe": "6b70a63bb1615816010c443ce57f949a3f5f600be09d588b622f5c54c958f123",
+    "mpv/fonts.conf": "ccb1a61f4b42a150ca9935c164697bd32174a848205f6bc261c22bc56abe47a1"
   }
 }
