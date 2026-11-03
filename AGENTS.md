@@ -97,7 +97,8 @@ refreshes a FastStream helper the one-click install set up.
 `.github/workflows/mpv-auto-update.yml` offers each new build that passes the suite
 as ONE rolling pull request (`mpv-update`); CI has no GPU, so the owner merges it.
 shinchiro builds mpv's newest commit daily: a build of a commit mpv's own CI failed is
-never offered (one that it still tests waits a day).
+never offered (one that it still tests waits a day). mpv's macOS jobs do not count, and a
+job one of whose runs passed counts as passed (`.github/scripts/upstream-ci.ps1`).
 mpv's own files and `yt-dlp.exe` are gitignored; the pre-commit hook refuses them.
 `upstream-watch.yml` (weekly) compares what nothing else updates - the linters' pins, uosc,
 thumbfast, autoload.lua, the shaders' sources and 7zr.exe, as THIRD-PARTY-NOTICES.md records them - with

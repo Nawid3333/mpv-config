@@ -70,3 +70,21 @@ engineering log; `AGENTS.md` holds the current state and is read first).
   static tier's privacy sample list a file in it, and the suite's config copies leave it out.
 - Test: `subtitle-cleanup` - a start with no folder; then, with two 8-day-old subtitles, one
   of now, an old picture and a folder, the next start deletes just the two.
+
+## 2026-11-03: mpv builds held back by mpv's macOS CI
+
+- Issue #28: shinchiro's builds of 2026-11-01, -02 and -03 were each "built from a commit mpv's
+  own CI failed", so none was offered and main kept 20261021. The owner asked whether a pull
+  request fixes it, and for the failing CI not to come back.
+- mpv's checks on those three commits (GitHub's check runs): one job failed each time, `macos
+  (xcode-27, macos-27-arm)` (a new Xcode preview), and the other macOS jobs were cancelled with
+  it; on a687796d9d one of fifteen runs of the `cache` job was cancelled too. Every Windows
+  (msys2, mingw, win32), Linux, BSD and lint job passed. The gate counted any failed or
+  cancelled check run as mpv's CI failing.
+- `.github/scripts/upstream-ci.ps1` now gives the verdict: macOS jobs do not count (nothing of
+  them is in a Windows build; `swift` is a lint on Ubuntu and still counts), a job counts as
+  passed when one of its runs passed (a re-run after a flake, or a job several workflow runs
+  share), and the failed jobs are named in the issue. On the real checks of the three
+  commits: failed with the old filter, passed with the script; with one msys2 job made to
+  fail, failed, naming it. The static tier holds nine cases and the way the workflow calls it.
+- The builds still go through this suite and the owner's merge as before.
