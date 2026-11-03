@@ -127,9 +127,20 @@ H.run(function()
 		end, 1, nil, 3)
 	end
 
+	-- a click where the pointer already is: uosc reads the pointer's position from a
+	-- property it observes, and a press sent with the move came at the old position
+	local function click_at(x)
+		mp.commandv('mouse', tostring(x), tostring(y))
+		H.sleep(0.3)
+		mp.commandv('keydown', 'MBTN_LEFT')
+		H.sleep(0.05)
+		mp.commandv('keyup', 'MBTN_LEFT')
+		H.sleep(0.35)
+	end
+
 	seek_to(5)
 	show_bar()
-	H.click(width - 1, y)
+	click_at(width - 1)
 	H.expect('a click on the last pixel ends the file', eof, true, nil, 5)
 	H.eq('... at its end', mp.get_property_number('time-pos'), duration, 0.5)
 	H.expect('... paused there (keep-open)', paused, true)
@@ -137,7 +148,7 @@ H.run(function()
 	seek_to(5)
 	show_bar()
 	local done = H.expect_event('playback-restart')
-	H.click(math.floor(width / 2), y)
+	click_at(math.floor(width / 2))
 	H.check('a click in the middle seeks', done(5))
 	H.eq('... there, by keyframe', mp.get_property_number('time-pos'), duration / 2, 1.5)
 	H.eq('... not to the end', eof(), false)
