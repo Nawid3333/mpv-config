@@ -52,3 +52,21 @@ engineering log; `AGENTS.md` holds the current state and is read first).
   Right (to 0.5 s before the end) ended there without the fix: the last-second margin rests
   on the measurement above, not on this test. The first run kept each case's buffer, and only
   `x` was red: the others found the end buffered by the case before.
+
+## 2026-11-03: mpv builds held back by mpv's macOS CI
+
+- Issue #28: shinchiro's builds of 2026-11-01, -02 and -03 were each "built from a commit mpv's
+  own CI failed", so none was offered and main kept 20261021. The owner asked whether a pull
+  request fixes it, and for the failing CI not to come back.
+- mpv's checks on those three commits (GitHub's check runs): one job failed each time, `macos
+  (xcode-27, macos-27-arm)` (a new Xcode preview), and the other macOS jobs were cancelled with
+  it; on a687796d9d one of fifteen runs of the `cache` job was cancelled too. Every Windows
+  (msys2, mingw, win32), Linux, BSD and lint job passed. The gate counted any failed or
+  cancelled check run as mpv's CI failing.
+- `.github/scripts/upstream-ci.ps1` now gives the verdict: macOS jobs do not count (nothing of
+  them is in a Windows build; `swift` is a lint on Ubuntu and still counts), a job counts as
+  passed when one of its runs passed (a re-run after a flake, or a job several workflow runs
+  share), and the failed jobs are named in the issue. On the real checks of the three
+  commits: failed with the old filter, passed with the script; with one msys2 job made to
+  fail, failed, naming it. The static tier holds nine cases and the way the workflow calls it.
+- The builds still go through this suite and the owner's merge as before.

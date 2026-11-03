@@ -274,17 +274,19 @@ jobs:
           # of it: a build of a commit that CI failed is not offered (one issue says so),
           # and one it still tests, or GitHub cannot tell, waits for the next run (a
           # "stale" check too: GitHub no longer vouches for it). A commit with no checks
-          # (a docs change) counts as passed. Every page of checks (--slurp joins them;
-          # it does not go with gh's own --jq).
+          # (a docs change) counts as passed. mpv's macOS jobs do not count, and a job
+          # counts as passed when one of its runs passed: .github/scripts/upstream-ci.ps1
+          # says why, and the static tier tests it. Every page of checks (--slurp joins
+          # them).
           upstream_sha=${asset##*-git-}
           upstream_sha=${upstream_sha%.7z}
-          upstream_ci=$(gh api --paginate --slurp "repos/mpv-player/mpv/commits/$upstream_sha/check-runs?per_page=100" | jq -r '
-            [.[].check_runs[] | if .status != "completed" or .conclusion == "stale" then "pending" else .conclusion end]
-            | if length == 0 then "none"
-              elif any(.[]; . == "failure" or . == "timed_out" or . == "cancelled" or . == "startup_failure" or . == "action_required") then "failed"
-              elif any(.[]; . == "pending") then "pending"
-              else "passed" end') || upstream_ci=unknown
-          echo "mpv's own CI on $upstream_sha: $upstream_ci."
+          upstream_out=$(gh api --paginate --slurp "repos/mpv-player/mpv/commits/$upstream_sha/check-runs?per_page=100" > "$RUNNER_TEMP/upstream-checks.json" &&
+            pwsh -NoProfile -File .github/scripts/upstream-ci.ps1 -ChecksFile "$RUNNER_TEMP/upstream-checks.json") || upstream_out=unknown
+          # "<verdict><tab><failed jobs>"
+          upstream_ci=${upstream_out%%$'\t'*}
+          upstream_failed=''
+          if [ "$upstream_ci" != "$upstream_out" ]; then upstream_failed=${upstream_out#*$'\t'}; fi
+          echo "mpv's own CI on $upstream_sha: $upstream_ci${upstream_failed:+ ($upstream_failed)}."
           if [ "$upstream_ci" = pending ] || [ "$upstream_ci" = unknown ]; then
             echo "$latest waits for the next run."
             exit 0
@@ -292,6 +294,7 @@ jobs:
           if [ "$upstream_ci" = failed ]; then
             { printf '@%s shinchiro'"'"'s mpv %s is built from mpv commit %s, which mpv'"'"'s own CI failed: https://github.com/mpv-player/mpv/commit/%s\n\n' \
                 "$OWNER" "$latest" "$upstream_sha" "$upstream_sha"
+              printf 'Failed there (mpv'"'"'s macOS jobs do not count): %s.\n\n' "$upstream_failed"
               printf 'It is not offered, and main keeps pinning %s. Each newer build is tried the day it comes out; one whose commit passed mpv'"'"'s CI and this suite is offered on a pull request, and closes this issue.\n' "$pinned"
             } > "$RUNNER_TEMP/body.md"
             report "upstream-failed $latest" "$latest: mpv's own CI failed on its commit" "$RUNNER_TEMP/body.md"

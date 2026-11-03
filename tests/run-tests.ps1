@@ -1349,6 +1349,52 @@ function Invoke-StaticCheck {
         })
     Test-Check $t "gpu-flag.ps1 flags what CI cannot test on a GPU, and nothing else ($($flagCases.Count) cases)" ($flagBad.Count -eq 0) ($flagBad -join '; ')
 
+    # -- what mpv's own CI said of a build's commit (upstream-ci.ps1, mpv-auto-update.yml) -
+    # A build of a commit mpv's CI failed is not offered; mpv's macOS jobs do not count, and a
+    # job one of whose runs passed counts as passed. The first case has the shape of the real
+    # checks of mpv a687796d9d (shinchiro's 20261103): one macOS job failed and the other
+    # macOS jobs were cancelled with it, one of fifteen runs of "cache" was cancelled, every
+    # other job passed - read as failed before, which kept every build from 20261101 on away.
+    . (Join-Path $RepoRoot '.github/scripts/upstream-ci.ps1')
+    $check = { param($name, $conclusion, $status = 'completed') [pscustomobject]@{ name = $name; status = $status; conclusion = $conclusion } }
+    $passing = @((& $check 'msys2 (ucrt64, windows-2025)' 'success'), (& $check 'linux (gcc, g++, -Db_ndebug=true)' 'success'), (& $check 'lua' 'success'))
+    $ciCases = @(
+        @{ Name = "20261103's shape"; Want = 'passed'; Failed = ''
+            Checks = $passing + @((& $check 'macos (xcode-27, macos-27-arm)' 'failure'), (& $check 'macos (macos-26, macos-26-arm)' 'cancelled'),
+                (& $check 'cache' 'cancelled'), (& $check 'cache' 'success'), (& $check 'pr_comment' 'skipped'))
+        }
+        @{ Name = 'a Windows job failed'; Want = 'failed'; Failed = 'win32 (x86_64-pc-windows-msvc, x64, windows-2025)'
+            Checks = $passing + @(& $check 'win32 (x86_64-pc-windows-msvc, x64, windows-2025)' 'failure')
+        }
+        @{ Name = 'a lint job cancelled and never passed'; Want = 'failed'; Failed = 'swift'; Checks = $passing + @(& $check 'swift' 'cancelled') }
+        @{ Name = 'a failed job run again and passed'; Want = 'passed'; Failed = ''; Checks = $passing + @((& $check 'freebsd' 'failure'), (& $check 'freebsd' 'success')) }
+        @{ Name = 'a Windows job still running'; Want = 'pending'; Failed = ''; Checks = $passing + @(& $check 'msys2 (clang64, windows-2025, zero)' $null 'in_progress') }
+        @{ Name = 'a stale check'; Want = 'pending'; Failed = ''; Checks = $passing + @(& $check 'mingw (x86_64, wine64)' 'stale') }
+        @{ Name = 'a failure over a job still queued'; Want = 'failed'; Failed = 'linux-fuzz'; Checks = @((& $check 'linux-fuzz' 'timed_out'), (& $check 'openbsd' $null 'queued')) }
+        @{ Name = 'no checks (a docs change)'; Want = 'none'; Failed = ''; Checks = @() }
+        @{ Name = 'macOS jobs alone'; Want = 'none'; Failed = ''; Checks = @(& $check 'macos (macos-15, macos-15-arm)' 'failure') }
+    )
+    $ciBad = @($ciCases | ForEach-Object {
+            # as gh's --slurp gives them: pages of check runs, two here
+            $half = [Math]::Ceiling($_.Checks.Count / 2)
+            $pages = @([pscustomobject]@{ check_runs = @($_.Checks | Select-Object -First $half) },
+                [pscustomobject]@{ check_runs = @($_.Checks | Select-Object -Skip $half) })
+            $got = Get-UpstreamCi $pages
+            if ($got.Verdict -ne $_.Want -or ($got.Failed -join ', ') -ne $_.Failed) { "$($_.Name): $($got.Verdict) [$($got.Failed -join ', ')]" }
+        })
+    Test-Check $t "upstream-ci.ps1 reads mpv's own CI as mpv-auto-update needs it ($($ciCases.Count) cases)" ($ciBad.Count -eq 0) ($ciBad -join '; ')
+    # and the way the workflow calls it: a file of gh's pages, one line out (one page: JSON's
+    # array of one is still a list)
+    $ciFile = Join-Path ([IO.Path]::GetTempPath()) "upstream-ci-$PID.json"
+    ConvertTo-Json -Depth 5 -InputObject @([pscustomobject]@{ check_runs = @($ciCases[1].Checks) }) | Set-Content -LiteralPath $ciFile
+    $ciOut = @(& pwsh -NoProfile -File (Join-Path $RepoRoot '.github/scripts/upstream-ci.ps1') -ChecksFile $ciFile)
+    Remove-Item -LiteralPath $ciFile -ErrorAction SilentlyContinue
+    Test-Check $t 'upstream-ci.ps1 -ChecksFile prints the verdict and the failed jobs, tab-separated' (
+        $ciOut.Count -eq 1 -and $ciOut[0] -eq "failed`twin32 (x86_64-pc-windows-msvc, x64, windows-2025)") ($ciOut -join ' | ')
+    $updateYml = Get-Content -Raw -LiteralPath (Join-Path $RepoRoot '.github/workflows/mpv-auto-update.yml')
+    Test-Check $t "mpv-auto-update.yml reads mpv's own CI through upstream-ci.ps1" (
+        $updateYml.Contains('pwsh -NoProfile -File .github/scripts/upstream-ci.ps1 -ChecksFile') -and $updateYml -notmatch 'check_runs\[\]')
+
     # mpv-auto-update.yml cancelled between pushing mpv-update and opening its pull request
     # left a branch that read as "waits for the owner's merge" on every later run: its
     # cancel step deletes that branch, and only that one (tests/lib/cancel-step.sh). Git for
