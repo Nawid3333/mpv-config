@@ -212,6 +212,25 @@ jobs:
           issue=$(gh issue list --repo "$GH_REPO" --state open --limit 200 --json number,title \
             --jq "[.[] | select(.title | startswith(\"$PREFIX\"))][0].number // \"\"")
 
+          # --- mpv's own CI on the build's commit -------------------------------
+          # shinchiro builds mpv's newest commit every day, whatever mpv's own CI said
+          # of it: a build of a commit that CI failed is not offered (one issue says so),
+          # and one it still tests, or GitHub cannot tell, waits for the next run (a
+          # "stale" check too: GitHub no longer vouches for it). A commit with no checks
+          # (a docs change) counts as passed. mpv's macOS jobs do not count, and a job
+          # counts as passed when one of its runs passed: .github/scripts/upstream-ci.ps1
+          # says why, and the static tier tests it. Every page of checks (--slurp joins
+          # them). Read here, so that a dry run shows it too; decided further down.
+          upstream_sha=${asset##*-git-}
+          upstream_sha=${upstream_sha%.7z}
+          upstream_out=$(gh api --paginate --slurp "repos/mpv-player/mpv/commits/$upstream_sha/check-runs?per_page=100" > "$RUNNER_TEMP/upstream-checks.json" &&
+            pwsh -NoProfile -File .github/scripts/upstream-ci.ps1 -ChecksFile "$RUNNER_TEMP/upstream-checks.json") || upstream_out=unknown
+          # "<verdict><tab><failed jobs>"
+          upstream_ci=${upstream_out%%$'\t'*}
+          upstream_failed=''
+          if [ "$upstream_ci" != "$upstream_out" ]; then upstream_failed=${upstream_out#*$'\t'}; fi
+          echo "mpv's own CI on $upstream_sha: $upstream_ci${upstream_failed:+ ($upstream_failed)}."
+
           # --- dry run: everything read, nothing done --------------------------
           if [ "$EVENT" = pull_request ]; then
             echo 'Dry run: nothing is pushed, started or reported.'
@@ -222,6 +241,10 @@ jobs:
               echo "Would do nothing: $PR_BRANCH offers $offered already${pr:+ (#$pr)}, for the owner to merge."
             elif [ "$tried" = 1 ]; then
               echo "Would do nothing: branch $branch exists, so $latest failed its tests before."
+            elif [ "$upstream_ci" = pending ] || [ "$upstream_ci" = unknown ]; then
+              echo "Would wait for the next run: mpv's own CI on its commit is $upstream_ci."
+            elif [ "$upstream_ci" = failed ]; then
+              echo "Would not offer $latest and report it: mpv's own CI failed on its commit ($upstream_failed)."
             else
               echo "Would move mpv-build.json to $latest ($asset) on $branch, dispatch regression-tests.yml there, and offer it on a pull request from $PR_BRANCH if the suite passes."
             fi
@@ -269,24 +292,7 @@ jobs:
             exit 0
           fi
 
-          # --- mpv's own CI on the build's commit -------------------------------
-          # shinchiro builds mpv's newest commit every day, whatever mpv's own CI said
-          # of it: a build of a commit that CI failed is not offered (one issue says so),
-          # and one it still tests, or GitHub cannot tell, waits for the next run (a
-          # "stale" check too: GitHub no longer vouches for it). A commit with no checks
-          # (a docs change) counts as passed. mpv's macOS jobs do not count, and a job
-          # counts as passed when one of its runs passed: .github/scripts/upstream-ci.ps1
-          # says why, and the static tier tests it. Every page of checks (--slurp joins
-          # them).
-          upstream_sha=${asset##*-git-}
-          upstream_sha=${upstream_sha%.7z}
-          upstream_out=$(gh api --paginate --slurp "repos/mpv-player/mpv/commits/$upstream_sha/check-runs?per_page=100" > "$RUNNER_TEMP/upstream-checks.json" &&
-            pwsh -NoProfile -File .github/scripts/upstream-ci.ps1 -ChecksFile "$RUNNER_TEMP/upstream-checks.json") || upstream_out=unknown
-          # "<verdict><tab><failed jobs>"
-          upstream_ci=${upstream_out%%$'\t'*}
-          upstream_failed=''
-          if [ "$upstream_ci" != "$upstream_out" ]; then upstream_failed=${upstream_out#*$'\t'}; fi
-          echo "mpv's own CI on $upstream_sha: $upstream_ci${upstream_failed:+ ($upstream_failed)}."
+          # --- mpv's own CI on the build's commit: the decision (read above) -----
           if [ "$upstream_ci" = pending ] || [ "$upstream_ci" = unknown ]; then
             echo "$latest waits for the next run."
             exit 0
