@@ -161,7 +161,19 @@ function Timeline:on_options()
 end
 function Timeline:handle_cursor_up()
 	if self.pressed then
-		mp.set_property_native('pause', self.pressed.pause)
+		-- Local change (not upstream uosc): let go on the timeline's last pixel or past
+		-- it - a click at the end, or a drag to the end - is the end itself: an exact
+		-- seek to the duration, which ends the file (keep-open stops on its last frame),
+		-- and FastStream's autoplay goes on at an end. The keyframe seek above landed up
+		-- to a keyframe interval before it, and mpv stayed short of the end when it was
+		-- paused. (The last pixel: one pixel to the right is already the end.) Playback
+		-- goes on from there even when it was paused: paused on the last frame, mpv
+		-- never marked some files' end; keep-open pauses at the end again.
+		local at_end = state.duration and self:get_time_at_x(cursor.x + 1) >= state.duration
+		if at_end then
+			mp.commandv('seek', string.format('%.6f', state.duration), 'absolute+exact')
+		end
+		mp.set_property_native('pause', not at_end and self.pressed.pause)
 		self.pressed = false
 	end
 end

@@ -135,6 +135,7 @@ a stream's window; `single-instance.lua` takes it and offers the banner. Ctrl he
 | `speed-button.lua` | toolbar speed button (badge, click = next step, right-click = menu), the speed banner |
 | `remember-speed.lua` | `~~state/speed.json`; videos only; a song/video switch sets that kind's speed; a speed picked while a file loads wins |
 | `percent-seek.lua` | number keys: N x 10 %, as a time seek when the buffer holds the spot (mpv's own percent seek reads HLS/MPEG-TS again there), else mpv's percent seek |
+| `skip-forward.lua` | x, k, Right, Forward: a skip that would pass the end (or land in its last second) is an exact seek to the end that plays on to it, so the file ends and FastStream's autoplay goes on (mpv's own seek past an HLS end not yet buffered went on from the buffer's end) |
 | `pause-flash.lua` | each step into pause flashes uosc's whole UI (`flash-ui`, uosc.conf's `flash_duration`, shared with the volume/speed flashes) |
 | `auto-start.lua` | an inherited pause is cleared at file-loaded, except for a quality switch made while paused (`user-data/auto-start/keep-pause`); sub/audio delay back to 0 at unload |
 | `gpu-toggles.lua` | the upscale state (Off/Auto/Anime/Movie), quality High/Fast/Auto (measured per GPU, `~~state/upscale.json`), screen override, Movie sharpness, the upscale button and menus |
@@ -160,7 +161,8 @@ replace the folder and drop them (a static check guards each): managed buttons t
 (right-click); `user-data/uosc/bottom-ui` and `user-data/uosc/ui-scale` are
 published; the timeline shows a second (real-time) remaining time only when it
 differs and hatches the buffer for streams only; a timeline click seeks by
-keyframe; `flash-elements` takes a duration (ms) of its own, for the seek keys' timeline;
+keyframe, and one let go on its last pixel seeks exactly to the end and plays on to it
+(the file ends, as for skip-forward.lua); `flash-elements` takes a duration (ms) of its own, for the seek keys' timeline;
 `lib/intl.lua` reads the UI language from settings.json; `lib/cursor.lua` takes the
 pointer back over the window at the same pixel (another window covered it) for no move,
 and hides the UI with the pointer resting on it too (`autohide_over_controls`, 3 s; not
@@ -206,7 +208,9 @@ at startup was rejected as a visible race.
   video only toggles pause (`window-dragging=no`).
 - **Seeks are instant keyframe seeks**, without OSD text; numbers jump by percent. Each
   seek key shows the timeline for 2.5 s (the owner, 2026-10-21: a skip has to show where
-  it landed; from 2026-09-25 they flashed nothing, to match FastStream).
+  it landed; from 2026-09-25 they flashed nothing, to match FastStream). The one exact
+  seek: to the end, for a skip past it or a timeline click on its last pixel, which then
+  plays on to the end (the owner, 2026-11-03: a skip to the end must start autoplay).
 - **`video-sync=audio`**: FreeSync smooths judder, and reaches mpv only in
   fullscreen with an Adrenalin per-app profile set to FreeSync On.
 - **target-peak** (HDR brightness) applies to HDR sources only; set globally it dims SDR.
