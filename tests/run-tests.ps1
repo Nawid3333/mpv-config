@@ -821,7 +821,8 @@ function Invoke-StaticCheck {
     # every seek key is an instant keyframe seek (2026-10-09, the user: "make it instant ... I can
     # live with it when it is not exact"); absolute seeks are exact unless they say keyframes
     # (the number keys seek through percent-seek.lua, which keeps a buffered spot in the buffer)
-    $seekKeys = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]+\s+(no-osd\s+seek|script-message-to\s+percent_seek\s+jump)\s' })
+    # (the forward skips through skip-forward.lua, which lands a skip past the end on the end)
+    $seekKeys = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]+\s+(no-osd\s+seek|script-message-to\s+(percent_seek\s+jump|skip_forward\s+skip))\s' })
     # and shows where it landed: the timeline for 2.5 s (the owner, 2026-10-21), the same on every key
     $unflashed = @($seekKeys | Where-Object { $_ -notmatch ';\s*script-message-to uosc flash-elements timeline 2500(\s|$)' })
     Test-Check $t "input.conf: every seek key shows the timeline for 2.5 s ($($seekKeys.Count) keys)" (
@@ -831,6 +832,16 @@ function Invoke-StaticCheck {
         $seekKeys.Count -ge 16 -and $exactKeys.Count -eq 0) ($exactKeys -join ' | ')
     $percentKeys = @(0..9 | Where-Object { $inputConf -notmatch "(?m)^$_\s+script-message-to percent_seek jump $($_ * 10);" })
     Test-Check $t 'input.conf: key N jumps to N x 10 % through percent-seek.lua' ($percentKeys.Count -eq 0) ($percentKeys -join ', ')
+    # every forward skip lands on the end when it would pass it (FastStream's autoplay waits for an end)
+    $forward = @(@('x', 60), @('k', 10), @('right', 5), @('FORWARD', 60) | Where-Object {
+            $inputConf -cnotmatch "(?m)^$($_[0])\s+script-message-to skip_forward skip $($_[1]);" })
+    Test-Check $t 'input.conf: x, k, Right and Forward skip through skip-forward.lua' ($forward.Count -eq 0) (($forward | ForEach-Object { $_[0] }) -join ', ')
+    $plainForward = @(($inputConf -split "`n") | Where-Object { $_ -match '^\s*[^#\s]+\s+no-osd\s+seek\s+\+?[1-9]' })
+    Test-Check $t 'input.conf: no forward skip is a plain seek (one past the end would stop short of it)' ($plainForward.Count -eq 0) ($plainForward -join ' | ')
+    $skipSeeks = @(Get-Content -LiteralPath (Join-Path $Cfg 'Scripts/skip-forward.lua') | Where-Object { $_ -match "commandv\('seek'" })
+    Test-Check $t "skip-forward.lua: a keyframe skip, and an exact seek only to the end ($($skipSeeks.Count))" (
+        $skipSeeks.Count -eq 2 -and @($skipSeeks | Where-Object { $_ -match 'exact' -and $_ -notmatch "'%\.6f', duration\), 'absolute\+exact'" }).Count -eq 0 -and
+        @($skipSeeks | Where-Object { $_ -match "commandv\('seek', tostring\(seconds\)\)" }).Count -eq 1) ($skipSeeks -join ' | ')
     $percentSeeks = @(Get-Content -LiteralPath (Join-Path $Cfg 'Scripts/percent-seek.lua') | Where-Object { $_ -match "commandv\('seek'" })
     $percentExact = @($percentSeeks | Where-Object { $_ -match '\bexact\b' -or $_ -notmatch '\+keyframes''' })
     Test-Check $t "percent-seek.lua: both of its seeks are keyframe seeks ($($percentSeeks.Count))" (
@@ -962,6 +973,10 @@ function Invoke-StaticCheck {
         $uoscTimeline.Contains('state.realtime_remaining_human ~= state.content_remaining_human')) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t 'uosc local change present: Timeline.lua leaves the end time to destination_time=total (the pair is for the remaining times)' (
         $uoscTimeline.Contains("options.destination_time ~= 'total'")) 're-apply it after a uosc update (AGENTS.md)'
+    Test-Check $t 'uosc local change present: Timeline.lua seeks exactly to the end when let go on its last pixel' (
+        $uoscTimeline.Contains("local at_end = state.duration and self:get_time_at_x(cursor.x + 1) >= state.duration") -and
+        $uoscTimeline.Contains("mp.commandv('seek', string.format('%.6f', state.duration), 'absolute+exact')") -and
+        $uoscTimeline.Contains("mp.set_property_native('pause', not at_end and self.pressed.pause)")) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t 'uosc local change present: Timeline.lua seeks a click by keyframe (instant), not exact' (
         $uoscTimeline.Contains("mp.commandv('seek', self:get_time_at_x(cursor.x), 'absolute+keyframes')")) 're-apply it after a uosc update (AGENTS.md)'
     Test-Check $t "uosc.conf: font_scale matches the scripts' FONT_SCALE (Segoe UI's line box)" (
@@ -1994,6 +2009,11 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
     Initialize-Clip $Exe (Join-Path $m 'long/long.mkv') 320x180 180
     # percent-seek: MPEG-TS, a source mpv's own percent seek asks for a fraction of the file
     Initialize-Clip $Exe (Join-Path $m 'ts/long.ts') 320x180 180
+    # skip-to-end: an HLS stream, whose demuxer refuses a seek past the end (one 180 s
+    # MPEG-TS segment; loaded by its .m3u8 name, for which autoload.lua queues no neighbours)
+    Initialize-Clip $Exe (Join-Path $m 'hls-long/long.ts') 320x180 180
+    [IO.File]::WriteAllText((Join-Path $m 'hls-long/long.m3u8'), ("#EXTM3U`n#EXT-X-VERSION:3`n#EXT-X-TARGETDURATION:180`n" +
+            "#EXT-X-MEDIA-SEQUENCE:0`n#EXT-X-PLAYLIST-TYPE:VOD`n#EXTINF:180.0,`nlong.ts`n#EXT-X-ENDLIST`n"))
     Initialize-Clip $Exe (Join-Path $m 'subs/movie.mkv') 320x180 20
     # faststream-quality.lua: one video in two sizes, as a stream's own qualities. two.edl
     # makes them editions the way ytdl_hook makes YouTube's formats (one program_id each,
@@ -2424,6 +2444,11 @@ $HeadlessTests = @(
     }
     @{ Name = 'music-info'; Phases = @(@{ Script = 'headless/test-music-info.lua'; File = 'music-tagged/Nova Lane - Paper Lanterns.mp3' }) }
     @{ Name = 'keys'; Phases = @(@{ Script = 'headless/test-keys.lua'; File = 'long/long.mkv' }) }
+    # keys: paused, on a stream read only ~6 s ahead; timeline: uosc's timeline needs an OSD surface
+    @{ Name = 'skip-to-end'; Phases = @(
+            @{ Script = 'headless/test-skip-to-end.lua'; File = 'hls-long/long.m3u8'; Phase = 'keys' }
+            @{ Script = 'headless/test-skip-to-end.lua'; File = 'plain/clip.mkv'; Phase = 'timeline'; Args = $RealOsd })
+    }
     @{ Name = 'percent-seek'; Phases = @(
             @{ Script = 'headless/test-percent-seek.lua'; File = 'variants/v180.m3u8'; Phase = 'hls' }
             @{ Script = 'headless/test-percent-seek.lua'; File = 'ts/long.ts'; Phase = 'ts' })
