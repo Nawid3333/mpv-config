@@ -191,10 +191,10 @@ function Submit-Rolling([hashtable]$Offer, [string]$Root, [string]$Base) {
     git -C $Root add -- $Offer.File THIRD-PARTY-NOTICES.md
     git -C $Root commit -q -m $Offer.Message
     if ($LASTEXITCODE) { throw "could not commit $($Offer.File)" }
-    git -C $Root push -q -f origin "HEAD:refs/heads/$branch"
+    git -C $Root push -q -f origin "HEAD:refs/heads/$branch" | Out-Host
     if ($LASTEXITCODE) { throw "could not push the $branch branch" }
     foreach ($workflow in $Offer.Workflows) {
-        & gh workflow run $workflow --repo $Repo --ref $branch
+        & gh workflow run $workflow --repo $Repo --ref $branch | Out-Host
         if ($LASTEXITCODE) { throw "could not start $workflow on $branch" }
     }
     $body = Join-Path ([System.IO.Path]::GetTempPath()) "$branch-pr.md"
