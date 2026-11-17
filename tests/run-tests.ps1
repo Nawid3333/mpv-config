@@ -1265,6 +1265,23 @@ function Invoke-StaticCheck {
     $watchBad = @($watched.Keys | Where-Object { "$($watched[$_].Recorded)" -notmatch '^(v?[0-9]+(\.[0-9]+)+|[0-9a-f]{7,40})$' } |
             ForEach-Object { "$_ ('$($watched[$_].Recorded)')" })
     Test-Check $t "upstream-watch.ps1 finds every version it watches ($($watched.Count))" ($watchBad.Count -eq 0) ($watchBad -join ', ')
+    # 7zr.exe comes on a pull request (branch 7zip-update): the file is the one its notice row
+    # names. Without the LFS object (CI) the pointer's oid is the file's SHA-256.
+    $noticeText = Get-Content -Raw (Join-Path $RepoRoot 'THIRD-PARTY-NOTICES.md')
+    $sevenZr = Join-Path $RepoRoot '7z/7zr.exe'
+    $pointer = [regex]::Match([IO.File]::ReadAllText($sevenZr, [Text.Encoding]::Latin1), '\Aversion https://git-lfs\.github\.com/spec/v1\s+oid sha256:([0-9a-f]{64})\s')
+    $sevenZrSha = $pointer.Success ? $pointer.Groups[1].Value : (Get-FileHash -LiteralPath $sevenZr -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sevenZrRow = [regex]::Match($noticeText, '\[7-Zip\]\(https://www\.7-zip\.org/\) ([0-9.]+) by Igor Pavlov: the `7zr\.exe` of \[its release\]\(https://github\.com/ip7z/7zip/releases/tag/([0-9.]+)\), unchanged \(SHA-256 `([0-9a-f]{64})`\)')
+    Test-Check $t '7z/7zr.exe is the file its row in THIRD-PARTY-NOTICES.md names (version, release, SHA-256)' `
+        ($sevenZrRow.Success -and $sevenZrRow.Groups[1].Value -eq $sevenZrRow.Groups[2].Value -and $sevenZrRow.Groups[3].Value -eq $sevenZrSha) `
+        "the row: $($sevenZrRow.Value); the file's SHA-256: $sevenZrSha"
+    # The pull request moves that row - version, release link and SHA-256 - and nothing else.
+    $newSha = 'ab' * 32
+    $moved = ConvertTo-7ZipNotice $noticeText '99.01' $newSha
+    $expected = $noticeText.Replace($sevenZrRow.Value, "[7-Zip](https://www.7-zip.org/) 99.01 by Igor Pavlov: the ``7zr.exe`` of [its release](https://github.com/ip7z/7zip/releases/tag/99.01), unchanged (SHA-256 ``$newSha``)")
+    $refused = try { $null = ConvertTo-7ZipNotice 'no such row' '99.01' $newSha; $false } catch { $true }
+    Test-Check $t 'upstream-watch.ps1 moves the 7zr.exe row to a new release, and refuses a text without it' `
+        ($sevenZrRow.Success -and $moved -ceq $expected -and $moved -cne $noticeText -and $refused)
 
     # -- what a pull request changes that CI cannot test on a GPU (gpu-flag.ps1) ----------
     # Its title gets "[GPU: <areas>]" and its check "GPU tier (local)" waits for the gpu

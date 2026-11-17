@@ -6,12 +6,14 @@ name: Upstream watch
 # linters' pins (lua-language-server, PSScriptAnalyzer; stylua as a second look), the copied
 # code (uosc, thumbfast, autoload.lua) and the shaders' sources, from the versions
 # THIRD-PARTY-NOTICES.md and the workflow files record. One issue, "Upstream updates to look
-# at", lists what is behind, and closes once nothing is. autoload.lua, kept unchanged from
-# mpv, comes on ONE rolling pull request (branch autoload-update) with the regression tests
-# and the Lua lint started on it (a pull request opened with GITHUB_TOKEN starts none by
-# itself). The linters' pins stay on the issue: GITHUB_TOKEN may not push a change to
-# .github/workflows/*. A pull request that changes this workflow or its script runs it
-# read-only (-DryRun), its report in the run's summary.
+# at", lists what is behind, and closes once nothing is. What is kept unchanged from
+# upstream comes on a rolling pull request each, with the tests started on it (a pull request
+# opened with GITHUB_TOKEN starts none by itself): autoload.lua (branch autoload-update, the
+# Lua lint too) and 7-Zip's 7zr.exe (branch 7zip-update, checked against the SHA-256 GitHub
+# lists with the release's file; the push uploads it to Git LFS). The linters' pins stay on
+# the issue: GITHUB_TOKEN may not push a change to .github/workflows/*. A pull request that
+# changes this workflow or its script runs it read-only (-DryRun), its report in the run's
+# summary.
 
 on:
   schedule:
@@ -23,10 +25,10 @@ on:
       - .github/scripts/upstream-watch.ps1
 
 permissions:
-  contents: write # push autoload-update
+  contents: write # push autoload-update and 7zip-update (7zr.exe through Git LFS)
   issues: write # the issue that lists what is behind
-  pull-requests: write # the pull request that offers autoload.lua
-  actions: write # start the regression tests and the Lua lint on autoload-update
+  pull-requests: write # the pull requests that offer autoload.lua and 7zr.exe
+  actions: write # start the regression tests (and the Lua lint) on those branches
 
 concurrency:
   group: upstream-watch-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
