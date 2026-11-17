@@ -234,7 +234,7 @@ finishes, restart Firefox and continue with step 4.
    fork's helper looks for `C:\Program Files\mpv\mpv.exe` first.
 2. **Install the extension.** Download the signed `.xpi` from the fork's
    [Releases](https://github.com/Nawid3333/FastStream/releases) and open it in
-   Firefox 142 or newer. Firefox then updates it by itself.
+   Firefox 153 or newer (the minimum is in its README). Firefox then updates it by itself.
    Browsers built on Firefox (Zen, LibreWolf, Floorp) are not tested, and the
    one-click setup adds the add-on to Firefox only. Zen 1.22 and newer has a
    Windows bug that keeps add-ons from reaching programs on the PC
