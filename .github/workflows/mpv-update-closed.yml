@@ -1,0 +1,37 @@
+name: mpv-update closed
+
+# A build's pull request closed without merging leaves its branch behind; GitHub deletes it
+# only on a merge. mpv-auto-update.yml skips that build anyway: the closed pull request is
+# its record, not the branch.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write # delete the branch
+
+jobs:
+  delete-branch:
+    if: >-
+      github.event.pull_request.merged == false &&
+      github.event.pull_request.head.ref == 'mpv-update' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete mpv-update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Only the commit the pull request offered: a newer build pushed there meanwhile stays.
+          now=$(gh api "repos/$GH_REPO/git/ref/heads/mpv-update" --jq .object.sha 2>/dev/null) || { echo 'mpv-update is gone already.'; exit 0; }
+          if [ "$now" != "$SHA" ]; then
+            echo "mpv-update moved on to $now: kept."
+            exit 0
+          fi
+          gh api -X DELETE "repos/$GH_REPO/git/refs/heads/mpv-update"
+          echo "Deleted mpv-update ($SHA)."
