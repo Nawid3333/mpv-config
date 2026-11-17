@@ -96,6 +96,8 @@ makes a folder match it; `updater.bat` (= `installer/update.ps1`) does `git pull
 refreshes a FastStream helper the one-click install set up.
 `.github/workflows/mpv-auto-update.yml` offers each new build that passes the suite
 as ONE rolling pull request (`mpv-update`); CI has no GPU, so the owner merges it.
+Closed unmerged, that build is never offered again (the closed pull request is the
+record), only a newer one; `mpv-update-closed.yml` deletes its branch, as a merge does.
 shinchiro builds mpv's newest commit daily: a build of a commit mpv's own CI failed is
 never offered (one that it still tests waits a day). mpv's macOS jobs do not count, and a
 job one of whose runs passed counts as passed (`.github/scripts/upstream-ci.ps1`).

@@ -37,7 +37,9 @@ name: mpv auto-update
 #     that reaches his PC (updater.bat installs main's pin). The pull request
 #     keeps up: a newer build that passes moves the same branch and retitles
 #     it. Merged (GitHub deletes the branch), or main pinned to it or past it
-#     by hand (closed here), it is done. The mpv/* branches are deleted and an
+#     by hand (closed here), it is done. Closed unmerged by the owner, that
+#     build is skipped for good, only a newer one is offered; its branch goes
+#     (mpv-update-closed.yml). The mpv/* branches are deleted and an
 #     open failure issue is closed. (2026-10-03 to this change, the commit was
 #     pushed onto main by this workflow.)
 #  6. suite failed -> branch `mpv/<tag>` STAYS as the record that this exact
@@ -206,6 +208,11 @@ jobs:
           # Waiting there already: the latest build, or a newer one.
           waiting=0
           if [[ $offered =~ ^[0-9]{8}$ ]] && [ "$offered" -ge "$latest" ]; then waiting=1; fi
+          # Closed by the owner without merging (its branch deleted or not): this build is
+          # skipped, the next one is offered. $latest is 8 digits, checked above.
+          declined=$(gh pr list --repo "$GH_REPO" --state closed --head "$PR_BRANCH" --base main --limit 100 \
+            --json number,title,mergedAt,isCrossRepository \
+            --jq "[.[] | select((.isCrossRepository | not) and .mergedAt == null and (.title | endswith(\"pin mpv $latest (shinchiro)\")))][0].number // \"\"")
 
           # The open failure issue, if any (a list, not a search: the search
           # index lags behind an issue opened minutes ago).
@@ -239,6 +246,8 @@ jobs:
               if [ -n "$pr" ]; then echo "Would close #$pr: main pins its build already."; fi
             elif [ "$waiting" = 1 ]; then
               echo "Would do nothing: $PR_BRANCH offers $offered already${pr:+ (#$pr)}, for the owner to merge."
+            elif [ -n "$declined" ]; then
+              echo "Would do nothing: #$declined offered $latest and was closed unmerged; the next build is offered."
             elif [ "$tried" = 1 ]; then
               echo "Would do nothing: branch $branch exists, so $latest failed its tests before."
             elif [ "$upstream_ci" = pending ] || [ "$upstream_ci" = unknown ]; then
@@ -285,6 +294,10 @@ jobs:
           fi
           if [ "$waiting" = 1 ]; then
             echo "$PR_BRANCH offers $offered already${pr:+ (#$pr)}: it waits for the owner's merge."
+            exit 0
+          fi
+          if [ -n "$declined" ]; then
+            echo "#$declined offered $latest and was closed unmerged: skipped until a newer build."
             exit 0
           fi
           if [ "$tried" = 1 ]; then
