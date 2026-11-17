@@ -7,8 +7,9 @@
 #   - the copied code (uosc, thumbfast, autoload.lua), the shaders' sources and 7-Zip's
 #     7zr.exe, from the versions THIRD-PARTY-NOTICES.md records.
 # One issue, "Upstream updates to look at", lists what is behind and is closed once nothing is.
-# autoload.lua, kept unchanged from mpv, is offered on ONE rolling pull request (branch
-# autoload-update) with its notice moved, and the regression tests started on it.
+# What is kept unchanged from upstream comes on a rolling pull request each, with its notice
+# row moved and the tests started on it: autoload.lua (branch autoload-update) and 7zr.exe
+# (branch 7zip-update, the release's file checked against the SHA-256 GitHub lists with it).
 #
 #   pwsh .github/scripts/upstream-watch.ps1 -Run [-DryRun]   (GH_TOKEN, GH_REPO set; gh on PATH)
 #
@@ -17,7 +18,6 @@
 param([switch]$Run, [switch]$DryRun, [string]$Repo = $env:GH_REPO, [string]$Owner = $env:OWNER)
 
 $IssueTitle = 'Upstream updates to look at'
-$AutoloadBranch = 'autoload-update'
 
 # What this repository records for each item: name -> @{ Recorded; File }. A value that is
 # not found is $null, which the static tier's check turns red.
@@ -125,7 +125,7 @@ function Get-Watch([hashtable]$Rec) {
     & $commit 'SSimSuperRes' 'dyphire/mpv-config' 'shaders/igv/SSimSuperRes.glsl' 'new file and SHA-256; the gpu tier'
     & $commit 'CfL_Prediction' 'Artoriuz/glsl-chroma-from-luma-prediction' 'CfL_Prediction.glsl' 'new file and SHA-256; the gpu tier'
     # 7-Zip's own site links its downloads to these releases; each asset has its SHA-256 there.
-    & $tag '7-Zip' 'ip7z/7zip' 'replace 7z/7zr.exe with the release''s 7zr.exe (its SHA-256 on the release), and its row in THIRD-PARTY-NOTICES.md'
+    & $tag '7-Zip' 'ip7z/7zip' 'offered on a pull request (7zip-update)'
     try {
         # The gist's newest revision (its own version string inside the shader is another thing),
         # read from its git repository: the gists API refuses the Actions token (HTTP 403,
@@ -140,82 +140,177 @@ function Get-Watch([hashtable]$Rec) {
     $rows
 }
 
-function Format-Report($Rows, [string]$AutoloadPr) {
+function Format-Report($Rows, [hashtable]$Offers = @{}) {
     $lines = @('| | This repository | Upstream''s newest | To do |', '|---|---|---|---|')
     foreach ($r in $Rows) {
         $todo = ($r.Behind -or $r.Failed) ? $r.Todo : 'current'
-        if ($r.Name -eq 'autoload.lua' -and $r.Behind -and $AutoloadPr) { $todo = "offered on $AutoloadPr" }
+        if ($r.Behind -and -not $r.Failed -and $Offers[$r.Name]) { $todo = "offered on $($Offers[$r.Name])" }
         $newest = $r.Link ? "[$($r.Newest)]($($r.Link))" : $r.Newest
         $lines += "| $($r.Name) | $($r.Recorded) | $newest | $todo |"
     }
     $lines -join "`n"
 }
 
-# autoload.lua at upstream's newest commit on the rolling branch, its notice moved with it, the
-# regression tests and the Lua lint started there; the pull request's link, or $null.
-function Submit-Autoload($Row, [string]$Root) {
-    $existing = Invoke-GhJson @('pr', 'list', '--repo', $Repo, '--state', 'open', '--head', $AutoloadBranch, '--json', 'number,url')
-    $pr = Get-First $existing
-    # The branch offers this commit already: its pull request is open, or was closed unmerged,
-    # which skips the commit until a newer one comes (as stylua-update.yml does).
+# One rolling pull request for an item kept unchanged from upstream (as stylua-update.yml keeps
+# one): $Offer.Write puts the new files in place and moves their notice row; the branch, made
+# from $Base, is pushed, the workflows started on it, the pull request opened or brought up to
+# date. A branch whose THIRD-PARTY-NOTICES.md holds $Offer.Offered offers this version already:
+# its pull request is open, or was closed unmerged, which skips the version until a newer one
+# comes. The pull request's link, or $null.
+function Submit-Rolling([hashtable]$Offer, [string]$Root, [string]$Base) {
+    $branch = $Offer.Branch
+    $pr = Get-First (Invoke-GhJson @('pr', 'list', '--repo', $Repo, '--state', 'open', '--head', $branch, '--json', 'number,url'))
     $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$env:GH_TOKEN"))
-    # through git's environment, not its command line, where any process could read it
+    # through git's environment, not its command line, where any process could read it (git-lfs
+    # reads the same configuration for the upload)
     $env:GIT_CONFIG_COUNT = '1'
     $env:GIT_CONFIG_KEY_0 = 'http.https://github.com/.extraheader'
     $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: basic $auth"
-    git -C $Root fetch -q --depth=1 origin "refs/heads/$AutoloadBranch" 2>$null
+    git -C $Root fetch -q --depth=1 origin "refs/heads/$branch" 2>$null
     if (-not $LASTEXITCODE) {
         $offered = git -C $Root show "FETCH_HEAD:THIRD-PARTY-NOTICES.md" | Out-String
-        if ($offered -match "TOOLS/lua/autoload\.lua``\), as of upstream's commit ``$($Row.Sha.Substring(0, 8))") {
-            Write-Host "Branch $AutoloadBranch offers $($Row.Sha.Substring(0, 8)) already$($pr ? " ($($pr.url))" : ' (its pull request was closed unmerged: skipped until a newer commit)')."
+        if ($offered.Contains($Offer.Offered)) {
+            Write-Host "Branch $branch offers $($Offer.Version) already$($pr ? " ($($pr.url))" : ' (its pull request was closed unmerged: skipped until a newer one)')."
             return $pr ? $pr.url : $null
         }
     }
-    $raw = "https://raw.githubusercontent.com/mpv-player/mpv/$($Row.Sha)/TOOLS/lua/autoload.lua"
-    $file = Join-Path $Root 'portable_config/Scripts/autoload.lua'
-    Invoke-WebRequest -Uri $raw -OutFile $file -UseBasicParsing
-    $notices = Join-Path $Root 'THIRD-PARTY-NOTICES.md'
-    $text = Get-Content -Raw $notices
-    $moved = [regex]::Replace($text, "(TOOLS/lua/autoload\.lua``\), as of upstream's commit ``)[0-9a-f]{7,40}(`` \()[0-9-]{10}(\))",
-        "`${1}$($Row.Sha.Substring(0, 8))`${2}$($Row.Date)`${3}")
-    if ($moved -eq $text) { throw 'THIRD-PARTY-NOTICES.md: the autoload.lua row was not found' }
-    [System.IO.File]::WriteAllText($notices, $moved)
-    # A newer commit that left the file as it was still moves the notice: offered alone, or
-    # the item stays "behind" every week.
-    $fileChanged = [bool](git -C $Root status --porcelain -- portable_config/Scripts/autoload.lua)
     git -C $Root config user.name 'github-actions[bot]'
     git -C $Root config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-    git -C $Root switch -q -c $AutoloadBranch
-    if ($LASTEXITCODE) { throw "could not make the branch $AutoloadBranch" }
-    git -C $Root add portable_config/Scripts/autoload.lua THIRD-PARTY-NOTICES.md
-    git -C $Root commit -q -m "autoload.lua: mpv's newest ($($Row.Sha.Substring(0, 8)), $($Row.Date))"
-    if ($LASTEXITCODE) { throw 'could not commit autoload.lua' }
-    git -C $Root push -q -f origin "HEAD:refs/heads/$AutoloadBranch"
-    if ($LASTEXITCODE) { throw 'could not push the autoload-update branch' }
-    foreach ($workflow in 'regression-tests.yml', 'lint-lua.yml') {
-        & gh workflow run $workflow --repo $Repo --ref $AutoloadBranch
-        if ($LASTEXITCODE) { throw "could not start $workflow on $AutoloadBranch" }
+    git -C $Root switch -q -C $branch $Base
+    if ($LASTEXITCODE) { throw "could not make the branch $branch" }
+    if ($Offer.Lfs) {
+        # the clean filter that turns the file into its pointer (status below compares through
+        # it), and the hook that uploads it at the push
+        git -C $Root lfs install --local | Out-Null
+        if ($LASTEXITCODE) { throw 'git lfs install failed' }
     }
-    $title = "autoload.lua: mpv's newest ($($Row.Sha.Substring(0, 8)))"
-    $body = Join-Path ([System.IO.Path]::GetTempPath()) 'autoload-pr.md'
-    @(
-        "@$Owner mpv changed TOOLS/lua/autoload.lua (commit $($Row.Sha.Substring(0, 12)), $($Row.Date)). **It waits for your merge.**"
-        ''
-        "- Upstream: https://github.com/mpv-player/mpv/commits/master/TOOLS/lua/autoload.lua"
-        ($fileChanged ? '- The file is copied unchanged from upstream, and its row in THIRD-PARTY-NOTICES.md moves with it.' :
-            '- The file at that commit is the one here already: only its row in THIRD-PARTY-NOTICES.md moves.')
-        '- The regression tests and the Lua lint run on this branch (this workflow starts them: a pull request it opens starts none by itself).'
-        ''
-        'This pull request keeps up: a newer commit moves here.'
-    ) | Set-Content -Path $body -Encoding utf8
+    & $Offer.Write $Offer $Root
+    # A newer version that left the file as it was still moves the notice: offered alone, or
+    # the item stays "behind" every week.
+    $fileChanged = [bool](git -C $Root status --porcelain -- $Offer.File)
+    git -C $Root add -- $Offer.File THIRD-PARTY-NOTICES.md
+    git -C $Root commit -q -m $Offer.Message
+    if ($LASTEXITCODE) { throw "could not commit $($Offer.File)" }
+    git -C $Root push -q -f origin "HEAD:refs/heads/$branch"
+    if ($LASTEXITCODE) { throw "could not push the $branch branch" }
+    foreach ($workflow in $Offer.Workflows) {
+        & gh workflow run $workflow --repo $Repo --ref $branch
+        if ($LASTEXITCODE) { throw "could not start $workflow on $branch" }
+    }
+    $body = Join-Path ([System.IO.Path]::GetTempPath()) "$branch-pr.md"
+    (& $Offer.Body $Offer $fileChanged) | Set-Content -Path $body -Encoding utf8
     if ($pr) {
-        & gh pr edit $pr.number --repo $Repo --title $title --body-file $body | Out-Null
+        & gh pr edit $pr.number --repo $Repo --title $Offer.Title --body-file $body | Out-Null
         if ($LASTEXITCODE) { throw "could not update $($pr.url)" }
         return $pr.url
     }
-    $url = & gh pr create --repo $Repo --base main --head $AutoloadBranch --title $title --body-file $body --assignee $Owner
-    if ($LASTEXITCODE) { throw 'could not open the autoload.lua pull request' }
+    $url = & gh pr create --repo $Repo --base main --head $branch --title $Offer.Title --body-file $body --assignee $Owner
+    if ($LASTEXITCODE) { throw "could not open the pull request for $branch" }
     $url
+}
+
+# autoload.lua at upstream's newest commit, its notice moved with it; the Lua lint runs too.
+function Get-AutoloadOffer($Row, [string]$Root) {
+    $short = $Row.Sha.Substring(0, 8)
+    @{
+        Branch    = 'autoload-update'
+        Version   = $short
+        Sha       = $Row.Sha
+        Date      = $Row.Date
+        Offered   = "TOOLS/lua/autoload.lua``), as of upstream's commit ``$short"
+        File      = 'portable_config/Scripts/autoload.lua'
+        Lfs       = $false
+        Workflows = @('regression-tests.yml', 'lint-lua.yml')
+        Message   = "autoload.lua: mpv's newest ($short, $($Row.Date))"
+        Title     = "autoload.lua: mpv's newest ($short)"
+        Write     = {
+            param($O, $Root)
+            $raw = "https://raw.githubusercontent.com/mpv-player/mpv/$($O.Sha)/TOOLS/lua/autoload.lua"
+            Invoke-WebRequest -Uri $raw -OutFile (Join-Path $Root 'portable_config/Scripts/autoload.lua') -UseBasicParsing
+            $notices = Join-Path $Root 'THIRD-PARTY-NOTICES.md'
+            $text = Get-Content -Raw $notices
+            $moved = [regex]::Replace($text, "(TOOLS/lua/autoload\.lua``\), as of upstream's commit ``)[0-9a-f]{7,40}(`` \()[0-9-]{10}(\))",
+                "`${1}$($O.Version)`${2}$($O.Date)`${3}")
+            if ($moved -eq $text) { throw 'THIRD-PARTY-NOTICES.md: the autoload.lua row was not found' }
+            [System.IO.File]::WriteAllText($notices, $moved)
+        }
+        Body      = {
+            param($O, $FileChanged)
+            "@$Owner mpv changed TOOLS/lua/autoload.lua (commit $($O.Sha.Substring(0, 12)), $($O.Date)). **It waits for your merge.**"
+            ''
+            '- Upstream: https://github.com/mpv-player/mpv/commits/master/TOOLS/lua/autoload.lua'
+            ($FileChanged ? '- The file is copied unchanged from upstream, and its row in THIRD-PARTY-NOTICES.md moves with it.' :
+                '- The file at that commit is the one here already: only its row in THIRD-PARTY-NOTICES.md moves.')
+            '- The regression tests and the Lua lint run on this branch (this workflow starts them: a pull request it opens starts none by itself).'
+            ''
+            'This pull request keeps up: a newer commit moves here.'
+        }
+    }
+}
+
+# THIRD-PARTY-NOTICES.md with 7zr.exe's row moved to 7-Zip $Version: its version, its
+# release's link and the file's SHA-256.
+function ConvertTo-7ZipNotice([string]$Text, [string]$Version, [string]$Sha256) {
+    $row = '(\[7-Zip\]\(https://www\.7-zip\.org/\) )[0-9][0-9.]*( by Igor Pavlov: the `7zr\.exe` of \[its release\]\(https://github\.com/ip7z/7zip/releases/tag/)[0-9][0-9.]*(\), unchanged \(SHA-256 `)[0-9a-f]{64}(`\))'
+    if (-not [regex]::IsMatch($Text, $row)) { throw 'THIRD-PARTY-NOTICES.md: the 7zr.exe row was not found' }
+    [regex]::Replace($Text, $row, "`${1}$Version`${2}$Version`${3}$Sha256`${4}")
+}
+
+# The SHA-256 GitHub lists with release $Tag's 7zr.exe. The tag must be a version: it goes into
+# the download's URL, whose host and repository are fixed here.
+function Get-7zrDigest([string]$Tag) {
+    if ($Tag -notmatch '^[0-9]+\.[0-9]+$') { throw "7-Zip's newest tag is no version: $Tag" }
+    $release = Invoke-GhJson @('api', "repos/ip7z/7zip/releases/tags/$Tag")
+    $asset = Get-First (@($release.assets) | Where-Object name -CEQ '7zr.exe')
+    if (-not $asset) { throw "7-Zip $Tag has no 7zr.exe" }
+    $digest = "$(($asset.PSObject.Properties.Match('digest') | Select-Object -First 1).Value)"
+    if ($digest -notmatch '^sha256:([0-9a-f]{64})$') { throw "7-Zip $Tag's 7zr.exe has no SHA-256 on the release ('$digest')" }
+    $Matches[1]
+}
+
+# 7-Zip's newest release's 7zr.exe, refused unless its SHA-256 is the one GitHub lists with it.
+# Only the static tier checks it on the branch (against its notice row): the regression tests
+# unpack with the runner's own 7-Zip.
+function Get-7ZipOffer($Row, [string]$Root) {
+    $tag = $Row.Newest
+    @{
+        Branch    = '7zip-update'
+        Version   = $tag
+        Offered   = "[7-Zip](https://www.7-zip.org/) $tag by"
+        File      = '7z/7zr.exe'
+        Lfs       = $true
+        Workflows = @('regression-tests.yml')
+        Message   = "7-Zip: 7zr.exe $tag"
+        Title     = "7-Zip: 7zr.exe $tag"
+        Write     = {
+            param($O, $Root)
+            $tag = $O.Version
+            $sha = Get-7zrDigest $tag
+            $file = Join-Path $Root '7z/7zr.exe'
+            $download = "$file.download"
+            Invoke-WebRequest -Uri "https://github.com/ip7z/7zip/releases/download/$tag/7zr.exe" -OutFile $download -UseBasicParsing
+            $got = (Get-FileHash -LiteralPath $download -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($got -ne $sha) {
+                Remove-Item -LiteralPath $download
+                throw "7zr.exe of 7-Zip $tag has SHA-256 $got; the release lists $sha"
+            }
+            Move-Item -LiteralPath $download -Destination $file -Force
+            $notices = Join-Path $Root 'THIRD-PARTY-NOTICES.md'
+            [System.IO.File]::WriteAllText($notices, (ConvertTo-7ZipNotice (Get-Content -Raw $notices) $tag $sha))
+        }
+        Body      = {
+            param($O, $FileChanged)
+            "@$Owner 7-Zip $($O.Version) is out. **It waits for your merge.**"
+            ''
+            "- Release: https://github.com/ip7z/7zip/releases/tag/$($O.Version)"
+            ($FileChanged ? '- `7z/7zr.exe` is the release''s `7zr.exe`, unchanged: its SHA-256 is the one GitHub lists with the release''s file, and its row in THIRD-PARTY-NOTICES.md moves with it.' :
+                '- The release''s `7zr.exe` is the one here already: only its row in THIRD-PARTY-NOTICES.md moves.')
+            '- updater.bat unpacks mpv''s archive with it on a PC without 7-Zip installed.'
+            '- The regression tests run on this branch (this workflow starts them: a pull request it opens starts none by itself); their static tier checks the file against its notice row.'
+            ''
+            'This pull request keeps up: a newer release moves here.'
+        }
+    }
 }
 
 if (-not $Run) { return }
@@ -227,10 +322,23 @@ $missing = @($rec.Keys | Where-Object { -not $rec[$_].Recorded })
 if ($missing) { throw "not found in this repository's files: $($missing -join ', ')" }
 $rows = Get-Watch $rec
 $behind = @($rows | Where-Object Behind)
-$autoloadPr = $null
-$autoload = $rows | Where-Object Name -EQ 'autoload.lua'
-if ($autoload.Behind -and -not $DryRun) { $autoloadPr = Submit-Autoload $autoload $root }
-$report = Format-Report $rows $autoloadPr
+# Each offer starts from this commit, so one never carries the other's change.
+$base = git -C $root rev-parse HEAD
+$offers = @{}
+foreach ($name in 'autoload.lua', '7-Zip') {
+    $row = $rows | Where-Object Name -EQ $name
+    if (-not $row.Behind -or $DryRun) { continue }
+    try {
+        $offer = $name -eq '7-Zip' ? (Get-7ZipOffer $row $root) : (Get-AutoloadOffer $row $root)
+        $offers[$name] = Submit-Rolling $offer $root $base
+    }
+    catch {
+        # reported in its row and the issue; the run ends red for it below
+        $row.Failed = $_.Exception.Message
+        $row.Todo = "could not offer it: $($_.Exception.Message)"
+    }
+}
+$report = Format-Report $rows $offers
 $summary = $env:GITHUB_STEP_SUMMARY
 if ($summary) { Add-Content -Path $summary -Value "$report`n" }
 Write-Output $report

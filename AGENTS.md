@@ -102,7 +102,8 @@ job one of whose runs passed counts as passed (`.github/scripts/upstream-ci.ps1`
 mpv's own files and `yt-dlp.exe` are gitignored; the pre-commit hook refuses them.
 `upstream-watch.yml` (weekly) compares what nothing else updates - the linters' pins, uosc,
 thumbfast, autoload.lua, the shaders' sources and 7zr.exe, as THIRD-PARTY-NOTICES.md records them - with
-upstream's newest: one issue lists what is behind; autoload.lua comes on a rolling pull request.
+upstream's newest: one issue lists what is behind; autoload.lua and 7zr.exe come on a rolling pull
+request each (`autoload-update`, `7zip-update`), for the owner to merge.
 **Releases**: every push to main whose CI passes (the suite, and both linters when they run)
 is released by `auto-release.yml`: tag `vYYYY.MM.DD.N` on the tested commit, GitHub's list of
 the pull requests since the last release, the mpv build named. Nothing downloads them (the
