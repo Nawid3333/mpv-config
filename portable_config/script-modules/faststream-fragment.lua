@@ -1,29 +1,10 @@
--- faststream-fragment.lua - how the scripts read the FastStream helper's tags (AGENTS.md,
--- "FastStream contract"): items in the URL fragment - everything after the FIRST '#',
--- items separated by '&' - each a whole "fs-<name>=<value>" item, the LAST one of a
--- name counting. A site's own query ("?x=fs-content=anime") or a fragment item that
--- only ends in a tag ("#xfs-id=...") is no tag. Plain string compares throughout: a "%"
--- in an address never starts a Lua pattern class.
---
--- Loaded with dofile() (see state-file.lua for why not from Scripts/):
---
---   local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
---
--- It was six copies of the same loop (faststream-episodes, faststream-quality,
--- gpu-toggles, source-info, stream-resume, video-info), each to be changed alike
--- (issue #96); the static tier now checks no script parses the fragment by itself.
---
--- Also here: reopen_options(), what a file opened again (a quality switch, "Open"
--- in the source menu) takes along, once copied in faststream-quality and source-info.
+-- faststream-fragment.lua - reads the FastStream helper's tags from the URL fragment (AGENTS.md,
+-- "FastStream contract") and what a reopened stream takes along. Loaded with dofile().
 
 local mp = require('mp')
 
 local M = {}
 
---- The per-file options a stream needs when it is opened again: the request headers
---- and the title the FastStream helper gave it. Header fields as one comma list with
---- each field's own commas escaped (mpv's list syntax); a field ending in a backslash
---- cannot be written so and is left out, as the helper leaves it out.
 ---@return table<string, string> none when there is nothing to take along
 function M.reopen_options()
 	local file_options, fields = {}, {}
@@ -42,7 +23,6 @@ function M.reopen_options()
 	return file_options
 end
 
---- The fragment's items, in order; none without a '#'.
 ---@param path string|nil
 ---@return string[]
 function M.items(path)
@@ -56,8 +36,6 @@ function M.items(path)
 	return items
 end
 
---- The value of the last whole item that starts with the marker ("fs-id="), as it is
---- written (not decoded): '' for an empty one, nil without one.
 ---@param path string|nil
 ---@param marker string
 ---@return string|nil

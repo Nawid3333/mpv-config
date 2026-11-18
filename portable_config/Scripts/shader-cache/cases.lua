@@ -1,6 +1,4 @@
--- cases.lua - the clips of the shipped warm-up cases (shipped-cases.lua): how
--- warmup.lua makes each one with mpv's own encoder, and how it names a case in
--- its RESULT lines and progress. Loaded with dofile(), like fingerprint.lua.
+-- cases.lua - how warmup.lua makes each shipped case's clip with mpv's encoder, and names it. Loaded with dofile().
 
 local M = {}
 
@@ -35,14 +33,7 @@ local TRANSFER = {
 }
 local LEVELS = { limited = 'tv', full = 'pc' }
 
---- How to make a clip from a shipped case's `clip` (shipped-cases.lua):
----   w, h       size              pix    FFmpeg's pixel format
----   codec      mpv's encoder (--ovc)
----   matrix, primaries, gamma, levels    colour tags, mpv's names
----   sar        pixel aspect ('64/45': anamorphic)
----   grain      AV1 film grain (libsvtav1 only)
---- Returns the lavfi source, encoder options and a name for exactly that
---- recipe (sar/grain only added when set, so clips made before stay valid).
+--- A shipped case's `clip` as a lavfi source, encoder options and a name (fields: doc/scripts.md).
 ---@param clip table
 ---@return table|nil {source, ovc, ovcopts, name}
 function M.clip_recipe(clip)
@@ -103,7 +94,6 @@ function M.clip_recipe(clip)
 	return { source = source, ovc = clip.codec, ovcopts = table.concat(opts, ','), name = name }
 end
 
---- Description of a shipped case (shipped-cases.lua): its clip and what it sets.
 function M.describe_shipped(c)
 	local k = c.clip or {}
 	local extras = {}

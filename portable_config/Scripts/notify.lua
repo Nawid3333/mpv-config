@@ -1,73 +1,17 @@
 -- notify.lua - the small banners top right: every message this setup shows.
---
--- Every script sends its message here, and this script is the only one that
--- draws them: one stack, top right, below uosc's top bar and window buttons,
--- in the shader bar's design (solid black box, white title, grey detail line,
--- a thin progress line when there is progress). Plain mp.osd_message would
--- not do: mpv draws it as white text top left, where uosc's title bar covers
--- it.
---
--- mpv's OWN OSD text (menu actions like Contrast +, screenshots, show-text from
--- vendored scripts) cannot be drawn here - no script sees it. mpv.conf gives it
--- the same look instead (osd-box: the same dark box, top right, the title's
--- size) and this script keeps it right under the stack (osd-margin-y-offset),
--- so the two never overlap.
---
--- From a script or input.conf:
---   script-message-to notify show <id> <title> [detail] [seconds] [progress] [side] [icon]
---   script-message-to notify hide <id>
--- id        a banner with the same id is replaced where it stands (five speed
---           key presses show one banner, not five)
--- detail    the grey second line; '' for none
--- seconds   how long it stays; '' = DEFAULT_SECONDS, 0 = until replaced/hidden
--- progress  0..1 draws the progress line; the banner then has a fixed width,
---           so a changing percentage does not make it jump
--- side      "left" draws it top LEFT instead of top right; '' = right. Banners
---           of the two sides stack separately (the speed banner is on the
---           left, so it sits away from the video info).
--- icon      a Material icon name from uosc's icon font (fonts/uosc_icons.otf,
---           family MaterialIconsRound-Regular, the name is a ligature); '' = the
---           icon ICONS below gives the id, '-' = none.
---
--- The card: rounded like uosc's own menus and buttons, a hairline edge so a
--- black banner still has a shape over a black letterbox, and on the left the
--- SAME icon as the toolbar button the message belongs to (the speed banner
--- wears the speed button's icon, the shader messages the upscale button's
--- ...), in the one accent colour this setup uses (ACCENT: the sync tool's
--- drag colour, the progress line). Fonts are mpv.conf's osd-font (Segoe UI),
--- like uosc.
---
--- Size: every constant is the design unit multiplied by both the interface
--- scale and SIZE, a script-opt (default 1.35). SIZE applies to the fonts, the
--- card metrics and mpv's own OSD text alike, so everything stays one design.
--- Set size=1 in script-opts/notify_size.conf to go back.
---
--- State for tests: user-data/notify = { cards = { {id, title, detail,
--- progress, left, box}, ... } }, in the order they were shown (a new id is
--- appended, a re-shown one keeps its place); user-data/notify
--- .size = the effective SIZE (tests assert the opt is applied). box = {x, y,
--- w, h}, the rectangle in OSD pixels, is there only once the banner has been
--- DRAWN (published after canvas:update(), so an error while drawing leaves it
--- out); with no OSD surface (--vo=null) nothing is drawn and no card has one.
 
 local mp = require('mp')
 local opt = require('mp.options')
 local assdraw = require('mp.assdraw')
 
--- Design sizes in 720-line units, multiplied at draw time by the interface
--- scale so they come out as real pixels and scale exactly with uosc's UI,
--- whose own elements draw real pixels x uosc's scale (state.scale = hidpi x
--- fullscreen factor, published as user-data/uosc/ui-scale by a marked local
--- change in uosc/main.lua).
+-- Design sizes in 720-line units, times uosc's interface scale (user-data/uosc/ui-scale): real pixels, like uosc's.
 local TOP = 46 -- below uosc's top bar and window buttons
 local RIGHT = 14
 local LEFT = 14 -- the left stack's margin (side=left)
 local GAP = 6
 local PAD_X = 10
 local TITLE_SIZE, DETAIL_SIZE = 14, 11
--- Text sizes are multiplied by this at draw time: mpv.conf's osd-font (Segoe
--- UI) has a 1.19x taller line box than Arial, and libass sizes text by that
--- box (uosc.conf font_scale, same value).
+-- Segoe UI (osd-font) has a 1.19x taller line box than Arial, and libass sizes text by it (uosc.conf font_scale).
 local FONT_SCALE = 1.19
 -- text tops inside a banner; Segoe UI's taller line box (FONT_SCALE) puts
 -- the glyphs lower in it
@@ -76,22 +20,16 @@ local HEIGHT_TITLE, HEIGHT_DETAIL, HEIGHT_PROGRESS = 28, 40, 44
 local PROGRESS_WIDTH = 270
 local MAX_WIDTH = 380
 local DEFAULT_SECONDS = 2
--- Corners: uosc.conf's border_radius (6), the same rounding as uosc's menus,
--- buttons and tooltips. The progress line is a rounded bar of its own.
+-- uosc.conf's border_radius: the rounding of uosc's menus, buttons and tooltips.
 local RADIUS = 6
 local PROGRESS_HEIGHT = 3
--- The icon column: the icon's size on a one-line / two-line card, and the
--- space between it and the text.
 local ICON_SIZE, ICON_SIZE_TALL, ICON_GAP = 16, 20, 8
 -- mpv's own OSD text box (mpv.conf's osd-box block): libass pads the box by
 -- osd-shadow-offset on every side.
 local OSD_BOX_PAD = 7
--- &HBBGGRR& colours, alpha 00 = opaque. OLED black, solid: mpv.conf's
--- osd-back-color is the same #FF000000, so a banner and mpv's boxed OSD text
--- match.
+-- &HBBGGRR& colours, alpha 00 = opaque; the same black as mpv.conf's osd-back-color.
 local BOX, BOX_ALPHA = '000000', '00'
--- The hairline edge: white at ~10 %, like a Windows 11 flyout's stroke - on a
--- bright picture it is invisible, over a black letterbox it outlines the card.
+-- White at ~10 %, like a Windows 11 flyout's stroke: invisible on a bright picture, an outline over a black letterbox.
 local EDGE, EDGE_ALPHA = 'FFFFFF', 'E6'
 local TITLE_COLOR, DETAIL_COLOR = 'FFFFFF', 'B4B4B4'
 -- The one accent colour (#4CC2FF, Windows 11's dark-mode accent): banner
@@ -144,9 +82,7 @@ local meter = mp.create_osd_overlay('ass-events')
 meter.hidden = true
 meter.compute_bounds = true
 
--- The scale every metric is multiplied by: uosc's interface scale, read from
--- its user-data hook. A display-height fallback until uosc publishes (it may
--- load after the first banner) keeps that first banner reasonable.
+-- uosc's interface scale; a display-height fallback until uosc publishes it.
 local scale = 1
 local function read_scale()
 	local s = mp.get_property_number('user-data/uosc/ui-scale')
@@ -160,16 +96,13 @@ local function read_scale()
 	end
 end
 
---- A design value as REAL pixels: design x interface scale x user size.
 ---@param v number
 ---@return number
 local function px(v)
 	return math.floor(v * scale * user_size + 0.5)
 end
 
--- Draw() is defined further down; the ui-scale observer below can fire on a
--- property change, so it needs the name bound up front - without this, Lua
--- compiles its draw() call as a nil GLOBAL lookup (undefined-global).
+-- Bound up front: the ui-scale observer below calls draw(), which is defined further down.
 local draw
 
 mp.observe_property('user-data/uosc/ui-scale', 'number', function()
@@ -182,13 +115,8 @@ mp.observe_property('user-data/uosc/ui-scale', 'number', function()
 	end
 end)
 
--- mpv's OWN OSD text (mpv.conf's osd-box block: font 14, box padding 7,
--- margins 22/53 - the banners' title size and edges at a 720-line window)
--- must come out exactly where and as big as a banner would. Its "scaled
--- pixels" follow the window height, not uosc's interface scale, so this
--- switches that off (osd-scale-by-window=no: every one of those options is
--- then in REAL pixels) and writes the banners' own px() values into all of
--- them whenever the scale or the window changes.
+-- mpv's own OSD text (mpv.conf's osd-box) must come out where and as big as a banner; its scaled pixels follow
+-- the window, not uosc's scale, so osd-scale-by-window=no makes them real pixels and the banners' px() values go in.
 local osd_scaled = nil
 local function set_osd_scale()
 	local w, h = mp.get_osd_size()
@@ -201,9 +129,7 @@ local function set_osd_scale()
 	local key = table.concat(values, ',')
 	if key ~= osd_scaled then
 		osd_scaled = key
-		-- osd-scale-by-window is a yes/no OPTION: set_property_number with a
-		-- boolean throws in the real renderer and kills every banner after
-		-- it. Options go through set_property, which accepts no as a string.
+		-- osd-scale-by-window is a yes/no option: set_property_number with a boolean throws in the real renderer.
 		mp.set_property('osd-scale-by-window', 'no')
 		mp.set_property_number('osd-font-size', values[1])
 		mp.set_property_number('osd-shadow-offset', values[2])
@@ -212,9 +138,7 @@ local function set_osd_scale()
 	end
 end
 
--- Text into an ASS event: a backslash gets a zero-width no-break space after
--- it (mpv's own osc.lua does the same), braces are escaped, so a file name
--- can never start an override tag.
+-- A backslash gets a zero-width no-break space after it (as osc.lua does), braces are escaped: no override tag.
 ---@param str string
 ---@return string
 local function ass_escape(str)
@@ -242,8 +166,6 @@ local function text_event(x, y, size, color, str, clip)
 	)
 end
 
---- A filled rectangle with rounded corners (radius 0 = square), optionally
---- with a 1 px edge in another colour.
 ---@return string
 local function rect_event(x, y, w, h, color, alpha, radius, edge)
 	local path = assdraw.ass_new()
@@ -268,8 +190,6 @@ local function rect_event(x, y, w, h, color, alpha, radius, edge)
 	)
 end
 
---- An icon from uosc's icon font, centred on (x, y): the family uosc's own
---- ass:icon() names, the icon's name as text (the font turns it into the glyph).
 ---@return string
 local function icon_event(x, y, size, name, clip)
 	return string.format(
@@ -308,9 +228,7 @@ local function text_width(str, size)
 	return #str * size * 0.55 -- the OSD has no size yet: a fair estimate
 end
 
--- A detail too wide for the card wraps, word by word, onto up to
--- MAX_DETAIL_LINES lines, so a long banner does not lose the part that says
--- what to do. Whatever does not fit even then goes on the last line, clipped.
+-- A too-wide detail wraps onto up to MAX_DETAIL_LINES lines; what still does not fit is clipped on the last.
 local DETAIL_LINE = 15
 local MAX_DETAIL_LINES = 3
 
@@ -365,9 +283,7 @@ local function card_size(card, limit)
 end
 
 local native_offset = 0
--- mpv's own OSD text starts right under the last banner of the RIGHT stack.
--- The left stack is a separate corner mpv's right-aligned OSD text cannot
--- land on, so its height does not move the text.
+-- mpv's own OSD text starts under the right stack's last banner; the left stack does not move it.
 ---@param offset number
 local function set_native_offset(offset)
 	offset = math.floor(offset + 0.5)
@@ -408,9 +324,7 @@ draw = function()
 	-- The canvas is the display's own size: real-pixel drawing, like uosc's.
 	canvas.res_x, canvas.res_y = known and w or 1280, known and h or 720
 	local top, right, left, gap, pad_x = px(TOP), px(RIGHT), px(LEFT), px(GAP), px(PAD_X)
-	-- A window narrower than a card (a small video) would put its left part off screen,
-	-- the banner a click goes to (single-instance.lua) included: the card fits the window,
-	-- its detail wrapped narrower, and a title too long is cut at the padding.
+	-- A window narrower than a card: the card fits the window, its detail wrapped narrower, a long title cut.
 	local limit = px(MAX_WIDTH)
 	if known then
 		limit = math.max(math.min(limit, w - left - right), 4 * pad_x)

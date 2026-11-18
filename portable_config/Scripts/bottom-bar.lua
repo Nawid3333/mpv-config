@@ -1,40 +1,5 @@
 -- bottom-bar.lua - what moves with uosc's bottom bar: the soft dark scrim the
 -- controls sit on, and the subtitles, which rise above the bar while it shows.
---
--- The scrim. uosc draws each control as its own black square (uosc.conf
--- opacity controls=1) - over a picture the button row reads as separate tiles.
--- This instead draws one dark gradient behind the whole row, from clear above
--- the buttons to black where uosc's solid-black timeline starts. The
--- per-control squares are then off (opacity controls=0); uosc gives every icon
--- a dark outline (text_border) and a hover highlight, so each stays readable
--- on any picture. The scrim fades in and out exactly with uosc's bar: uosc
--- publishes the bar's visibility and edges as user-data/uosc/bottom-ui (a
--- marked local change in uosc/main.lua; music-info.lua reads the same
--- property).
---
--- The lift. uosc's controls are drawn over the subtitles and cover the line
--- being spoken. While the bar shows - and while the sync tool's panel is open,
--- which sits in the same place - the subtitles move up to just above it, in
--- ONE step: up as soon as the bar starts to fade in, down once it has faded
--- out completely. Never a new value per fade step: every changed sub-* or
--- osd-* option makes mpv reconfigure libass for the subtitles (sub/sd_ass.c:
--- SD_CTRL_UPDATE_OPTS -> configure_ass() ->
--- ass_set_selective_style_override(), which always calls ass_reconfigure()),
--- and that empties libass's glyph, bitmap and composite caches - each changed
--- value renders every subtitle anew, on the video thread. Two writes per show
--- and hide are the least a lift can do.
---   - text subtitles (SRT, WebVTT - everything mpv styles itself): through
---     sub-margin-y-offset, the option mpv provides for dynamic margin
---     adjustments at runtime (mpv's own OSC uses it the same way)
---   - ASS and picture subtitles (their own margins, which that option does not
---     touch): through sub-pos, from where the user's sub-pos puts them. libass moves
---     only bottom-aligned dialogue with it - signs and anything placed with
---     \pos stay where the typesetter put them. mpv.conf removes sub-pos from
---     the watch-later options, so a lifted position is never saved for a file.
---
--- State for tests: user-data/bottom-bar = {visibility, scrim (drawn: true),
--- lift_px (how far the subtitles were raised, real pixels), mode ('margin' |
--- 'pos' | nil), sub_pos (the user's own sub-pos, what it returns to)}.
 
 local mp = require('mp')
 
@@ -45,9 +10,7 @@ local MAX_OPACITY = 0.88 -- at the timeline's top edge (the timeline is solid bl
 local CURVE = 1.6 -- > 1: the darkness gathers low, behind the buttons
 local STRIP = 2 -- the gradient is drawn in strips this tall
 local GAP = 10 -- between the lifted subtitles and the bar
--- ASS/picture subtitles: their own bottom margin is unknown here (MarginV of
--- the file's styles); typical scripts sit 3-5 % above the frame's bottom, this
--- assumes the lower end so a line is rather lifted a little more than less.
+-- ASS/picture subtitles: their own bottom margin (MarginV) is unknown here; assumed low (scripts sit 3-5 % up).
 local ASS_MARGIN = 0.02
 
 local IMAGE_CODECS = { hdmv_pgs_subtitle = true, dvd_subtitle = true, dvb_subtitle = true, xsub = true }
@@ -63,7 +26,7 @@ local loaded = false
 -- last wrote, to tell its own writes from the user's
 local user_pos = nil
 local written_pos = nil
-local applied = { lift = 0, mode = nil, offset = 0 }
+local applied = { lift = 0, mode = nil }
 local scrim_drawn = false
 
 local function scale(h)
@@ -93,8 +56,6 @@ local function publish()
 		sub_pos = user_pos,
 	})
 end
-
--- ---- the scrim ---------------------------------------------------------------------
 
 local function draw_scrim(w, h, k, controls_top, timeline_top, visibility)
 	if not loaded or visibility <= 0 or not controls_top or controls_top >= h then
@@ -130,12 +91,7 @@ local function draw_scrim(w, h, k, controls_top, timeline_top, visibility)
 	return true
 end
 
--- ---- the lift ----------------------------------------------------------------------
-
--- Takes over a sub-pos change this script did not make, as the user's own
--- position. Read before every write, not only in the observer: observer
--- notifications arrive later, and a change made just before the bar moved
--- would otherwise be overwritten unseen.
+-- Takes a sub-pos change this script did not make as the user's own; read before every write, as observers come late.
 local function adopt_user_pos()
 	local current = mp.get_property_number('sub-pos')
 	if not current then
@@ -176,11 +132,10 @@ local function apply(mode, lift, offset)
 	elseif mode == 'pos' and user_pos then
 		set_pos(user_pos - offset)
 	end
-	applied = { lift = lift, mode = mode, offset = offset }
+	applied = { lift = lift, mode = mode }
 end
 
--- The full lift as soon as any of the bar shows - one step, not one value per
--- fade step: every new value empties libass's caches (see the header).
+-- The full lift as soon as any of the bar shows: one step, as every new value empties libass's caches.
 local function update_lift(h, dims, controls_top, visibility)
 	adopt_user_pos()
 	local track = mp.get_property_native('current-tracks/sub')
@@ -198,10 +153,7 @@ local function update_lift(h, dims, controls_top, visibility)
 	end
 	local k = scale(h)
 	target = target - GAP * k
-	-- where the user's own sub-pos puts them: every point above 100 is 1 % lower
-	-- (of the video for ASS and pictures, of the window for text - measured on
-	-- rendered frames), each below 100 1 % higher. The lift went from the default
-	-- place, and after Subtitles > Position steps the line rose too far or not enough.
+	-- from where the user's sub-pos puts them: each point away from 100 moves the line 1 % (measured).
 	local below_default = ((user_pos or mp.get_property_number('sub-pos') or 100) - 100) / 100
 	local codec = track.codec or ''
 	if codec == 'ass' or codec == 'ssa' or IMAGE_CODECS[codec] then
@@ -233,8 +185,6 @@ local function update_lift(h, dims, controls_top, visibility)
 		apply('margin', lift, lift * per_px)
 	end
 end
-
--- ---- wiring ------------------------------------------------------------------------
 
 local function update()
 	local dims = mp.get_property_native('osd-dimensions') or {}

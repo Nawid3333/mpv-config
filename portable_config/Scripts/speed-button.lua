@@ -1,5 +1,4 @@
--- Speed button for uosc toolbar
--- Shows current playback speed as a badge; left-click steps to the next speed, right-click opens the menu.
+-- speed-button.lua - the toolbar speed button: badge, click = next step, right-click = menu
 
 local mp = require('mp')
 local msg = require('mp.msg')
@@ -17,10 +16,8 @@ local function build_speed_presets()
 	return speeds
 end
 
--- Full menu list: 0.5x, 1x, 1.5x, 2x, 2.5x, ..., 16x
 local speed_presets = build_speed_presets()
 
---- Format speed as a short badge string (e.g. "1x", "1.5x", "0.75x").
 ---@param speed number
 ---@return string
 local function format_speed(speed)
@@ -28,10 +25,7 @@ local function format_speed(speed)
 	return (string.format('%.2f', speed):gsub('%.?0+$', '')) .. 'x'
 end
 
---- Open a speed-selection menu with the full stepped list.
---- Preset clicks are routed through Scripts/speed-presets.lua so the menu
---- behaves exactly like the preset KEYS in input.conf: picking a preset that
---- is already active reverts to the previous speed instead of doing nothing.
+-- Preset clicks go through speed-presets.lua, so the menu toggles back like the keys.
 local function open_speed_menu()
 	local current = mp.get_property_native('speed', 1)
 	local items = {}
@@ -57,10 +51,7 @@ local function open_speed_menu()
 	end
 end
 
--- uosc draws a badge inside its button's fixed box: more than 4 characters
--- spill onto the next button (gpu-toggles' UPSCALE_BADGES has the same limit).
--- A longer one loses its "x" (10.5x and up in the menu, 1.33x after mpv's own
--- [ / ] keys), and one still longer than 4 is rounded to a whole number.
+-- uosc's badge box holds 4 characters: a longer badge loses its "x", then is rounded.
 local function badge_of(speed)
 	local text = format_speed(speed)
 	if #text > 4 then
@@ -72,16 +63,12 @@ local function badge_of(speed)
 	return text
 end
 
---- The speed banner top LEFT (id "speed", shared with speed-presets.lua). Also
---- `show-speed` from input.conf after a no-osd change (s/d, the right-click
---- menu's extra speeds), so every speed change looks the same.
 local function show_speed()
 	local speed = mp.get_property_native('speed', 1)
 	mp.commandv('script-message-to', 'notify', 'show', 'speed', 'Speed ' .. format_speed(speed), '', '', '', 'left')
 end
 
---- Left-click: step to the next entry of the menu list, wrapping 16x -> 0.5x.
---- A speed between steps (e.g. 1.3x from s/d) goes to the next step above it.
+-- Left-click: the next menu step, wrapping 16x -> 0.5x; a speed between steps goes to the next above.
 local function cycle_speed()
 	local current = mp.get_property_native('speed', 1)
 	local next_speed = speed_presets[1]
@@ -95,7 +82,6 @@ local function cycle_speed()
 	show_speed()
 end
 
---- Update the uosc button:speed managed button.
 local function update_button()
 	local speed = mp.get_property_native('speed', 1)
 	local data = {

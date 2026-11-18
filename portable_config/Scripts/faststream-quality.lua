@@ -1,74 +1,10 @@
--- faststream-quality.lua - the one Quality button and menu: the qualities this video comes
--- in, as a managed uosc button (its badge: the one playing) and a menu that switches
--- between them without losing the position. The qualities come from one of two places.
---
--- 1. The FastStream web page's own list. Some sites offer a video as several files, one per
--- quality (360p, 720p, 1080p), and their player loads one. FastStream sends mpv the one its
--- quality setting asks for, and the list: the native host appends it to the stream URL as a
--- fragment item (everything after the first '#', items separated by '&'; a fragment is never
--- sent to the server):
---
---   https://cdn/x.mp4#fs-id=ab12&fs-quality=<percent-encoded JSON>
---
--- The JSON is an array of two to twelve {"label": "720p", "height": 720, "url":
--- "https://host/720.mp4"} (height 0 when the page did not say). The file playing is
--- the entry whose url equals `path` up to its first '#' (the host writes the entries
--- without a fragment of their own). A switch is loadfile replace with the entry's
--- url plus the current fragment, '#' and all items unchanged: the FastStream tags,
--- fs-quality included, travel with the next file, and the button keeps working;
--- with it travel the position (whole seconds, rounded down), the request headers and
--- the title the file came with (faststream-fragment.lua's reopen_options), the host's
--- subtitle paths (options/sub-files) and the pause state. auto-start.lua unpauses every
--- new file, so a switch made while paused names the file it loads in
--- user-data/auto-start/keep-pause, and that one stays paused (issue #96).
---
--- Only http(s) entries are ever loaded: the list comes from a web page, and mpv opens
--- local files and UNC paths too. The tests run with
--- script-opts faststream_quality-test_local=yes, which also takes local paths (the
--- clips they name): entries without a scheme and Windows paths, whose drive letter
--- reads as a one-letter scheme (D:\a\...).
---
--- 2. The stream itself, when it holds several qualities: an HLS master playlist's variants,
--- YouTube's formats (ytdl_hook's all_formats, on by default), a DASH manifest's. mpv makes
--- the first two editions, one per variant (--flatten-editions=no, its default), and lists
--- only the playing one's tracks; setting `edition` swaps the tracks in place (an HLS variant
--- starts over from the beginning, and the script seeks back). It is set as a file-local option: `edition` itself would stay for the next file,
--- an index into its own editions (another quality, or another cut of a Matroska film). An
--- edition's height is read from the title mpv composes for it ("Bitrate: 2.500 Mbps (h264
--- 1280x720 25 fps)", YouTube's "137 - 1920x1080 (1080p) (h264 ...)"): an edition that names
--- no size is no quality, and neither are a Matroska file's editions (cuts of a film), whose
--- tracks belong to no program. Variants mpv lists as tracks (DASH, --flatten-editions=yes)
--- switch with a file-local `vid`, for the same reason. One row per height and frame rate: the one playing, else the highest
--- bitrate (HLS says it), else the first mpv lists (YouTube: yt-dlp's preferred format).
---
--- The page's list wins when a file has both (its entries may be HLS masters). uosc's own
--- stream-quality button is not in the bar: its menu sets ytdl-format, which only a YouTube
--- reload reads, and lists sizes the video may not have. uosc's Editions button hides while
--- the editions are this menu's qualities (uosc.conf, user-data/faststream-quality/editions).
---
--- The button is managed: its look is pushed with script-message-to uosc set-button
--- (as the episode buttons and source-info.lua's source button), and uosc.conf's
--- controls= gates it with the disposition <user-data/faststream-quality/shown>, set
--- true only after the first push reached uosc (an uninitialised managed button draws
--- as a question mark) and false once the file offers no choice or nothing is loaded.
---
--- The menu is a uosc callback menu (source-info.lua's pattern): every event arrives
--- as JSON at our menu-callback, and "activate" carries the row's value (the entry's url,
--- edition:<id> or track:<id>). uosc keeps a callback menu open over a switch and a file
--- change; an open menu is updated with each change, and a row a file's list does not have
--- does nothing.
--- input.conf's Video > Quality sends open-menu; a file without a choice opens nothing.
---
--- For the tests: user-data/faststream-quality/list (the entries or nothing), .../source
--- (page, editions, tracks or nothing), .../current (1-based, or nothing), .../shown,
--- .../editions, .../button (what was last pushed), .../last-load (the url and options
--- of the last file switch) and .../returning (an HLS switch's way back is still to come).
+-- faststream-quality.lua - the one Quality button and menu: the qualities this video comes in (the page's list,
+-- else the stream's own variants), switched without losing the position.
 
 local mp = require('mp')
 local msg = require('mp.msg')
 local options = require('mp.options')
 local utils = require('mp.utils')
--- the FastStream tags in the URL fragment (AGENTS.md, "FastStream contract")
 local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
 
 local opts = {
@@ -103,11 +39,7 @@ local function publish_returning()
 	mp.set_property_native('user-data/faststream-quality/returning', back_to ~= nil or back_wait ~= nil)
 end
 
--- ---- reading the fragment -------------------------------------------------------------
-
--- The first n characters of a UTF-8 string, whole characters: the labels come from web
--- pages ("高清 1080P"), and a cut by bytes left half a character, which uosc drew as
--- invalid text (issue #96). LuaJIT has no utf8 library.
+-- The first n whole characters of a UTF-8 string (labels come from web pages; LuaJIT has no utf8 library).
 ---@param s string
 ---@param n integer
 ---@return string
@@ -130,11 +62,7 @@ local function url_decode(s)
 	end))
 end
 
---- The value of the last `marker` item in the fragment part of the URL, or nil.
---- The fragment is everything after the first '#', its items separated by '&'.
---- Only a whole item counts, and the last one wins: the FastStream host drops fs-*
---- items a stream URL already carries and appends its own after the rest, so
---- "xfs-quality=..." can never pass for its tag.
+--- The value of the last whole `marker` item of the URL fragment, or nil (faststream-fragment.lua).
 ---@param url string
 ---@param marker string
 ---@return string|nil
@@ -150,10 +78,7 @@ local function path_without_fragment(path)
 	return hash and path:sub(1, hash - 1) or path
 end
 
---- One entry {label, height, url} of the list, or nil. http(s) urls only - the list
---- comes from a web page - and with test_local also local paths (no scheme, or a
---- drive letter). A label is
---- always shown, from the height when the page sent none.
+--- One entry {label, height, url}, or nil: http(s) only (the list comes from a web page); local paths with test_local.
 ---@param raw any
 ---@return table|nil
 local function parse_entry(raw)
@@ -213,9 +138,7 @@ local function quality_list(path)
 	return entries
 end
 
---- The 1-based index of the entry this path plays: the one whose url is the path up
---- to its first '#'. None when the list does not hold it: the menu stays, without an
---- active row, and the button without a badge.
+--- The index of the entry this path plays (its url is the path up to the first '#'); none: no active row, no badge.
 ---@param path string
 ---@param entries table
 ---@return number|nil
@@ -229,8 +152,6 @@ local function playing_index(path, entries)
 	return nil
 end
 
--- ---- the stream's own qualities -------------------------------------------------------
-
 --- "720p", or "1080p60": a rate above 30 is named, as web players do.
 ---@param height integer
 ---@param fps number
@@ -240,9 +161,7 @@ local function variant_label(height, fps)
 	return height .. 'p' .. (rate > 30 and tostring(rate) or '')
 end
 
---- One row per label, the highest first: the variant playing, else the one with the
---- highest bitrate, else the first listed. The rows and the playing one's index, or nil
---- with fewer than two rows to choose from.
+--- One row per label, highest first: the variant playing, else the highest bitrate, else the first; nil below two.
 ---@param found table[] {label, height, fps, bitrate, playing, value, edition | track}
 ---@return table|nil, integer|nil
 local function variant_rows(found)
@@ -280,7 +199,6 @@ local function variant_rows(found)
 	return rows, current
 end
 
---- The playing video track, or nil.
 ---@param tracks table[]
 ---@return table|nil
 local function playing_video(tracks)
@@ -292,7 +210,6 @@ local function playing_video(tracks)
 	return nil
 end
 
---- The editions as qualities: rows and the playing one, or nil.
 ---@param tracks table[]
 ---@return table|nil, integer|nil
 local function edition_variants(tracks)
@@ -334,8 +251,7 @@ local function edition_variants(tracks)
 	return variant_rows(found)
 end
 
---- The video tracks as qualities (variants mpv lists as tracks): rows and the playing
---- one, or nil. Cover art and other pictures are no quality.
+--- The video tracks as qualities (variants mpv lists as tracks); cover art and other pictures are none.
 ---@param tracks table[]
 ---@return table|nil, integer|nil
 local function track_variants(tracks)
@@ -359,7 +275,6 @@ local function track_variants(tracks)
 	return variant_rows(found)
 end
 
--- Reads the loaded file's own qualities again.
 local function read_variants()
 	local tracks = mp.get_property_native('track-list') or {}
 	local list, current = edition_variants(tracks)
@@ -371,11 +286,8 @@ local function read_variants()
 	variants = list and { source = source, list = list, current = current } or nil
 end
 
--- ---- the button -----------------------------------------------------------------------
-
 local pushed_json = nil -- the button JSON uosc last got
 
---- Sends the button's look to uosc unless it has it already; true when it has.
 ---@param data table
 ---@return boolean
 local function push_button(data)
@@ -396,9 +308,6 @@ local function push_button(data)
 	return false
 end
 
--- ---- the menu -------------------------------------------------------------------------
-
---- The height as a hint beside the row, unless the label says it already.
 ---@param entry table
 ---@return string|nil
 local function hint_for(entry)
@@ -434,10 +343,7 @@ local function open_menu(update)
 		type = MENU_TYPE,
 		title = 'Quality',
 		items = items,
-		-- uosc's callback menu mode (menus.lua): the table is spliced into
-		-- "script-message-to <...callback...> <event json>", so every menu event
-		-- arrives at our 'menu-callback' instead of uosc running item values as
-		-- mpv commands.
+		-- uosc's callback menu mode: every menu event arrives at 'menu-callback' instead of uosc running item values.
 		callback = { script_name, 'menu-callback' },
 	})
 	if json then
@@ -451,9 +357,7 @@ local function open_menu(update)
 	end
 end
 
--- A push uosc did not get (it had not started yet) is sent again every second until it
--- has it, as faststream-episodes.lua does: one retry after 0.5 s left a slow start
--- without the button for that video.
+-- A push uosc did not get is sent again every second until it has it, as faststream-episodes.lua does.
 local retry = nil
 local recompute -- below
 local function retry_until_delivered(delivered)
@@ -503,8 +407,7 @@ function recompute()
 		hide = list == nil,
 	}
 	if list and current then
-		-- uosc badges stay short; the labels are ("1080p"), a longer one is cut. A
-		-- variant's frame rate does not fit beside its height ("720p60"): the height alone.
+		-- uosc badges stay short: a variant's frame rate does not fit beside its height, so the height alone.
 		local entry = list[current]
 		local label = (not entry.url and #entry.label > 5) and (entry.height .. 'p') or entry.label
 		data.badge = utf8_prefix(label, 5)
@@ -513,9 +416,7 @@ function recompute()
 	local sent = push_button(data)
 	-- nothing to show: no button to bring to a uosc that is not there
 	retry_until_delivered(sent or list == nil)
-	-- The flags uosc.conf's dispositions read: never true for a button uosc has not got,
-	-- which it would draw as a question mark. Always a boolean: mpv tells no observer
-	-- when a user-data key is deleted.
+	-- The dispositions' flags: true only for a button uosc has got; always a boolean (a deleted key tells no observer).
 	local shown = list ~= nil and sent
 	mp.set_property_native('user-data/faststream-quality/shown', shown)
 	mp.set_property_native('user-data/faststream-quality/editions', shown and source == 'editions')
@@ -526,8 +427,6 @@ function recompute()
 		open_menu(true)
 	end
 end
-
--- ---- switching ------------------------------------------------------------------------
 
 --- The path's fragment, '#' first, byte for byte: what a switch carries to the next file.
 ---@param path string|nil
@@ -543,10 +442,7 @@ end
 --- Loads the page's file `entry` from where the video is.
 ---@param entry table
 local function switch_file(entry)
-	-- the request headers and the title the stream came with (faststream-fragment.lua): the
-	-- FastStream host hands them over as per-file options of the one file, so a plain
-	-- `loadfile <url> replace` opened the next file without them, and a CDN that checks
-	-- Referer/Origin/User-Agent refused it
+	-- the request headers and title the stream came with: without them a CDN that checks Referer refuses the next file
 	local file_options = fragment.reopen_options()
 	local time = mp.get_property_number('time-pos')
 	if time and time >= 1 then
@@ -569,8 +465,7 @@ local function switch_file(entry)
 	local url = entry.url .. path_fragment(state.path)
 	if mp.get_property_native('pause') then
 		file_options['pause'] = 'yes'
-		-- auto-start.lua unpauses every new file; this one is the paused file in another
-		-- quality, so it stays paused (issue #96)
+		-- auto-start.lua unpauses every new file; this one is the paused file in another quality, so it stays paused
 		mp.set_property_native('user-data/auto-start/keep-pause', url)
 	end
 	mp.set_property_native('user-data/faststream-quality/last-load', { url = url, options = file_options })
@@ -597,8 +492,7 @@ local function switch_file(entry)
 	end
 end
 
---- Plays the row with this value. The playing one does nothing, and so does a value this
---- file's list does not have (a row of the last file's menu), or any row while a file loads.
+--- Plays the row with this value; the playing row, one not in the list, or any while a file loads: nothing.
 ---@param value string
 local function choose(value)
 	local list = state.list or {}
@@ -632,11 +526,8 @@ local function choose(value)
 		msg.warn('could not switch to ' .. entry.label)
 		return
 	end
-	-- An HLS variant starts over from the beginning: for a format whose timestamps may
-	-- reset, mpv restarts playback on an edition change (measured: 6.5 s in, back at 0).
-	-- `seeking` right after the switch says that restart is pending; the EDL's and the
-	-- tracks' switches keep their place and send none, so a later restart (a seek of
-	-- the user's) is never taken for theirs.
+	-- An HLS variant starts over from the beginning: mpv restarts playback on an edition change for a format whose
+	-- timestamps may reset; `seeking` right after the switch says so (EDL and track switches send none).
 	if time and time >= 1 and mp.get_property_native('seeking') then
 		back_to = { time = time, path = state.path }
 		publish_returning()
@@ -651,10 +542,7 @@ mp.register_event('seek', function()
 	publish_returning()
 end)
 
--- The switch's restart is done: back to where the video was. Not at once: a seek the
--- user made while the restart was pending only starts now, its event after this one,
--- and the seek back would replace it. So a moment later, and only when no seek came
--- meanwhile.
+-- The restart is done: back to where the video was, a moment later and only when no user seek came meanwhile.
 mp.register_event('playback-restart', function()
 	local back = back_to
 	back_to = nil
@@ -676,8 +564,6 @@ mp.register_event('playback-restart', function()
 	publish_returning()
 end)
 
--- With `callback` set, uosc sends every menu event here as JSON (see
--- uosc/lib/menus.lua open_command_menu's callback path).
 mp.register_script_message('menu-callback', function(json)
 	local event = utils.parse_json(json)
 	if type(event) ~= 'table' then
@@ -691,8 +577,6 @@ end)
 mp.register_script_message('open-menu', function()
 	open_menu(false)
 end)
-
--- ---- state per file -------------------------------------------------------------------
 
 -- Read again here: the same path loaded again after an end-file (which clears it)
 -- is no change of `path`, and its observer stays silent.
@@ -733,10 +617,8 @@ mp.observe_property('track-list', 'native', on_variants_change)
 mp.observe_property('edition-list', 'native', on_variants_change)
 mp.observe_property('current-edition', 'native', on_variants_change)
 
--- Between two files the last path stays (a quality switch, the next episode): its end
--- hid the button and the next file showed it again, two pushes that each repaint uosc's
--- whole UI and a relayout of the bar (faststream-episodes.lua keeps it the same way).
--- file-loaded reads the next file's path; idle clears it.
+-- Between two files the last path stays (a quality switch, the next episode): hiding and showing the button
+-- would repaint uosc's whole UI twice. file-loaded reads the next file's path; idle clears it.
 mp.observe_property('idle-active', 'bool', function(_, idle)
 	if idle then
 		state.path = nil

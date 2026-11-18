@@ -1,51 +1,10 @@
 -- source-info.lua - the uosc "source" toolbar button: where the video comes
 -- from, and every link it can know, ready to copy or open.
---
--- uosc.conf's controls= carries "button:source" (a managed button; we push
--- its look via script-message-to uosc set-button, the same pattern as
--- speed-button.lua and gpu-toggles.lua's upscale button).
---
--- What can be known, and how (none of it is guessed):
---   stream URL  = the URL mpv opened. The ytdl hook rewrites
---                 stream-open-filename during on_load, so for a web page
---                 `path` (the command-line URL) and the opened media URL
---                 differ - both are offered then.
---   site page   = the FastStream native host appends `#fs-page=<percent-
---                 encoded page URL>` to each stream URL it hands mpv (same
---                 fragment family as fs-content= / fs-id=; the part after #
---                 is a URL fragment, never sent to the CDN). Absent when the
---                 helper sends none; the rest of the button still works.
---   local file  = the full path ("Show in directory", "Copy path").
---
--- Copying: each entry has a "Copy" sub-item, and uosc's menu selects items
--- with arrows and copies the selected one with Ctrl+C - the actions below
--- report whatever the selected entry's value carries. Copying goes through
--- mpv's clipboard/text property (it needs mpv's clipboard support, which
--- Windows builds have). There is no script-message
--- fallback: uosc's own copy path uses the same property (plus its ziggy
--- helper binary, which only uosc's process can call), so when the property
--- is missing the user gets a failure banner instead of a silent no-op.
---
--- Opening: a stream URL re-opens it in THIS player (loadfile replace; the
--- player instance keeps its cache warm and its own resume state), with the
--- request headers and title the file came with (reopen_options); a site URL
--- opens in the default browser (Windows `rundll32 url.dll,FileProtocolHandler`,
--- macOS `open`, else xdg-open). Explorer is asked to select the local file,
--- like uosc's own "Show in directory".
---
--- Never through cmd: `cmd /c start "" <url>` runs whatever
--- followed an unquoted '&' in the address as a command of its own (mpv quotes
--- an argument only when it holds a space or a quote), and the site page
--- address comes from the website. Only a plain http(s) address is opened.
---
--- script-opts: source_info-launch=no records what would be launched in
--- user-data/source-info/launched instead of launching it (the regression test).
 
 local mp = require('mp')
 local msg = require('mp.msg')
 local utils = require('mp.utils')
 local options = require('mp.options')
--- the FastStream tags in the URL fragment (AGENTS.md, "FastStream contract")
 local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
 
 local opts = { launch = true }
@@ -60,8 +19,6 @@ local state = {
 	loading = nil, -- `path` from on_load: known for a file that never loads too
 }
 
--- ---- finding the links ------------------------------------------------------------
-
 ---@param s string
 ---@return string
 local function url_decode(s)
@@ -70,19 +27,11 @@ local function url_decode(s)
 	end))
 end
 
---- The value of the last `marker` item in the fragment part of the URL, or
---- nil. The fragment is everything after the first '#', its items separated
---- by '&'. Only a whole item counts, and the last one wins: the FastStream
---- host drops fs-* items a stream URL already carries and appends its own
---- after the rest, so "xfs-page=..." (or anything else a stream URL brings)
---- can never pass for its tag.
+--- The value of the last whole `marker` item of the URL fragment, or nil (faststream-fragment.lua).
 ---@param url string
 ---@param marker string
 ---@return string|nil
 local function fragment_value(url, marker)
-	-- Only the fragment: a marker-looking query parameter in the page's own
-	-- URL must not be readable as ours (the host writes its markers into the
-	-- fragment only).
 	local value = fragment.value(url, marker)
 	return value ~= '' and value or nil
 end
@@ -95,8 +44,6 @@ local function source_of()
 	if not path then
 		return nil, nil
 	end
-	-- a FastStream tag is a whole item of the URL fragment, as the host appends it -
-	-- not the text anywhere in a site's address
 	if fragment_value(path, 'fs-content=') or fragment_value(path, 'fs-id=') or fragment_value(path, PAGE_MARKER) then
 		return 'FastStream', 'Fast'
 	end
@@ -110,10 +57,7 @@ local function source_of()
 	return 'local file', 'File'
 end
 
---- A URL without the FastStream host's fs-* fragment items (and without the
---- '#' when nothing else is left): what was really requested, as another player
---- or the browser needs it. Not decoded: %2B and %26 inside a signed token or a
---- proxied address are part of it.
+--- A URL without the helper's fs-* fragment items, not decoded: %2B and %26 inside a signed token are part of it.
 ---@param url string
 ---@return string
 local function without_fs_tags(url)
@@ -155,13 +99,9 @@ local function page_url()
 	return nil
 end
 
--- ---- copying ----------------------------------------------------------------------
-
 ---@param value string
 local function copy(value)
-	-- clipboard/text is RW in this build (Windows clipboard backend); uosc's
-	-- Ctrl+C menu copy uses the same property, so no second mechanism exists
-	-- to fall back on from another script.
+	-- clipboard/text is what uosc's Ctrl+C copy uses too: there is nothing to fall back on.
 	local ok, err = mp.set_property('clipboard/text', value)
 	if ok then
 		mp.commandv('script-message-to', 'notify', 'show', 'source-copy', 'Copied', value, '4')
@@ -170,8 +110,6 @@ local function copy(value)
 		mp.commandv('script-message-to', 'notify', 'show', 'source-copy', 'Copy failed', tostring(err), '4')
 	end
 end
-
--- ---- the button -------------------------------------------------------------------
 
 local last_button_json = nil
 
@@ -193,9 +131,6 @@ local function update_button()
 	end
 end
 
--- ---- the menu ---------------------------------------------------------------------
-
---- The command-line URL when the ytdl hook rewrote the stream (state.origin).
 ---@return string|nil
 local function origin_or_nil()
 	if state.origin and (state.path or ''):find('://', 1, true) then
@@ -244,7 +179,6 @@ local function build_menu()
 		})
 	end
 	local page = page_url()
-	-- What the menu offers, for the regression test.
 	mp.set_property_native('user-data/source-info/links', { stream = stream, origin = origin, page = page })
 	if page then
 		items[#items + 1] = link_item('Site page', 'the FastStream tab it came from', 'public', page, {
@@ -269,11 +203,7 @@ local function build_menu()
 		type = 'source-menu',
 		title = source_of() and ('Source: ' .. source_of()) or 'Source',
 		items = items,
-		-- uosc's callback menu mode (menus.lua): the table is spliced into
-		-- "script-message-to <...callback...> <event json>", so this flat
-		-- array is "<script> <message>" - every menu event (activate, keys,
-		-- etc.) arrives at our 'menu-callback' instead of uosc trying to run
-		-- item values as mpv commands.
+		-- uosc's callback menu mode: every menu event arrives at 'menu-callback' instead of uosc running item values.
 		callback = { script_name, 'menu-callback' },
 	})
 	if json then
@@ -286,8 +216,6 @@ end
 local function open_menu()
 	build_menu()
 end
-
--- ---- menu actions -----------------------------------------------------------------
 
 ---@param value string
 ---@return string verb, string payload
@@ -308,10 +236,8 @@ local function launch(args)
 	end
 end
 
---- Opens a web address in the default browser: a plain http(s) URL only - no
---- whitespace, control characters, quotes, < > ^ ` { | } or backslash, which
---- no address a browser hands out contains raw (it percent-encodes them).
---- Never through cmd (see the header).
+--- Opens a web address in the default browser: a plain http(s) URL only, never through cmd
+--- (no whitespace, control characters, quotes, < > ^ ` { | } or backslash: browsers percent-encode them).
 ---@param url string
 local function browser_open(url)
 	if not url:find('^https?://[^%s%c"<>^`{|}\\]+$') then
@@ -341,13 +267,7 @@ local function folder_open(dir)
 	end
 end
 
---- The per-file options "Open in mpv" gives the stream again: its request headers
---- and its title. The FastStream host hands them over as per-file options of the
---- one file (a --{ ... --} group, or loadfile's options), and ytdl_hook sets them
---- file-local too, so a plain `loadfile <url> replace` opened the stream without
---- them: no Referer/Origin/User-Agent, and a CDN that checks them refused it
---- ("The stream could not be opened"); the title fell back to the URL's name.
---- (faststream-fragment.lua's reopen_options, shared with faststream-quality.lua)
+--- The per-file options a reopened stream needs (headers, title): without them a CDN that checks Referer refuses it.
 ---@return table|nil options for loadfile, nil when there are none
 local function reopen_options()
 	local file_options = fragment.reopen_options()
@@ -384,8 +304,6 @@ local function handle_activate(value)
 	end
 end
 
--- With `callback` set, uosc sends every menu event here as JSON (see
--- uosc/lib/menus.lua open_command_menu's callback path).
 mp.register_script_message('menu-callback', function(json)
 	local event = utils.parse_json(json)
 	if type(event) ~= 'table' then
@@ -409,9 +327,7 @@ end)
 
 mp.register_script_message('open-menu', open_menu)
 
--- For the regression test: the links the menu would offer for <path>, published
--- as user-data/source-info/links-for. A stream needs a server to load; this
--- reaches the same functions without one.
+-- For the regression test: the links the menu would offer for <path>, without loading it.
 mp.register_script_message('links-for', function(path)
 	local saved = state
 	state = { path = path }
@@ -419,22 +335,13 @@ mp.register_script_message('links-for', function(path)
 	state = saved
 end)
 
--- ---- state per file ---------------------------------------------------------------
-
 mp.register_event('file-loaded', function()
 	state.path = mp.get_property('path')
 	update_button()
 end)
 
--- The ytdl hook rewrites stream-open-filename while the file loads; capture
--- both sides so the menu can offer the real media URL and the original one.
--- Priority 11: after ytdl_hook's on_load (10; lower runs first), or nothing is
--- rewritten yet.
--- Only a web address counts as what was opened. For a YouTube link (pasted into
--- mpv directly - FastStream sends no YouTube) yt-dlp's formats arrive as an
--- edl:// list, a playlist as memory:// - not addresses another player or the
--- browser can open. Then the pasted link is the Stream URL, and "Open in mpv"
--- runs yt-dlp on it again.
+-- Both sides of the ytdl hook's rewrite of stream-open-filename; priority 11 runs after ytdl_hook's on_load (10).
+-- Only a web address counts as opened: yt-dlp's edl:// or memory:// is none, so the pasted link stays the stream URL.
 mp.add_hook('on_load', 11, function()
 	local path = mp.get_property('path') or ''
 	state.loading = path
@@ -445,14 +352,10 @@ mp.add_hook('on_load', 11, function()
 	end
 end)
 
--- A FastStream stream that does not open (a refused or expired link: 403,
--- 404, a token the site has replaced) left an empty mpv window with nothing
--- said. Say what happened and what helps.
+-- A FastStream stream that does not open (403, 404, an expired token): say what happened and what helps.
 ---@param event {reason: string, file_error: string|nil}
 local function announce_failure(event)
 	local path = state.loading or ''
-	-- the tags as source_of() reads them (whole fragment items): a search for the text
-	-- anywhere after the '#' took a site's own "xfs-id=" for FastStream's
 	if
 		event.reason ~= 'error'
 		or not (

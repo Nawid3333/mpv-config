@@ -1,16 +1,4 @@
--- welcome.lua - the first start, and F1. For the one-click install: a new
--- user should see every setting and every feature, and decide the settings
--- in the onboarding.
---
--- The Welcome menu itself is built by Scripts/settings.lua (`open-welcome`):
--- the settings on top, recommended values marked, then every feature with
--- its key. Nothing blocks and nothing is forced over a video:
---   * the first start shows one banner for 10 s - "Welcome to mpv", F1 to
---     set it up and see what it can do; opened with no file (the Start menu
---     shortcut) the Welcome menu opens as well, there is nothing to cover
---     yet;
---   * F1 (and right-click menu > Help) opens it any time.
--- ~~state/welcome.json remembers that the welcome was shown (once per PC).
+-- welcome.lua - the first-start banner, and F1: the Welcome menu settings.lua builds
 local mp = require('mp')
 local msg = require('mp.msg')
 local options = require('mp.options')

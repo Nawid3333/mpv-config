@@ -1,14 +1,4 @@
 -- subtitle-cleanup.lua - subtitles downloaded for a stream go after a week
---
--- uosc's "Download subtitles" saves a stream's subtitles in ~~/subtitles (uosc.conf's
--- subtitles_directory; a local file's go next to it and stay), and nothing deleted them.
--- mpv does not load them again by itself either: for a URL it looks only in ~~/sub
--- (--sub-file-paths in the manual). So each start deletes the subtitle files there older
--- than `days` (the owner: kept a week, then gone). Only files with an extension mpv
--- takes for subtitles (sub-auto-exts, any case); other files and folders stay. A file
--- that cannot be deleted (another mpv still reading it) stays for the next start.
---
--- State for tests: user-data/subtitle-cleanup = {sweeps, deleted, kept, failed}.
 
 local mp = require('mp')
 local msg = require('mp.msg')

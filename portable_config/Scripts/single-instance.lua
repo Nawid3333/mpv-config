@@ -1,27 +1,5 @@
 -- single-instance.lua - a file opened from Explorer plays in this window, and a
 -- banner offers to keep what played
---
--- mpv-single.exe (what Explorer starts for mpv's file types) hands a local file
--- to the mpv window used last that plays a local file or nothing:
---   script-message-to single_instance open <replace|append> <launcher> <file>...
--- This script makes the playlist change itself, so it still knows what played:
--- when a replace stops a file before its end, a banner top right offers "Play
--- this in a new window" for banner_seconds (script-opt). A click on it puts the old playlist
--- back here - the same file at the same second, paused if it was - and starts
--- the launcher with --new-window for the new file(s), which go on in a second
--- window where they got to. Left alone, the banner goes and nothing else
--- happens. append (the rest of a burst of files opened together) only adds to
--- the playlist, and to what a click would move.
---
--- The click: the banner is notify.lua's card, and its box (user-data/notify)
--- the target. This script's mouse section is on only while the pointer is over
--- that box, and raised on every move there: uosc pushes its own click section
--- on top whenever the pointer crosses one of its zones. Anywhere else a click
--- stays input.conf's (pause).
---
--- State for tests: user-data/single-instance = {offer = {old = <path>, files =
--- {...}} while the banner offers the way back, spawned = the launcher's
--- arguments of the last click}.
 
 local mp = require('mp')
 
@@ -251,10 +229,7 @@ local function accept()
 	publish()
 end
 
--- The click takes the offer on its release, and the banner goes. The second
--- press of a double click, and the double click itself, would then reach
--- input.conf (pause, fullscreen): the section stays on a moment longer, doing
--- nothing.
+-- The click takes the offer on its release; the section stays a moment so a double click's second press does nothing.
 local function on_click()
 	if not offer then
 		return

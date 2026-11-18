@@ -1,28 +1,4 @@
--- shader-cache: keeps mpv's shader cache warm. Checked at every start; when it
--- went stale (new GPU driver, an mpv update - a new libplacebo means a full
--- warm-up, a new mpv alone a quick check - the cache folder cleared, shaders or
--- presets changed; fingerprint.lua has the list) it is rebuilt IN THE BACKGROUND
--- while the video plays, with a small progress bar top right. Nothing blocks:
--- the video starts normally.
---
--- Every start: fingerprint.lua compares the stamp in the cache folder with the
--- current libplacebo version, display driver version (reg.exe, ~25 ms, no
--- console window: mpv spawns with CREATE_NO_WINDOW), shader files and cache
--- file count - off the playback path, nothing waits for it.
---
--- Stale: start_delay seconds after the video starts playing (so its own start
--- is not slowed), host.ps1 runs warmup.lua in a second mpv embedded in a window
--- that is never shown (host.ps1 says why each simpler way failed), at below-
--- normal priority, its clips paused except for a few stepped and played frames
--- per chain, so the GPU stays nearly idle. The chain the video uses compiles
--- itself on its first frame; the warm-up covers every other chain and scale
--- tier, so a later switch or the next video does not hitch. Quitting mpv ends
--- the warm-up with it (it runs again next start). A failed or timed-out one is
--- not retried for the same fingerprint (shader-warmup.failed);
--- installer\warm-shader-cache.ps1 runs it on request. The warm-up draws its
--- clips from the fixed matrix plus shipped-cases.lua.
---
--- State for tests and curious users: user-data/shader-cache.
+-- shader-cache/main.lua - keeps mpv's shader cache warm: checked at every start, rebuilt in the background when stale.
 local utils = require('mp.utils')
 local msg = require('mp.msg')
 local options = require('mp.options')
@@ -61,9 +37,7 @@ if mp.get_property('options/gpu-shader-cache') == 'no' then
 	return
 end
 
--- ---- the bar, top right -----------------------------------------------------------
--- A Scripts/notify.lua banner with a progress line: notify draws every message
--- in this design, so they stack instead of overlapping.
+-- A notify.lua banner with a progress line, so messages stack instead of overlapping.
 
 local function show_bar(title, detail, frac, hide_after)
 	mp.commandv(
@@ -77,8 +51,6 @@ local function show_bar(title, detail, frac, hide_after)
 		tostring(frac or 0)
 	)
 end
-
--- ---- the warm-up -------------------------------------------------------------------
 
 local fp, job, started_at, stop_reason, poll, job_timeout
 local lock_file = fingerprint.path(fingerprint.LOCK)
@@ -160,9 +132,7 @@ local function cleanup()
 	os.remove(args_file)
 end
 
--- warmup.lua's own failure exits (its header): setup, timeout, stamp. Its 6
--- ("steps never drawn": a minimized window, a locked screen) is the moment's,
--- not the cache's: retried like an interruption.
+-- warmup.lua's failure exits (setup, timeout, stamp); its 6 (steps never drawn) is the moment's: retried.
 local WARMUP_FAILURES = { [2] = true, [3] = true, [4] = true }
 
 local function finished(res)
@@ -184,10 +154,8 @@ local function finished(res)
 	elseif status == 0 and fingerprint.same(fingerprint.read(fingerprint.STAMP), fp) then
 		result = 'done'
 	elseif type(status) == 'number' and status ~= 0 and not WARMUP_FAILURES[status] then
-		-- Ended from outside (taskkill /F gives exit 1 - the FastStream e2e tests
-		-- kill every mpv.exe that starts during a spec - or a crash): retried at
-		-- the next start, but a third time in a row for this fingerprint counts
-		-- as a failure, so a warm-up that crashes every time cannot loop forever.
+		-- Ended from outside (exit 1 from taskkill /F, or a crash): retried at the next start,
+		-- but a third time in a row for this fingerprint counts as a failure, so it cannot loop.
 		local last = fingerprint.read(fingerprint.INTERRUPTED)
 		local times = (fingerprint.same(last, fp) and tonumber(last.times) or 0) + 1
 		result = times >= 3 and 'failed' or 'interrupted'
@@ -308,9 +276,7 @@ local function start_warmup()
 		finished(res)
 	end)
 	poll = mp.add_periodic_timer(0.25, read_progress)
-	-- Guards its own job only: a stale timer from a finished warm-up could fire
-	-- into the next one (a "Rebuild shaders" within opts.timeout of it), abort
-	-- it as a timeout and leave the cache empty. finished() kills it too.
+	-- Guards its own job only: a stale timer must not abort the next warm-up as a timeout.
 	local this_job = job
 	job_timeout = mp.add_timeout(opts.timeout, function()
 		if job and job == this_job and not stop_reason then
@@ -320,11 +286,7 @@ local function start_warmup()
 	end)
 end
 
--- ---- the check -----------------------------------------------------------------------
-
--- The warm-up waits for the first video to be playing (a stream's buffering,
--- decoder start and its own first compile go first). mpv opened with nothing
--- to play has no start to keep clear: it warms after a moment of idle.
+-- The warm-up waits for the first video to play; opened with nothing to play, it warms after a moment of idle.
 local playing = false
 local function when_playing()
 	mp.add_timeout(opts.start_delay, start_warmup)
@@ -337,11 +299,8 @@ local function when_idle()
 		end
 	end)
 end
--- The screen the cache was warmed on: which branches of the chains a clip
--- reaches depends on it, and warmup.lua adds clip sizes for the branches the
--- standard ones miss there. Known only once the window is up, so it is compared
--- at the first playback start, not with the rest. A stamp without a screen
--- (written before, or by a warm-up without one) never differs.
+-- The screen decides which chain branches the clips reach; known only once the window is up,
+-- so compared at the first playback start. A stamp without a screen never differs.
 local function screen_changed()
 	local stamp = fingerprint.read(fingerprint.STAMP)
 	local w, h = mp.get_property_number('display-width'), mp.get_property_number('display-height')
@@ -413,12 +372,8 @@ fingerprint.collect(function(result)
 	end
 end)
 
--- "Rebuild shaders" (menu: Video > Upscale, and the upscale button's menu):
--- deletes mpv's OWN compiled shaders - the shader_<16 hex> files in its cache
--- folder - and warms everything again at once, whatever the stamp says (also
--- after a failed attempt). AMD's driver cache (%LOCALAPPDATA%\AMD\VkCache)
--- is never touched; the driver keeps its own copies there as it does for
--- every Vulkan program.
+-- "Rebuild shaders": deletes mpv's own compiled shaders (shader_<16 hex>) and warms everything at once.
+-- AMD's driver cache is never touched.
 local function rebuild()
 	if state == 'warming' then
 		return -- already compiling; its bar is showing
@@ -444,8 +399,7 @@ local function rebuild()
 end
 mp.register_script_message('rebuild', rebuild)
 
--- Quitting mpv ends the warm-up with it (mpv ends its subprocesses on exit,
--- and the warm-up quits when host.ps1's window goes); it runs again next time.
+-- mpv ends its subprocesses on exit, and the warm-up quits when host.ps1's window goes.
 mp.register_event('shutdown', function()
 	if state == 'warming' then
 		stop_reason = stop_reason or 'quit'

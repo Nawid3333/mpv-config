@@ -1,26 +1,4 @@
--- Shared by main.lua (the startup check in every player) and warmup.lua (the
--- warm-up process): what the shader cache has to match, and the stamp file
--- that records what it was last warmed for. Loaded with dofile(), not
--- require(): warmup.lua runs as a plain --script, outside this folder's
--- module path.
---
--- What makes cached shaders stale: mpv's cache (portable_config/cache,
--- shader_<16 hex> files) holds two kinds of object - SPIR-V compiled from
--- libplacebo's GLSL, keyed by that GLSL, and the GPU driver's finished
--- binaries (Vulkan pipeline cache blobs, stamped with the driver's
--- pipelineCacheUUID). So:
---   libplacebo version - new GLSL, new SPIR-V
---   display driver     - every binary blob is rejected; the driver recompiles
---   the cache folder   - deleted or thinned out
---   shaders + gpu-toggles.lua - what the chains are made of
---   mpv itself         - its render settings could change a pass; a quick
---                        check, escalating if anything compiled. A rebuild
---                        with only a new FFmpeg keeps the version string and
---                        triggers nothing.
--- Nothing else starts a warm-up: not a restart, a new video, a reboot or
--- resetting AMD's own shader cache.
--- AMD's own driver cache (%LOCALAPPDATA%\AMD\VkCache) is a second layer that
--- mpv does not control; resetting it alone costs mpv nothing.
+-- fingerprint.lua - what the shader cache has to match, and the stamp of what it was warmed for. Loaded with dofile().
 local utils = require('mp.utils')
 
 local M = {}
@@ -29,16 +7,12 @@ local M = {}
 -- cache is re-warmed.
 M.WARMUP_VERSION = 6
 
--- The stamp and the control files live in the cache folder itself, so
--- clearing the cache clears the stamp too. mpv's own cleanup only ever
--- deletes shader_<16 hex> and icc_<16 hex> (vo_gpu_next.c cache_uninit), so
--- these names are safe there.
+-- In the cache folder, so clearing the cache clears the stamp; mpv's cleanup deletes only shader_/icc_ files.
 M.STAMP = 'shader-warmup.stamp'
 M.FAILED = 'shader-warmup.failed'
 M.LOCK = 'shader-warmup.lock'
 M.INTERRUPTED = 'shader-warmup.interrupted'
 
--- Why a warm-up runs, for the log (user-data/shader-cache has the ids).
 M.REASONS = {
 	stamp = 'first run, or the shader cache was cleared',
 	files = 'part of the shader cache was deleted',
@@ -64,7 +38,6 @@ function M.path(name)
 	return utils.join_path(M.cache_dir(), name)
 end
 
--- Compiled objects mpv has stored (shader_ + 16 hex digits).
 function M.count_cache_files()
 	local n = 0
 	for _, f in ipairs(utils.readdir(M.cache_dir(), 'files') or {}) do
@@ -83,10 +56,7 @@ local function hash(s)
 	return string.format('%08x', h)
 end
 
--- The files the chains are built from, and mpv.conf. Name + size + mtime,
--- not content: git only rewrites a file when its content changes, and names
--- (not full paths) keep a copied config (tests/run-tests.ps1) matching the
--- original.
+-- Name + size + mtime, not content (git rewrites only changed files); names keep a copied config matching.
 local function config_signature()
 	local shaders = mp.command_native({ 'expand-path', '~~/shaders' })
 	local names = utils.readdir(shaders, 'files') or {}
@@ -111,8 +81,7 @@ local function config_signature()
 	return hash(table.concat(parts, ';'))
 end
 
--- Every display adapter's driver version, from the registry. Unknown when the
--- query fails - then it simply never differs.
+-- Every display adapter's driver version from the registry; unknown when the query fails, and then never differs.
 local DISPLAY_CLASS = 'HKLM\\SYSTEM\\CurrentControlSet\\Control\\Class\\{4d36e968-e325-11ce-bfc1-08002be10318}'
 local function query_driver(cb)
 	mp.command_native_async({
@@ -133,7 +102,6 @@ end
 
 local FIELDS = { 'libplacebo', 'driver', 'config', 'warmup', 'mpv' }
 
--- Calls cb(fp) with what the cache has to match right now.
 function M.collect(cb)
 	local fp = {
 		libplacebo = mp.get_property('libplacebo-version', ''),

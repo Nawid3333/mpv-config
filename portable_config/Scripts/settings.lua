@@ -1,71 +1,22 @@
--- settings.lua - the Settings menu, the Welcome menu (F1), and the settings that
--- differ from PC to PC.
---
--- The menus stay open, mark the recommended choice, and keep every option
--- selectable.
---
---   Settings (right-click menu > Settings, `script-message-to settings open`)
---   Welcome  (F1, Help, and the first start - Scripts/welcome.lua; `open-welcome`):
---            the same settings on top, then every feature with its key.
---
---   Buffering - FastStream's buffer options, with its names, meanings and
---     defaults (stream-buffer.lua does the buffering): predownload the whole
---     video (on), its maximum size (5 GB), RAM for buffered video (Auto by
---     this PC's memory), keep video on disk when that RAM is full (on), seconds
---     ahead (300) and behind (20). Every number also takes 0 (none) and no limit,
---     and any value typed in (Custom...). Start and stalls: Adaptive (the
---     default: start as soon as the line keeps up with the stream, and after a
---     stall wait by the line's speed - see adaptive_wait()), start at once, or
---     buffer N seconds first and after a stall (cache-pause-initial/-wait). A
---     seek never waits for it (see apply_buffer()).
---   Upscaling quality, screen, Movie sharpness - gpu-toggles.lua owns them (and
---     ~~state/upscale.json); its items come from user-data/gpu-toggles/quality.
---   HDR brightness - target-peak while an HDR (PQ/HLG) video plays: the screen's
---     peak in nits, which the tone mapping aims at. Auto = mpv's own default
---     (203 nits on an SDR desktop; with Windows HDR on, what the display
---     reports). SDR video always gets auto: a peak set for every file made SDR
---     ~78 % as bright.
---   Subtitle / audio language - mpv's slang / alang. Empty = mpv's own choice:
---     subtitles in Windows' display language when the audio is another one
---     (subs-match-os-language), the file's default audio track.
---
---   The screen - what Windows reports for the window's monitor (display-width x
---     display-height @ display-fps). Every screen seen is remembered with its own
---     HDR brightness; a new one starts at Auto (a peak tuned for one panel is
---     wrong for the next) and a banner names it, with F1 to check its settings.
---     The upscaling follows the screen by itself (gpu-toggles reads it per action;
---     the shader warm-up warms again for a new size).
---
--- Every setting explains itself in its submenu (a dimmed note on what it does,
--- a pro or con next to each option); a gear button in the control bar opens the
--- Settings, right-click the Welcome menu.
---
--- Stored per PC in ~~state/settings.json (gitignored). A PC that ran this
--- config before (any state file of it is there) keeps what mpv.conf gave it -
--- German, then English, 350 nits, 1 GB - so an update changes nothing there
--- (the start and stall wait is Adaptive everywhere: mpv.conf's 3 s gave way to
--- it); a new install starts from the recommended values.
+-- settings.lua - the Settings menu, the Welcome menu (F1), and the settings that differ from PC to PC.
 local mp = require('mp')
 local msg = require('mp.msg')
 local options = require('mp.options')
 local utils = require('mp.utils')
 
 local opts = {
-	-- no = only apply what settings.json says, never write it (the shader warm-up
-	-- loads this script for the HDR brightness its clips are drawn with)
+	-- no = apply settings.json, never write it (the shader warm-up loads this script for its HDR brightness)
 	write = true,
 }
 options.read_options(opts, 'settings')
 
 local STATE_DIR = mp.command_native({ 'expand-path', '~~state/' })
 local FILE = utils.join_path(STATE_DIR, 'settings.json')
--- written whole or not at all, and a damaged one kept aside (issue #96)
 local statefile = dofile(mp.command_native({ 'expand-path', '~~/script-modules/state-file.lua' }))
 -- a damaged settings.json that could not be moved aside: never saved over
 local file_stuck = false
 
--- FastStream's buffer defaults (its DefaultOptions.mjs); ram_budget is Auto here
--- (by this PC's memory, FastStream's 2 GB from 16 GB on).
+-- FastStream's buffer defaults (its DefaultOptions.mjs); ram_budget is Auto here (by this PC's memory).
 local BUFFERING = {
 	download_all = true,
 	max_video_size = 5e9,
@@ -73,8 +24,7 @@ local BUFFERING = {
 	buffer_ahead = 300,
 	buffer_behind = 20,
 }
--- What mpv.conf set for everyone (1 GB: the RAM budget now).
--- (start_wait: mpv.conf's 3 s gave way to Adaptive everywhere, at the owner's word.)
+-- What mpv.conf set for everyone (1 GB: the RAM budget now); its 3 s start wait gave way to Adaptive.
 local LEGACY = { slang = 'de,en', alang = 'de,en', hdr_peak = 350, ram_budget = 1e9, start_wait = 'auto' }
 local DEFAULTS = { slang = '', alang = '', hdr_peak = 'auto', ram_budget = 'auto', start_wait = 'auto' }
 -- Files only a PC that already ran this config has (remember-speed.lua,
@@ -105,9 +55,7 @@ local LANGUAGES = {
 	{ 'ko,en', 'Korean, then English' },
 	{ 'zh,en', 'Chinese, then English' },
 }
--- The choices offered for each number (sizes in bytes as FastStream counts them,
--- 1 GB = 1,000,000,000; -1 = no limit, FastStream's empty field); Custom... takes
--- any other.
+-- The choices offered for each number (bytes, 1 GB = 10^9; -1 = no limit); Custom... takes any other.
 local MAX_SIZES = { 0, 1e9, 2e9, 5e9, 10e9, 20e9, 50e9, -1 }
 local RAM_SIZES = { 0, 150e6, 512e6, 1e9, 2e9, 4e9, 8e9, -1 }
 local AHEADS = { 0, 30, 60, 120, 300, 600, 1800, -1 }
@@ -120,9 +68,7 @@ local function exists(path)
 	return utils.file_info(mp.command_native({ 'expand-path', path })) ~= nil
 end
 
--- A damaged file (no JSON table) counted as no file yet: the defaults were seeded and
--- saved over it at once, every per-PC choice gone without a word. It is kept aside as
--- settings.json.corrupt-<time> now, with a warning (issue #96).
+-- A damaged file (no JSON table) is kept aside as settings.json.corrupt-<time>, with a warning.
 local function read_file()
 	local data, stuck = statefile.read_json(FILE, 'settings.json')
 	file_stuck = stuck == true
@@ -225,8 +171,8 @@ end
 
 local settings = {}
 local from_file = read_file()
-local seeded = nil -- 'legacy' | 'defaults' when this start created the file
-local migrated = false -- the old Buffering choice became the RAM budget this start
+local seeded = nil
+local migrated = false
 do
 	local base = DEFAULTS
 	if not from_file then
@@ -279,7 +225,6 @@ do
 	end
 end
 
--- Whole or not at all (state-file.lua), as the other state files.
 local function save()
 	if not opts.write or file_stuck then
 		return
@@ -313,15 +258,9 @@ local function apply_languages()
 	mp.set_property('alang', settings.alang)
 end
 
--- A seek starts at once. cache-pause-initial holds playback after EVERY seek,
--- not only at a file's start: mpv clears restart_complete on each seek
--- (player/playloop.c, reset_playback_state()), and handle_update_cache() then
--- waits for cache-pause-wait seconds of buffer whenever fewer are read - on a
--- stream, a seek past what is downloaded stalled until enough had arrived. So
--- the initial wait is on until this file's first start (playback-restart) and
--- off from then on. A stall still waits cache-pause-wait seconds: that path
--- needs no cache-pause-initial.
-local started = false -- this file has started: its next restarts are seeks
+-- cache-pause-initial holds playback after every seek too (player/playloop.c, reset_playback_state()),
+-- so it is on until this file's first start and off for its seeks; a stall needs only cache-pause-wait.
+local started = false
 local function apply_initial_wait()
 	local w = settings.start_wait
 	mp.set_property('cache-pause-initial', ((w == 'auto' or w > 0) and not started) and 'yes' or 'no')
@@ -340,25 +279,9 @@ local function buffering_config()
 	}
 end
 
--- Adaptive: how long to wait, from the line's speed. While mpv waits (before a
--- file plays, and in a stall) playback stands still, so the buffer grows by what
--- the line brings. q, the seconds of the stream per second, is the largest of
--- three readings, so the wait ends as soon as any of them says the line keeps up:
--- how far the buffer's end moved since this wait began (known at once; low before
--- the first frame, where the opening counts too), how far over the last
--- ADAPT_SLOPE_SECS, and mpv's raw-input-rate over the bytes the buffer holds per
--- second of the stream (0 for the first second; on HLS it runs ahead of the
--- buffer, which lags the line at the start). The end, not cache-duration: that
--- subtracts the reader, which the decoders move at the start, and it started some
--- HLS streams a second later. A line that keeps up (q >= ADAPT_FAST) waits
--- ADAPT_SHORT seconds of buffer (mpv's own stall default): no stall right after
--- the start, which starting at once had on HLS. A slower one waits for what
--- drains in ADAPT_PLAY_ON seconds: before the first frame never longer than the
--- old fixed 3 s (the video shows up soon), in a stall up to ADAPT_STALL_MAX - the
--- same total wait in fewer, longer pauses. Measured 2026-10-14 on a throttled line
--- (MP4, HLS with 4 and 10 s segments, 0.6x to 5x the stream). mpv compares the
--- buffer with cache-pause-wait on every update, so a lower value ends the wait at
--- once (player/playloop.c, handle_update_cache()).
+-- Adaptive: the wait from q, the seconds of the stream per second of the line, the largest of three readings:
+-- the buffer end's move since this wait began, over ADAPT_SLOPE_SECS, and raw-input-rate per buffered second.
+-- q >= ADAPT_FAST waits ADAPT_SHORT; slower lines wait what drains in ADAPT_PLAY_ON (mpv ends a wait at once).
 local ADAPT_FAST = 1.2
 local ADAPT_SHORT = 1
 local ADAPT_UNKNOWN = 3
@@ -368,12 +291,12 @@ local ADAPT_PLAY_ON = 30
 local ADAPT_SLOPE_SECS = 0.75
 local adapt_timer = nil
 local file_open = false
-local played = false -- this file's first frame moved: a wait now is a stall
-local adapt_since = nil -- when this file's load began
-local wait_began = nil -- { time, the buffer's end (nil: the first one seen) } when this wait began
-local adapt_samples = {} -- { time, the buffer's end } during this wait
-local adapt_state = nil -- the last decision: { q, wait }
-local line_stand_in = nil -- the tests' line (adaptive-line): a number, or false = unknown
+local played = false
+local adapt_since = nil
+local wait_began = nil
+local adapt_samples = {}
+local adapt_state = nil
+local line_stand_in = nil
 
 -- seconds of the stream per second of the line, or nil
 local function line_ratio()
@@ -480,7 +403,7 @@ mp.add_hook('on_load', 50, function()
 	if settings.start_wait == 'auto' then
 		mp.set_property('cache-pause-wait', tostring(ADAPT_UNKNOWN))
 	end
-	apply_initial_wait() -- the wait before this file's start
+	apply_initial_wait()
 	update_adaptive()
 end)
 
@@ -526,7 +449,7 @@ local function is_hdr()
 end
 
 -- ---- the screen --------------------------------------------------------------------------
-local current_screen = nil -- { key = '2560x1440@144', label = '2560x1440 @ 144 Hz' } once known
+local current_screen = nil
 
 local function screen_from(w, h, fps)
 	if not (w and h and w > 0 and h > 0) then
@@ -590,9 +513,9 @@ end
 publish()
 
 -- ---- the menus ----------------------------------------------------------------------------
-local gpu = nil -- user-data/gpu-toggles/quality
-local open_type = nil -- 'settings' | 'welcome' while one of them is open
-local pending = nil -- the menu to open once gpu-toggles answered
+local gpu = nil
+local open_type = nil
+local pending = nil
 
 local function notify(title, detail, seconds)
 	mp.commandv('script-message-to', 'notify', 'show', 'settings', title, detail or '', tostring(seconds or 2))
@@ -642,7 +565,6 @@ local function ram_label()
 	return settings.ram_budget == 'auto' and ('Auto (' .. v .. ')') or v
 end
 
--- one line for the Buffering entry: what happens to a stream
 local function buffer_label()
 	local ram = effective_ram()
 	local what = (settings.download_all and settings.max_video_size ~= 0) and 'Whole video'
@@ -702,7 +624,7 @@ local function amount_items(key, notes, list, hints, label, current)
 	for i, n in ipairs(notes) do
 		items[#items + 1] = note(n, i == #notes)
 	end
-	local listed = current == 'auto' -- the RAM budget's Auto is its own entry
+	local listed = current == 'auto'
 	for _, v in ipairs(list) do
 		listed = listed or v == current
 		local title = v == 0 and ('0 - ' .. (hints.zero_title or 'none')) or label(v)
@@ -796,7 +718,6 @@ local function buffer_items()
 		'No limit: all in RAM - on a PC with little memory',
 		'other programs may slow down.',
 	}, RAM_SIZES, ram_hints, size_label, settings.ram_budget)
-	-- Auto first, after the notes
 	local first = 1
 	while ram_list[first] and ram_list[first].selectable == false do
 		first = first + 1
@@ -1248,8 +1169,7 @@ local function set_value(key, value)
 	end
 	if not title then
 		msg.warn('set: invalid ' .. tostring(key) .. ' = ' .. tostring(value))
-		-- a value typed into Custom... that the setting does not take: the prompt closed,
-		-- and nothing said why nothing changed
+		-- a value typed into Custom... that the setting does not take: say why nothing changed
 		notify('Not changed', tostring(value) .. ' is not a value this setting takes', 3)
 		return
 	end
@@ -1375,7 +1295,7 @@ local function screen_seen(w, h, fps, tries)
 	if sc.key:match('@0$') then
 		for key, known in pairs(settings.screens) do
 			if key:match('^(%d+x%d+)@') == size then
-				sc = { key = key, label = known.label } -- the screen of that size seen before
+				sc = { key = key, label = known.label }
 				break
 			end
 		end
@@ -1449,11 +1369,7 @@ mp.register_script_message('screen-seen', function(w, h, fps)
 end)
 
 -- ---- yt-dlp's JavaScript runtime --------------------------------------------------------------
--- mpv.conf has yt-dlp solve YouTube's challenges with Node.js (js-runtimes=node), which yt-dlp
--- looks for on PATH. The one-click install puts none there: the node.exe of its FastStream
--- helper is private (installer/install-faststream.ps1), so yt-dlp is pointed at that one when
--- it is there. Without it, a PC with no Node.js of its own got none of YouTube's formats that
--- need the challenges solved.
+-- yt-dlp looks for Node.js (mpv.conf: js-runtimes=node) on PATH; a one-click install has only the helper's private one.
 local function private_node()
 	local base = os.getenv('LOCALAPPDATA')
 	if not base or base == '' then
