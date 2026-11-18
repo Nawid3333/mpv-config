@@ -1,32 +1,4 @@
--- shipped-cases.lua - what real playback needs beyond warmup.lua's fixed matrix,
--- so a full warm-up draws it before any video does. Loaded with dofile() by
--- warmup.lua and drawn after the matrix: one step each, a 1 s clip made once
--- with mpv's own encoder (cases.lua), decoded the same way, drawn through the
--- same chain. The list was found by measuring; it is kept by hand.
---
--- A kind of video that still stutters on its first start after a full warm-up
--- (a log with --msg-level=vo/gpu-next/libplacebo=debug then shows "shaderc
--- compile status" lines, as warmup.lua counts them) is a new case: add it
--- here.
---
--- A case: `clip` (cases.clip_recipe(): size, FFmpeg pixel format, encoder,
--- colour tags, SAR, film grain), hwdec, chain ('off' | 'anime' | 'movie'),
--- and optionally:
---   unscaled = true   drawn 1:1 (video-unscaled): a window at the video's own
---                     size, which is how mpv opens a local file here
---   deband = false    eq = { gamma = 2, ... }    rotate = 90
---   overlay = true    an RGBA bitmap over the video (thumbfast's thumbnails,
---                     picture subtitles)
---   subs = true       a text subtitle line (libass)
---   as_size = {w, h}  drawn at the scale a source of that size has in this
---                     window (video-zoom on the fitted clip)
--- A clip can also be a shipped FILE (`clip.file`, relative to this folder,
--- with its w/h) where no encoder can make it: Dolby Vision.
--- Otherwise the clip is fitted to the window, as in fullscreen. The clip has
--- the REAL size the case stands for: gpu-toggles picks Movie's passes and its
--- sharpening from the true display scale, so a smaller clip zoomed up would
--- draw a different chain.
---
+-- shipped-cases.lua - what real playback needs beyond warmup.lua's matrix, drawn after it in a full warm-up.
 -- Changing this list -> bump fingerprint.lua's WARMUP_VERSION.
 
 local function clip(base, w, h, extra)
@@ -40,7 +12,6 @@ local function clip(base, w, h, extra)
 	return c
 end
 
--- clip kinds
 local SDR8 = { codec = 'libx264', pix = 'yuv420p', matrix = 'bt.709', primaries = 'bt.709', gamma = 'bt.1886' }
 local SDR8_HEVC = { codec = 'libx265', pix = 'yuv420p', matrix = 'bt.709', primaries = 'bt.709', gamma = 'bt.1886' }
 local SDR10 = { codec = 'libx265', pix = 'yuv420p10le', matrix = 'bt.709', primaries = 'bt.709', gamma = 'bt.1886' }
@@ -109,10 +80,8 @@ add({ clip = clip(SDR8, 1920, 1080), hwdec = D3D, chain = 'off', subs = true })
 chains(clip(SDR8_HEVC, 7680, 4320), D3D, { 'off', 'movie' })
 add({ clip = clip(SDR8, 1080, 1920), hwdec = D3D, chain = 'movie' })
 
--- Shrunk into a smaller window: the downscaler's kernel widens with the
--- shrink, and each new tap count is a new shader. One ratio per tap step
--- (hermite, mpv's dscale: 2*ceil(1/ratio) taps -> 6, 8, 10, 12, 14, 16), for
--- the three surfaces real files come in. Off only: the chains run before it.
+-- Shrunk into a smaller window: each new downscaler tap count is a new shader (hermite: 2*ceil(1/ratio) taps).
+-- One ratio per tap step, for the three surfaces real files come in; Off only, as the chains run before it.
 for _, s in ipairs({
 	{ clip(SDR8, 1920, 1080), D3D },
 	{ clip(SDR10, 1920, 1080), D3D },
@@ -147,12 +116,8 @@ chains(clip(HLG, 3840, 2160), D3D, ALL)
 chains(clip(HLG, 1920, 1080), D3D, ALL)
 add({ clip = clip(HLG, 1920, 1080), hwdec = D3D, chain = 'off', unscaled = true })
 
--- Dolby Vision (profiles 5, 8.1, 8.4): the RPU reshaping is a pass of its own
--- and no encoder here writes an RPU, so these clips are real files - 12 frames
--- cut losslessly from Jellyfin's test videos (clips/README.txt: source and
--- licence). 1080p enlarged, and shrunk the way a 4K film is (as_size: the
--- clip zoomed to the scale a 3840x2160 source has here; Off and Anime only -
--- Movie takes its passes from the real display scale, see the header).
+-- Dolby Vision (profiles 5, 8.1, 8.4): no encoder here writes an RPU, so these are real clips (clips/README.txt).
+-- as_size: zoomed to a 4K source's scale here; Off and Anime only (Movie goes by the real display scale).
 for _, f in ipairs({ 'dv-p5.mp4', 'dv-p8.1.mp4', 'dv-p8.4.mp4' }) do
 	local dv = { file = 'clips/' .. f, w = 1920, h = 1080 }
 	chains(dv, D3D, ALL)

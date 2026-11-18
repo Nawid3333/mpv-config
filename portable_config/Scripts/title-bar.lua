@@ -1,21 +1,4 @@
 -- title-bar.lua - the native Windows title bar and window border in OLED black.
---
--- mpv.conf's border=yes gives mpv the native title bar (for Windows 11
--- snapping, see there), and mpv colours it by the Windows dark/light setting:
--- dark grey in dark mode. mpv has no option for that colour on Windows
--- (--macos-title-bar-color is macOS only), but Windows 11 (build 22000+) takes
--- a caption, border and caption-text colour per window through
--- DwmSetWindowAttribute. mpv's Lua is LuaJIT, so its FFI calls that
--- in-process: no helper process, and the bar is black from the moment the
--- window exists. On Windows 10 the call fails (E_INVALIDARG) and the bar keeps
--- mpv's own colours - logged, nothing else.
---
--- Dark mode is set too, so the minimize/maximize/close glyphs are light on the
--- black bar even with Windows in light mode. If the Windows theme switches
--- while mpv runs, mpv re-applies the theme's value, which this does not
--- follow.
---
--- State for tests and other scripts: user-data/title-bar = { applied, hresult }.
 
 local mp = require('mp')
 local msg = require('mp.msg')
@@ -72,8 +55,7 @@ local function apply()
 	mp.set_property_native('user-data/title-bar', { applied = hr == 0, hresult = hr })
 end
 
--- The window appears with window-id; the others can bring the frame back after
--- fullscreen, so the colour is set again (a few µs, nothing is redrawn by mpv).
+-- Set again whenever the frame can come back: window-id first, then fullscreen and the rest.
 for _, name in ipairs({ 'window-id', 'fullscreen', 'border', 'title-bar', 'window-maximized' }) do
 	mp.observe_property(name, 'native', apply)
 end

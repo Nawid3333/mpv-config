@@ -1,37 +1,12 @@
 -- video-info.lua - a small banner top right when a video starts: what it is
 -- and how big it is.
---
--- Draws with the same notify.lua banners as every other message in this setup
--- (nothing of its own), and disappears by itself after NOTE_SECONDS like they
--- all do.
---
--- Title: the resolution as the picture is shown, e.g. "1280x720" - dwidth/
--- dheight (aspect-corrected, what is actually on screen), rotation applied,
--- which plain video-params/w/h would not be. Detail line, in order, only what
--- is known, " · " between:
---   the codec (h264 -> H.264, hevc -> HEVC, ...)
---   the pixel depth, the same word the compiling banner uses ("8-bit",
---   "10-bit"); from hw-pixelformat when hardware decoding is zero-copy (the
---   copied format), pixelformat otherwise - pixelformat alone would say "vulkan"
---   the source: "FastStream" (the same #fs-content= marker gpu-toggles.lua and
---   stream-resume.lua read from path), "stream" for any other URL, "local file"
---
--- Fires on video-params, the property that arrives with the first decoded
--- frame - at file-loaded the decoder has not spoken yet, so a banner fired
--- there would miss on streams and only get the container's guess. The same
--- property re-fires when a stream changes its parameters mid-play, which
--- re-shows the banner with the new size (replaced in place, never stacked).
--- Songs get no banner: their "video" is cover art (track-list albumart/image),
--- and a cover's size is not what anyone wants to know.
 
 local mp = require('mp')
--- the FastStream tags in the URL fragment (AGENTS.md, "FastStream contract")
 local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
 
 -- Long enough to read a three-part line.
 local NOTE_SECONDS = 4
 
--- mpv's codec property names -> the short names a viewer knows.
 local CODECS = {
 	h264 = 'H.264',
 	hevc = 'HEVC',
@@ -43,12 +18,8 @@ local CODECS = {
 	mjpeg = 'MJPEG',
 }
 
--- The bit depth in a pixel-format name, worded as the compiling banner says
--- it ("8-bit", "10-bit" ...), nil for a name that carries none. The depth
--- token is the trailing "10le"/"16be"-style number or bare "10"/"16" (mpv
--- reports native endianness: "yuv420p10", "p010", "y412"). "nv12"/"nv16" also
--- end in two digits that are NOT a depth, so the nv family is excluded; a
--- one-off depth like rgb48's 48 is left unnamed rather than guessed.
+-- The bit depth in a pixel-format name ("10-bit"), nil when it carries none: a trailing "10le"/"16be" or bare number;
+-- "nv12"/"nv16" end in digits that are no depth, and a one-off like rgb48's 48 is left unnamed.
 ---@param pixelformat string|nil
 ---@return string|nil
 local function bits_of(pixelformat)
@@ -68,7 +39,6 @@ local function bits_of(pixelformat)
 	return n .. '-bit'
 end
 
---- The track that is being shown as the picture, or nil: a song, or no video.
 ---@return table|nil
 local function video_track()
 	for _, t in ipairs(mp.get_property_native('track-list') or {}) do
@@ -79,17 +49,13 @@ local function video_track()
 	return nil
 end
 
--- The source line. `path` is the full URL for a stream and the local path
--- otherwise (the same string the FastStream markers arrive in either way).
----@return string
--- The FastStream tag: a whole fs-content= item of the URL fragment, the same
--- marker gpu-toggles, stream-resume and source-info read - not the text
--- anywhere in the address, which a site's own query can hold.
--- Plain string compares: a stray "%" in the path never starts a Lua pattern class.
+---@param path string
+---@return boolean
 local function faststream_tagged(path)
 	return fragment.value(path, 'fs-content=') ~= nil
 end
 
+---@return string
 local function source_of()
 	local path = mp.get_property('path') or ''
 	if faststream_tagged(path) then
@@ -101,8 +67,6 @@ local function source_of()
 	return 'local file'
 end
 
---- "1280x720", "H.264 · 8-bit · local file" - or nil while there is nothing
---- to say: no video track yet, or no decoded size yet.
 ---@return string|nil title, string|nil detail
 local function describe()
 	local track = video_track()
@@ -131,9 +95,7 @@ local function describe()
 	return w .. 'x' .. h, table.concat(parts, ' · ')
 end
 
--- What the last banner said: the same file and the same picture are not worth
--- a second banner (the observer fires once per parameter change, including the
--- nil -> table one every new file makes).
+-- The same file and picture are not worth a second banner (the observer fires on every change, nil -> table too).
 ---@type {path: string, title: string, detail: string}|nil
 local announced = nil
 
@@ -159,7 +121,6 @@ mp.observe_property('video-params', 'native', announce)
 
 mp.register_event('end-file', function()
 	announced = nil
-	-- The banner belongs to its file: gone as soon as it unloads (the next
-	-- video's own banner would replace it anyway; a song's would not).
+	-- The banner belongs to its file: gone as soon as it unloads.
 	mp.commandv('script-message-to', 'notify', 'hide', 'video-info')
 end)

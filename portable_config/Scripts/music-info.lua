@@ -1,29 +1,5 @@
 -- music-info.lua - who and what is playing: "Artist – Title (feat. X)" in the
 -- window title, and a black panel with every detail above uosc's bottom bar.
---
--- The window title (native title bar, taskbar, and uosc's top bar in
--- fullscreen, which inherits it) is "Artist – Title (feat. X)" for audio
--- files, and for videos that carry an artist tag (music videos).
--- The cover art stays full window, as mpv shows it. For audio files a black
--- panel with every detail the file gives (title, artist, featured artists,
--- album, year, track, disc, genre, composer, label, audio format, what plays
--- next) sits above uosc's bottom bar and shows only while that bar shows
--- (mouse moved) - it fades with it. uosc publishes the bar's visibility and
--- edges as user-data/uosc/bottom-ui (a marked local change in uosc/main.lua).
--- The panel reaches down to the timeline, so uosc's buttons sit on it: one
--- black block. Without cover art the window is black anyway and the panel
--- stays.
---
--- Details come from the tags (metadata/by-key/..., case-insensitive, ID3 and
--- Vorbis names). No title tag: "Artist - Title" from the file name (or a
--- radio stream's icy-title), a bare leading track number dropped. A title tag
--- but no artist tag: the artist from the file name when its title part
--- matches. Featured artists: "feat."/"ft."/"featuring" in the artist or the
--- title, bracketed or not, moved to their own line; ";" (several ARTIST tags)
--- -> ", ".
---
--- Sizes in 720-line design units (the banners' look), multiplied at draw time
--- by the interface scale. State for tests: user-data/music-info.
 
 local mp = require('mp')
 local utils = require('mp.utils')
@@ -32,12 +8,8 @@ local PAD = 14 -- left/right, like the banners' right margin
 local TITLE_SIZE, ARTIST_SIZE, DETAIL_SIZE = 24, 16, 12
 local WHITE, SOFT, GREY = 'FFFFFF', 'DCDCDC', 'B4B4B4'
 local GAP = 24 -- between the left column and the right one
--- Text sizes are multiplied by this: mpv.conf's osd-font (Segoe UI) has a
--- 1.19x taller line box than the Arial the sizes were designed with, and
--- libass sizes text by that box (uosc.conf font_scale, notify.lua: same value).
+-- Segoe UI (osd-font) has a 1.19x taller line box than the Arial the sizes were designed with (uosc, notify: same).
 local FONT_SCALE = 1.19
-
--- ---- what the file says ---------------------------------------------------
 
 ---@param s string
 ---@return string
@@ -92,8 +64,7 @@ local function split_feat(s)
 	return s, nil
 end
 
---- The given values that are not nil/false, in order. (ipairs over a table
---- literal stops at the first nil.)
+--- The given values that are not nil/false, in order (ipairs over a table literal stops at the first nil).
 ---@return string[]
 local function present(...)
 	local list = {}
@@ -319,8 +290,6 @@ local function read_song()
 	}
 end
 
--- ---- the window title -----------------------------------------------------
-
 local song = nil ---@type table|nil
 
 local function set_title()
@@ -329,8 +298,6 @@ local function set_title()
 		mp.set_property('file-local-options/title', song.window_title:gsub('%$', '$$') .. ' - mpv')
 	end
 end
-
--- ---- the panel ------------------------------------------------------------
 
 local panel = mp.create_osd_overlay('ass-events')
 panel.z = 1000 -- under uosc (2000): its buttons draw on the panel, its menus over it
@@ -364,10 +331,8 @@ local function text(x, y, align, size, color, alpha, str, clip)
 	)
 end
 
--- Measured on the same canvas the panel will use (res_x x res_y = the window
--- in real pixels, as draw() sets panel.res_x/res_y): libass sizes text by the
--- window height over res_y and compute_bounds answers in res_x/res_y units,
--- so any other canvas measures every line h/720 times its real width.
+-- Measured on the panel's own canvas (the window in real pixels): libass sizes text by window height over res_y,
+-- and on any other canvas every line measures h/720 times its real width.
 ---@param str string
 ---@param size number
 ---@param res_x number
@@ -417,10 +382,7 @@ local function draw()
 		panel:remove()
 		return
 	end
-	-- uosc's interface scale (its state.scale, from its user-data hook; the
-	-- window height until it reports, like notify.lua's fallback). The design
-	-- sizes are 720-line units, so the panel keeps the same physical size as
-	-- uosc's own elements at every window size.
+	-- uosc's interface scale (window height / 720 until it reports): the panel keeps uosc's physical size.
 	local k = mp.get_property_number('user-data/uosc/ui-scale', h / 720)
 	local function px(v)
 		return math.floor(v * k + 0.5)

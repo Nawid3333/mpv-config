@@ -1,58 +1,4 @@
--- warmup.lua - the shader cache warm-up. It runs in its OWN mpv process, never
--- inside the player, and always embedded in a window that is never shown
--- (host.ps1): main.lua starts it in the background when the startup check finds
--- the cache stale, installer/warm-shader-cache.ps1 on request (and, with
--- check=yes, for tests/run-tests.ps1 -Tier gpu). Nothing of it is on screen and
--- it gets no input, so no key, click or pause in the player reaches it. mpv
--- loads only a folder's main.lua, so this file is never a player script by
--- accident.
---
--- Draws every upscale chain once in the real renderer, so that libplacebo's
--- compiled shaders land in the on-disk shader cache before a real video needs
--- them. A cache miss costs up to ~0.3 s before the first frame.
---
--- A cache entry is keyed by the passes that run, not the video size, so the
--- matrix covers each scale tier the chains branch on (Anime4K's x2/x4
--- AutoDownscalePre, Movie's FSRCNNX at >= 2x, no sharpening when not
--- enlarged), 8-bit and 10-bit sources, through d3d11va-copy, the one hardware
--- decode path even for FastStream streams (vulkan decoding loses the GPU
--- device - mpv.conf's hwdec section). No vulkan decoding here either.
--- Change the matrix -> bump fingerprint.lua's WARMUP_VERSION (removing runs
--- needs no bump: a warm cache stays warm).
---
--- SHIPPED cases (shipped-cases.lua): after the matrix, a full warm-up also
--- draws what real playback needs beyond it (HDR, film grain, stills, the
--- menu's video settings ...), each from a 1 s clip in exactly that format and
--- colour tagging (mpv's own encoder, cases.lua), decoded the way the case
--- says, through its chain, at its displayed scale (video-zoom against this
--- window's fit). A quick check draws them only when it escalates to a full
--- warm-up. A case whose clip cannot be made is skipped with a RESULT INFO
--- line, never fatal.
---
--- Each clip sits paused and every step frame-steps just far enough to prove
--- the new chain was drawn (settle()); a paused clip keeps the GPU nearly
--- idle, which matters when this runs next to a playing video. After the
--- steps, each clip PLAYS a few frames (play_frames): a playing video draws
--- some passes slightly differently from a stepped one (extra specialization
--- constants), so a stepping-only warm-up leaves real compiles for the next
--- playback.
---
--- The process loads only gpu-toggles.lua (the chains), uosc (its UI is drawn
--- over every real video, so its passes belong in the cache), notify.lua (the
--- banner gpu-toggles shows at each switch, as in the player), settings.lua
--- (the HDR brightness the player draws HDR video with, read-only:
--- settings-write=no) and this script (--load-scripts=no): nothing that keeps
--- state (remember-speed, stream-resume, autoload, welcome) runs here.
--- Progress goes to shader-warmup.progress in the cache folder, for main.lua's
--- small bar and the manual script's terminal.
---
--- Counts cache misses from libplacebo's own log ("shaderc compile status"
--- appears once per GLSL->SPIR-V compile, never on a cache hit) and prints
---   RESULT INFO <step>: <n> compiles
--- and, with check=yes, a final RESULT PASS/FAIL "shader cache warm". Exit
--- codes: 0 done, 1 check found misses (or could not draw), 2 setup error,
--- 3 hard timeout (6 when steps were never drawn), 4 stamp not written, 6 the
--- player stopped drawing.
+-- warmup.lua - the shader cache warm-up, in its own mpv embedded in a never-shown window (host.ps1).
 local utils = require('mp.utils')
 local options = require('mp.options')
 
@@ -79,8 +25,6 @@ local function quit(code)
 	mp.command('quit ' .. code)
 end
 
--- ---- cache misses, from libplacebo's log -----------------------------------
-
 -- work_ms: the real compile work - GLSL->SPIR-V ("translating SPIR-V") plus
 -- the driver's pipeline creation.
 local compiles, pipelines, work_ms = 0, 0, 0
@@ -104,8 +48,6 @@ mp.register_event('log-message', function(e)
 	end
 end)
 
--- ---- progress, for main.lua's bar and the manual script --------------------
-
 local status = {
 	title = (o.quick or o.check) and 'Checking shaders' or 'Compiling shaders',
 	done = 0,
@@ -126,8 +68,6 @@ local function progress(done, total, detail)
 	status.done, status.total, status.detail = done, total, detail
 	write_progress()
 end
-
--- ---- coroutine plumbing --------------------------------------------------------
 
 local co
 local function resume(...)
@@ -174,14 +114,8 @@ local function actions_done()
 	return mp.get_property_number('user-data/gpu-toggles/applied', 0)
 end
 
--- A switch is drawn once (1) gpu-toggles has finished every action sent so far
--- (its entry() counter reaches `target`) and (2) SETTLE_FRAMES more frames were
--- queued after that, one frame-step at a time from pause. The VO draws frames
--- in order and reads option changes at the start of each draw, so the third
--- frame queued after the change means the first one drawn with the new chain
--- is finished - every pass of it created, compiled or loaded from the cache. A
--- long compile stalls the VO and with it the stepping, so a cold step simply
--- takes as long as its compile.
+-- A switch is drawn once gpu-toggles' entry() count reaches `target` and SETTLE_FRAMES more frames were queued:
+-- the VO draws in order, so by then the first frame with the new chain is finished; a long compile just stalls it.
 local SETTLE_FRAMES = o.settle_frames
 local SETTLE_CAP = 10
 local PLAY_FRAMES = o.play_frames
@@ -217,8 +151,6 @@ local function settle(target)
 	end
 end
 
--- ---- the matrix ------------------------------------------------------------------
-
 local H264 = { codec = 'libx264', pix = 'yuv420p', tag = 'h264 8-bit', bits = '8-bit' }
 local HEVC10 = { codec = 'libx265', pix = 'yuv420p10le', tag = 'hevc 10-bit', bits = '10-bit' }
 local PATHS = { ['d3d11va-copy'] = 'hardware', no = 'software' }
@@ -241,11 +173,8 @@ if o.matrix == 'test' then
 	runs[1] = { hwdec = 'no', size = '320x180', fmt = H264 }
 	runs[2] = { hwdec = 'no', size = '320x180', fmt = H264 }
 else
-	-- The quick check (only shaders/presets changed) stops after these if they
-	-- compiled nothing: 720p (Movie = FSRCNNX + SSimSuperRes) and 1080p (Movie =
-	-- SSimSuperRes alone), 10-bit, and 480p - the one size here at which
-	-- Anime4K's AutoDownscalePre_x4 runs on a 1440p screen (its WHEN wants a
-	-- 2.4-4x scale).
+	-- The quick check stops after these if they compiled nothing: 720p and 1080p (Movie's two chains), 10-bit,
+	-- and 480p, where Anime4K's AutoDownscalePre_x4 runs on a 1440p screen.
 	runs = {
 		{ hwdec = 'd3d11va-copy', size = '1280x720', fmt = H264 },
 		{ hwdec = 'd3d11va-copy', size = '1920x1080', fmt = H264 },
@@ -270,14 +199,8 @@ local QUICK = o.matrix == 'test' and 1 or 4 -- the first QUICK runs
 -- off, Anime, Movie, Movie unsharpened, then quality Fast (Movie, Anime)
 local STEPS_PER_RUN = 6
 
--- Clip sizes for the screen this runs on. The standard sizes were chosen on a
--- 1440p screen, where they reach every branch the chains take by scale:
--- Anime4K's (its WHEN lines - no upscale up to 1.2x, x2 + downscale up to 2x,
--- x2 alone up to 2.4x, x2 + downscale + x2 up to 4x, then x2 twice) and
--- Movie's (SSimSuperRes + sharpening below 2x, FSRCNNX from 2x). Another
--- screen misses some - 4K has nothing between 1.2x and 2x (1080p is exactly
--- 2x), 1080p nothing at 4x or more - so a clip at the middle of each missed
--- branch is added, in both formats. On 1440p (and 3440x1440) nothing is added.
+-- Clip sizes for this screen: the standard ones reach every scale branch of the chains on a 1440p screen;
+-- another screen misses some, so a clip at the middle of each missed branch is added, in both formats.
 local BRANCHES = { { 1.2, 2.0, 1.6 }, { 2.0, 2.4, 2.2 }, { 2.4, 4.0, 3.0 }, { 4.0, math.huge, 4.5 } }
 local STANDARD_HEIGHTS = { 360, 480, 720, 1080, 2160 }
 local function add_screen_runs(dw, dh)
@@ -307,8 +230,7 @@ local function add_screen_runs(dw, dh)
 	return added
 end
 
--- the shipped cases (shipped-cases.lua): gaps of the matrix, drawn
--- after it in every full warm-up
+-- the shipped cases, drawn after the matrix in every full warm-up
 local shipped = {}
 if o.shipped and o.matrix ~= 'test' then
 	for _, c in ipairs(dofile(here .. 'shipped-cases.lua')) do
@@ -327,9 +249,7 @@ end
 local exe = utils.join_path(mp.command_native({ 'expand-path', '~~exe_dir/' }), 'mpv.exe')
 local clip_dir = utils.join_path(os.getenv('TEMP') or os.getenv('TMP') or '.', 'mpv-shader-warmup-v1')
 
--- The clips of runs 1..limit: a quick check makes only its own (clips cost
--- seconds of encoding each); one that turns into a full warm-up makes the
--- rest then.
+-- Only runs 1..limit (clips cost seconds of encoding each); a quick check turned full makes the rest then.
 local function ensure_clips(limit)
 	if not utils.file_info(clip_dir) then
 		run({ 'cmd', '/d', '/c', 'mkdir', (clip_dir:gsub('/', '\\')) })
@@ -369,10 +289,7 @@ local function ensure_clips(limit)
 	return true
 end
 
--- A shipped case's clip, made once like the matrix's; nil when this build
--- cannot make it (that case is then skipped, the rest go on). They are all
--- made in the first full warm-up: without them that warm-up would not be
--- complete.
+-- A shipped case's clip, made once; nil when this build cannot make it (that case is skipped).
 local function ensure_case_clip(c, what)
 	if c.recipe.file then
 		if utils.file_info(c.recipe.file) then
@@ -457,9 +374,8 @@ local function write_stamp(screen_drawn)
 		resume(result)
 	end)
 	local fp = coroutine.yield()
-	-- the screen it was warmed on (main.lua warms again on another one). A quick check
-	-- that compiled nothing drew no screen sizes: naming this screen, its stamp kept a
-	-- new screen from ever getting them, so it keeps the screen they were drawn for.
+	-- the screen it was warmed on (main.lua warms again on another one); a quick check that compiled nothing
+	-- drew no screen sizes, so it keeps the screen they were drawn for.
 	local display
 	if screen_drawn then
 		local w, h = mp.get_property_number('display-width'), mp.get_property_number('display-height')
@@ -521,9 +437,7 @@ co = coroutine.create(function()
 	end
 	local t_start = mp.get_time()
 	mp.set_property_native('pause', true)
-	-- --untimed playback runs as fast as frames are made (with --vo=null, a whole
-	-- clip between two checks): a looping clip never reaches an end where
-	-- frame-step and play_frames would stall
+	-- --untimed runs as fast as frames are made: a looping clip never reaches an end where stepping would stall
 	mp.set_property('loop-file', 'inf')
 	-- the UI overlay (uosc) and OSD text are passes too
 	mp.commandv('script-binding', 'uosc/flash-ui')
@@ -565,9 +479,7 @@ co = coroutine.create(function()
 			if total == 0 then
 				quick_ok = true
 			else
-				-- something changed: do everything, this screen's own sizes too.
-				-- They were left out here, and the stamp still names this screen,
-				-- so main.lua would never warm them.
+				-- something changed: do everything, this screen's own sizes too (the stamp will name this screen).
 				if o.matrix ~= 'test' then
 					screen_runs()
 				end
@@ -596,9 +508,7 @@ co = coroutine.create(function()
 			end
 			local label = 'shipped ' .. what
 			local done = actions_done()
-			-- the displayed scale: fitted, 1:1, at the scale of its as_size, or
-			-- its ratio - by video-zoom (a power of 2) on top of the fit r0 of
-			-- this window.
+			-- the displayed scale (fitted, 1:1, as_size's, or its ratio) by video-zoom on top of this window's fit r0
 			local zoom = 0
 			local d = mp.get_property_native('osd-dimensions') or {}
 			local w, h = c.w or (c.clip or {}).w, c.h or (c.clip or {}).h
@@ -710,11 +620,8 @@ co = coroutine.create(function()
 end)
 
 mp.add_timeout(0.2, resume)
--- a hard stop so it can never hang unseen. Steps that were never drawn (a
--- minimized window, a locked screen) each wait out SETTLE_CAP, so a full warm-up
--- that draws nothing reaches this stop long before its own exit 6: the reason is
--- the same, and so is the exit (retried at the next start like an interruption,
--- not recorded as failed for good).
+-- a hard stop so it can never hang unseen; a warm-up that draws nothing reaches it before its own exit 6,
+-- and exits the same way (retried at the next start, not recorded as failed).
 mp.add_timeout(240, function()
 	out('RESULT FAIL warm-up :: still running after 240 s')
 	if slow_steps > 0 and not o.check then

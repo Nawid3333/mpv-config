@@ -76,6 +76,7 @@ behaviour, so defaults and policy are updated here only. `doc/manual.txt` is a
 local copy of mpv's manual: grep it before guessing what an option does. Its first line
 names the build it came from; when a merged build changes `doc/manual.pdf` (its SHA-256 in
 mpv-build.json), make it again (RECREATE.md section 5).
+`doc/scripts.md` holds each script's design and the reasons behind it.
 
 **Layout.** `portable_config/` next to `mpv.exe` (portable mode: `~~/`, `~~state/`,
 `~~cache/` all resolve there). `mpv.conf`, `input.conf` (keys, and the right-click

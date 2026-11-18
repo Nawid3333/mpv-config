@@ -1,41 +1,8 @@
 -- stream-resume.lua - resume FastStream videos where they were left off.
---
--- Why not mpv's own watch-later (save-position-on-quit): it keys a file by its
--- path, and a FastStream path is the CDN stream URL, which on streaming sites
--- carries an expiring token - the same episode arrives under a new URL every
--- time, so watch-later would never find its entry. Instead the FastStream
--- native host appends `fs-id=<16 hex>` to the URL fragment (never sent to the
--- CDN): a sha256 prefix of the browser tab's page URL, i.e. the episode page,
--- which is stable. Only files carrying that marker are touched - local files
--- keep starting at 0:00 (FastStream only).
---
--- Behavior:
---   - position saved every SAVE_INTERVAL seconds and when the file unloads, so
---     a crash or accidental close loses at most a few seconds
---   - on reopen: auto-resume (no question), with a note saying where and
---     that Home (mpv's own default "seek to beginning") starts over. The note
---     is a notify.lua banner top right for NOTE_SECONDS.
---   - an entry is dropped when the video is finished (inside the last 8 %,
---     at least 30 s and at most 3 min: an episode's end credits and preview)
---     or when it has not been watched for EXPIRY_SECONDS (7 days) - no
---     permanent memory. Watching again resets the 7 days.
---   - a start position given with the file (FastStream's player button hands
---     over where the browser's player was, as the per-file option start) wins
---     over the saved one; the position is still saved
---   - the saved duration must match the reopened stream's (within
---     DURATION_TOLERANCE), so a site that serves several episodes under one
---     page URL cannot resume episode 3 at episode 2's position
---   - progress is mpv-only; the FastStream browser player keeps its own
---   - a stream FastStream sent from a private window (fs-private=1) is neither
---     resumed nor saved
---
--- State: ~~state/stream-resume.json (= portable_config/ here, see
--- remember-speed.lua), gitignored, safe to delete at any time.
 
 local mp = require('mp')
 local msg = require('mp.msg')
 local utils = require('mp.utils')
--- the FastStream tags in the URL fragment (AGENTS.md, "FastStream contract")
 local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
 
 local EXPIRY_SECONDS = 7 * 24 * 60 * 60
@@ -48,21 +15,14 @@ local DURATION_TOLERANCE = 5
 local NOTE_SECONDS = 4
 
 local state_file = mp.command_native({ 'expand-path', '~~state/' }) .. '/stream-resume.json'
--- written whole or not at all (issue #96)
 local statefile = dofile(mp.command_native({ 'expand-path', '~~/script-modules/state-file.lua' }))
 
 -- The file being played, or nil when it has no fs-id marker:
 --   { id = string, resumed = entry|nil, ready = bool, last_saved = number|nil }
 local current = nil
 
---- The resume key: the hex digits of the last whole "fs-id=" item of the URL
---- fragment (everything after the first '#', items separated by '&'). The
---- native host drops fs-* items a stream URL already carries and appends its
---- own last, so neither a query parameter ("?x=1&fs-id=...") nor anything
---- else the stream URL brings can pass for it.
---- None for a stream FastStream sent from a private window (an "fs-private=1" item, after
---- the fs-id): no position is read or saved for it (the owner's pick, 2026-10-14). Its fs-id
---- stays for faststream-episodes.lua, which knows a FastStream stream by it.
+--- The resume key: the hex digits of the last whole "fs-id=" fragment item (the helper appends its own last).
+--- None for a private window's stream (fs-private=1): nothing read or saved; its fs-id stays for faststream-episodes.
 ---@param path string|nil
 ---@return string|nil
 local function resume_id(path)
@@ -73,13 +33,8 @@ local function resume_id(path)
 	return id and id:match('^(%x+)')
 end
 
---- Read the saved entries, dropping expired and malformed ones. A missing or
---- corrupt file reads as empty; the next save moves a corrupt one aside and
---- writes a new one.
---- The second result is true when something was dropped, i.e. the file on
---- disk still holds entries that should be gone.
---- The third result is true when the file exists but could not be read: saving
---- over it would then erase every other entry, so a save keeps it beside first.
+--- The saved entries, expired and malformed ones dropped; a missing or damaged file reads as empty.
+--- Second result: something was dropped. Third: the file is there but unreadable, so a save keeps it beside first.
 ---@param path string|nil the state file (default) or a copy of it
 ---@return table<string, {pos: number, duration: number, updated: number}>, boolean, boolean
 local function load_entries(path)
@@ -112,8 +67,6 @@ local function load_entries(path)
 	return entries, pruned, false
 end
 
---- Written whole or not at all (state-file.lua): a crash or a full disk mid-write
---- cannot leave a truncated file, nor none. Failures are logged, never fatal.
 ---@param entries table
 local function save_entries(entries)
 	-- format_json turns an empty table into [], which parse_json reads back as
@@ -142,9 +95,7 @@ local function format_time(seconds)
 	return string.format('%d:%02d', m, s % 60)
 end
 
---- Record the current position (or drop the entry when finished / near the
---- start). Re-reads the file first, so two mpv windows do not erase each
---- other's entries.
+--- Records the position, or drops the entry; re-reads the file first, so two mpv windows keep each other's entries.
 local function save_position()
 	if not current or not current.ready then
 		return
@@ -161,10 +112,7 @@ local function save_position()
 	end
 	local entries, _, unreadable = load_entries()
 	if unreadable then
-		-- Not JSON: saves go through a temp file plus rename, so a write is never
-		-- seen half-written - unreadable means damaged. It is kept beside (for a
-		-- look) and saving goes on: skipped every time, resuming would stop for
-		-- good.
+		-- Unreadable means damaged (saves are whole or nothing): kept beside, and saving goes on.
 		local aside = state_file .. '.corrupt-' .. os.date('%Y%m%d-%H%M%S')
 		if not os.rename(state_file, aside) then
 			msg.warn('stream-resume.json could not be read or moved aside; not saving over it')
@@ -232,7 +180,6 @@ mp.register_event('file-loaded', function()
 	current.ready = true
 end)
 
--- A banner top right (Scripts/notify.lua draws every message).
 ---@param pos number
 local function show_note(pos)
 	mp.commandv(

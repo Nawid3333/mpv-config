@@ -1,26 +1,12 @@
--- subtitle-toggle.lua
--- Smart "c" key:
---   1. no subtitles loaded -> OSD "No subtitles" + scan the video's folder
---      for subtitle files and load+select one if found (sub-add)
---   2. subs loaded but none selected -> select the first one and show it
---   3. subs loaded but hidden -> show (OSD "Subtitles: on")
---   4. subs shown -> hide (OSD "Subtitles: off")
--- With uosc present, a failed scan still leaves uosc's file-picker binding
--- reachable via the RMB menu.
+-- subtitle-toggle.lua - the smart "c" key: loads, selects, shows or hides subtitles
 
 local msg = require('mp.msg')
 local utils = require('mp.utils')
 
 local SUB_EXTS = { srt = true, ass = true, ssa = true, sub = true, vtt = true, sup = true }
 
--- One pass over track-list answering both questions the toggle needs:
--- the first subtitle track (nil if the file has none) and whether any
--- subtitle track is selected right now.
---
--- These are deliberately NOT the same question: mpv's --subs-fallback
--- defaults to `default`, so when no track matches mpv.conf's `slang=de,en`
--- and none is flagged default (a Japanese- or Spanish-only release, say),
--- mpv selects NO subtitle track at all despite the file having subs.
+-- The first subtitle track, and whether any is selected: not the same question, as --subs-fallback=default
+-- selects none when no track matches slang and none is flagged default.
 ---@return table|nil first_sub, boolean any_selected
 local function scan_sub_tracks()
 	local track_list = mp.get_property_native('track-list', {})
@@ -38,13 +24,10 @@ local function scan_sub_tracks()
 	return first, false
 end
 
--- true if a subtitle track is currently displayed
 local function subs_visible()
 	return mp.get_property_bool('sub-visibility')
 end
 
--- scan the directory of the currently playing file for a subtitle file
--- whose name contains the video filename (fuzzy, same rule as sub-auto)
 local function find_subtitle_file()
 	local path = mp.get_property('path')
 	if not path or path:find('://') then
@@ -60,10 +43,8 @@ local function find_subtitle_file()
 		return nil
 	end
 
-	-- prefer an exact <videoname>.<ext> match, then fuzzy; first found wins.
-	-- join_path, not dir .. entry: for a bare file name (mpv started from a
-	-- terminal with "mpv clip.mkv") split_path gives the dir "." with no
-	-- separator, and "." .. "clip.srt" named a file that does not exist.
+	-- an exact <videoname>.<ext> match first, then fuzzy; the first found wins
+	-- join_path: for a bare file name split_path gives the dir "." with no separator.
 	local exact, fuzzy
 	for _, entry in ipairs(entries) do
 		local name, ext = entry:match('^(.+)%.(%w+)$')
@@ -79,8 +60,6 @@ local function find_subtitle_file()
 	return exact or fuzzy
 end
 
--- Banner top right (Scripts/notify.lua draws every message; the same id
--- replaces the previous one).
 local function notify(title, detail)
 	mp.commandv('script-message-to', 'notify', 'show', 'subtitles', title, detail or '')
 end
@@ -111,9 +90,7 @@ local function smart_toggle()
 		return
 	end
 
-	-- The file has subtitles but mpv selected none (see scan_sub_tracks) -
-	-- select the first one and make it visible, rather than toggling a
-	-- visibility flag with nothing to show.
+	-- The file has subtitles but mpv selected none (scan_sub_tracks): select the first and show it.
 	if not selected then
 		mp.set_property_number('sid', track.id)
 		mp.set_property_bool('sub-visibility', true)
@@ -132,7 +109,5 @@ local function smart_toggle()
 	end
 end
 
--- key=nil: the actual key ('c') lives in input.conf's script-binding line,
--- same convention as gpu-toggles.lua/speed-button.lua; deleting that line
--- frees 'c' back to mpv's default instead of leaving it hardcoded here too.
+-- key=nil: the key lives in input.conf's script-binding line.
 mp.add_key_binding(nil, 'smart-toggle', smart_toggle)

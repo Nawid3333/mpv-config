@@ -1,23 +1,5 @@
--- state-file.lua - how this setup's scripts replace a state file (settings.json,
--- speed.json, stream-resume.json, upscale.json, movie-sharpness.json), and read one.
--- Loaded with dofile(), as below, not a player script: mpv runs every .lua and every
--- folder in scripts/, and says "Cannot find main.*" for a folder without a main.lua.
---
---   local state_file = dofile(mp.command_native({ 'expand-path', '~~/script-modules/state-file.lua' }))
---
--- write(path, text): the text goes to a temp file of this process's own (two mpv
--- windows saving at once would write into each other's), is checked (write and close;
--- on a full disk either fails, and the short file used to replace the good one), then
--- replaces the file in one step: MoveFileExW with MOVEFILE_REPLACE_EXISTING through
--- the LuaJIT FFI on Windows, whose os.rename cannot replace a file. Elsewhere, and
--- if the FFI is not there, rename (which replaces on POSIX), else remove then rename.
--- The file is never left missing or half-written by a failed save (issue #96).
---
--- read_json(path, name): the file's table; nil when there is none. A file that is
--- there but no JSON table is damaged: it is moved aside as <file>.corrupt-<time> (kept
--- for a look, never overwritten) with a warning, and nil comes back, so the script
--- starts from its defaults instead of saving them over the file without a word. When
--- it cannot be moved, the second value is true: the script must not save over it.
+-- state-file.lua - replaces a state file whole or not at all, and reads one (a damaged one is moved aside).
+-- Loaded with dofile(), not a player script: mpv runs every .lua and every folder in scripts/.
 
 local mp = require('mp')
 local msg = require('mp.msg')
@@ -58,7 +40,6 @@ if ffi_ok and ffi.os == 'Windows' then
 	end)
 end
 
---- Replaces the file with the text, whole or not at all.
 ---@param path string
 ---@param text string
 ---@return boolean ok
@@ -92,7 +73,6 @@ function M.write(path, text)
 	return true
 end
 
---- The file's JSON table; a damaged file is moved aside first.
 ---@param path string
 ---@param name string what the warning calls the file
 ---@return table|nil data
@@ -115,13 +95,6 @@ function M.read_json(path, name)
 	end
 	msg.warn(name .. ' could not be read or moved aside: not saving over it')
 	return nil, true
-end
-
---- The path of a state file in the config folder.
----@param name string
----@return string
-function M.path(name)
-	return mp.command_native({ 'expand-path', '~~/' .. name })
 end
 
 return M

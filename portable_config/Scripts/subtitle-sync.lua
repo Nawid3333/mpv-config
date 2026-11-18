@@ -1,44 +1,5 @@
--- subtitle-sync.lua
--- Subtitle & audio sync on a zoomed timeline (key t, the uosc sync button, or
--- the Subtitles / Audio menus). A port of FastStream's resync tool
--- (github.com/Andrews54757/FastStream, chrome/player/ui/subtitles/
--- SubtitleSyncer.mjs + FineTimeControls.mjs): a strip of the timeline around
--- the playhead, 30 s wide by default, with
---   - a time row (ticks, the playhead's time),
---   - an AUDIO row: the sound's loudness over time, so speech shows as blobs,
---   - a SUBTITLE row: every line as a block from its start to its end,
--- so the blocks can be lined up with the speech by eye, like FastStream's.
---
--- Mouse (inside the panel only - outside it mpv and uosc work as usual):
---   drag the subtitle row   shift the subtitles (sub-delay), the blocks follow
---   drag the audio row      shift the sound (audio-delay)
---   drag the time row       scrub (pauses while dragging)
---   click                   jump there; on a subtitle block: to its start
---   wheel                   +-0.05 s on the row under the pointer; zoom on the time row
--- Keys while open: Left/Right subtitles -+0.05 s, Shift+Left/Right audio -+0.05 s,
--- Enter (or t) keeps both, Esc puts both back to what they were when it opened.
---
--- Where the data comes from:
---   - Audio: a second mpv (mpv.exe itself, --no-config, no window, no sound)
---     decodes 30 s of the selected audio track around the view and prints its
---     loudness every 20 ms (lavfi astats -> ametadata). It uses the same
---     demuxer and timeline as the player, so a beep at 3.00 s in the file is
---     drawn at 3.00 s - also for mkv/mp4 whose audio starts later than the
---     video and MPEG-TS with a non-zero start. Speech band only (200 Hz - 4 kHz),
---     and on 5.1 the centre channel, where films put the dialogue. A stream
---     is fetched again for it (same headers).
---   - Subtitles: mpv's `sub-lines` (the lines in memory, times without
---     sub-delay). For an external file (.srt/.ass/.vtt..., also a URL) that is
---     every line, parsed by mpv itself. For a track INSIDE the video it is only
---     what has been read so far (a seek drops the rest), so an embedded text
---     track is extracted in full with ffmpeg (next to mpv.exe or on PATH).
---     Without ffmpeg (the row says where to put one), and for tracks inside a
---     stream, the row collects the lines as playback reads them (a few seconds
---     ahead); picture subtitles (PGS/DVD) have no text list, so their lines
---     appear as they are shown (sub-start/sub-end).
--- FastStream's extras that are not ported: its voice-activity model (an ONNX
--- network in the browser) - the speech band is the stand-in - and its
--- per-line editor (subEditMode).
+-- subtitle-sync.lua - subtitle and audio sync on a zoomed timeline (t, the sync button, the menus),
+-- a port of FastStream's resync tool: audio loudness and subtitle lines around the playhead, lined up by eye.
 
 local utils = require('mp.utils')
 local msg = require('mp.msg')
@@ -115,8 +76,6 @@ end
 local function is_local(path)
 	return path and not path:find('://', 1, true)
 end
-
--- ---- subtitles: the lines of the selected track -----------------------------------
 
 -- Text into an ASS event: a backslash gets a zero-width no-break space after
 -- it (as mpv's osc.lua does), braces are escaped.
@@ -373,10 +332,7 @@ local function load_subs()
 		capture_stdout = true,
 		capture_stderr = true,
 	}, function(ok, res)
-		-- An aborted read (the track switched): its end comes after the next read began,
-		-- and cleared that one's handle, so the next switch could not stop it, and quick
-		-- switching left whole-file ffmpeg reads running side by side. It said "failed",
-		-- too. The audio half guards this with audio.gen.
+		-- An aborted read (the track switched): its late end must not clear the next read's handle.
 		if sub_job ~= job then
 			return
 		end
@@ -392,9 +348,7 @@ local function load_subs()
 	sub_job = job
 end
 
--- The tool closed, or the file ended, while ffmpeg still reads the track: it reads the whole
--- file (minutes for a big one), for lines nobody waits for any more. Stopped, and the track
--- read again when the tool opens next.
+-- The tool closed or the file ended while ffmpeg reads the whole track: stopped, read again next time.
 local function stop_sub_job()
 	if not sub_job then
 		return
@@ -457,8 +411,6 @@ local function cues_between(lo, hi)
 	end
 	return out
 end
-
--- ---- audio: loudness of the selected track -------------------------------------
 
 -- audio.bins[n] = loudness (dB) of the 20 ms from n/50 s on, in the player's
 -- timeline (without audio-delay). audio.chunks[i] = 'pending'|'done'|'failed'
@@ -700,16 +652,12 @@ local function onsets()
 	return list
 end
 
--- ---- drawing ----------------------------------------------------------------------
-
 local function layout()
 	local w, h = mp.get_osd_size()
 	if not w or not h or w <= 0 or h <= 0 then
 		w, h = 1280, 720
 	end
-	-- The panel sizes with uosc's interface scale (its user-data hook, falling
-	-- back to the window height like notify.lua does before uosc reports) - the
-	-- panel matches uosc's own elements instead of shrinking with the window.
+	-- uosc's interface scale (window height / 720 until it reports): the panel matches uosc's own elements.
 	local k = mp.get_property_number('user-data/uosc/ui-scale', h / 720)
 	local function px(v)
 		return math.floor(v * k + 0.5)
@@ -783,9 +731,7 @@ local function panel_box(x0, y0, x1, y1, radius)
 	)
 end
 
--- Text sizes are multiplied by this: mpv.conf's osd-font (Segoe UI) has a
--- 1.19x taller line box than the Arial the sizes were designed with, and
--- libass sizes text by that box (uosc.conf font_scale, notify.lua: same value).
+-- Segoe UI (osd-font) has a 1.19x taller line box than the Arial the sizes were designed with (uosc, notify: same).
 local FONT_SCALE = 1.19
 
 local function text(x, y, align, size, color, str, clip)
@@ -1039,7 +985,6 @@ local function render()
 		status_text(g, g.subs, s_status, ev)
 	end
 
-	-- the playhead and its time
 	ev[#ev + 1] = rect(g.cx - 1, g.time.y0 + px(14), g.cx + 1, g.subs.y1, WHITE)
 	ev[#ev + 1] = rect(g.cx - px(30), g.time.y0, g.cx + px(30), g.time.y0 + px(14), BOX)
 	ev[#ev + 1] = text(g.cx, g.time.y0, 8, px(11), WHITE, clock(c, 1))
@@ -1115,8 +1060,6 @@ local function tick()
 		publish()
 	end
 end
-
--- ---- input ------------------------------------------------------------------------
 
 local function mouse()
 	local pos = mp.get_property_native('mouse-pos') or {}
@@ -1207,9 +1150,7 @@ local function on_release()
 			end
 		end
 	else
-		-- a click: jump there, on a subtitle block to its start - the block under the
-		-- pointer: with overlapping lines on two lanes, the first line running at that
-		-- time was often the other one
+		-- a click: jump there; on a subtitle block, to the start of the block under the pointer (lanes overlap)
 		local x, y = mouse()
 		local t = center() + (x - g.cx) / g.pps
 		if d.row == 'subs' then
@@ -1225,8 +1166,7 @@ local function on_release()
 				t = hit.s + delay
 			end
 		end
-		-- the row labels are no timeline: a click there jumped to a time the panel did
-		-- not show (before 0 near a file's start: back to its beginning)
+		-- the row labels are no timeline
 		if x >= g.tx0 and x <= g.tx1 then
 			seek(t, true)
 		end
@@ -1270,8 +1210,6 @@ mp.set_key_bindings({
 		end,
 	},
 }, SECTION, 'force')
-
--- ---- open / close -----------------------------------------------------------------
 
 -- uosc toolbar button (button:subtitle_sync in uosc.conf's controls list)
 local function update_button()
@@ -1329,8 +1267,7 @@ local function close(revert, quiet)
 			end
 		end
 	end
-	-- a read that failed (a stream's hiccup) is tried again next time too: kept, its 30 s
-	-- stayed empty, and three of them said "unavailable", for as long as the file played
+	-- a failed read (a stream's hiccup) is tried again next time too
 	for i, state in pairs(audio.chunks) do
 		if state == 'failed' then
 			audio.chunks[i] = nil
@@ -1341,7 +1278,6 @@ local function close(revert, quiet)
 		set_delay('sub-delay', start_sub)
 		set_delay('audio-delay', start_audio)
 	end
-	-- a banner top right (Scripts/notify.lua draws every message)
 	if not quiet then
 		mp.commandv(
 			'script-message-to',
@@ -1399,8 +1335,7 @@ local function toggle()
 	end
 end
 
--- key=nil: the key lives in input.conf (script-binding subtitle_sync/toggle),
--- same convention as gpu-toggles.lua/subtitle-toggle.lua.
+-- key=nil: the key lives in input.conf (script-binding subtitle_sync/toggle).
 mp.add_key_binding(nil, 'toggle', toggle)
 mp.register_script_message('toggle', toggle)
 
