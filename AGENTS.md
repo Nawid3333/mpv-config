@@ -180,7 +180,10 @@ the helper starts mpv with `--force-window=immediate` and appends URL-fragment
 items to the stream URL - `fs-content=anime|movie|native` (native: no upscaler), `fs-id=<16 hex>` (resume key),
 `fs-private=1` (a private window's stream: stream-resume keeps nothing, since
 2026-10-14), `fs-page=<encoded page URL>`. Scripts read the LAST whole item of the fragment
-(after the first `#`, split on `&`), never a match anywhere in the URL. The helper
+(after the first `#`, split on `&`), never a match anywhere in the URL. A stream mpv cannot
+open from its address (helper 27: a disguised or keyed HLS stream) plays from playlist files,
+`<temp>/faststream-mpv-hls-*/master.m3u8` or `<n>.m3u8`; its tags are in `target.txt` beside
+them (the stream as sent), which faststream-fragment.lua reads for such a path. The helper
 sets `user-data/faststream/connected`, `.../autoplay` and `.../heartbeat` (every
 30 s; stale after 90 s), and hears `script-message faststream-next|previous|autoplay|pause` (pause: Space and a click on
 the video; FastStream's extension stops an end's autoplay countdown with it, autoplay stays on).

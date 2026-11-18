@@ -2135,6 +2135,19 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
         New-Item -ItemType Directory -Force (Split-Path -Parent $token2) | Out-Null
         Copy-Item -LiteralPath $ep -Destination $token2
     }
+    # stream-resume-package: a stream FastStream's helper 27 wrote to files (an HLS stream mpv cannot open
+    # from its address), its fs-* tags in target.txt beside the playlist; and an ordinary file with its fs-id,
+    # the same clip (stream-resume resumes only at the saved duration).
+    $pkg = Join-Path $m 'faststream-mpv-hls-test1'
+    $null = New-Item -ItemType Directory -Force $pkg
+    [IO.File]::WriteAllText((Join-Path $pkg '0.m3u8'), ("#EXTM3U`n#EXT-X-VERSION:3`n#EXT-X-TARGETDURATION:180`n" +
+            "#EXT-X-PLAYLIST-TYPE:VOD`n#EXTINF:180.0,`n../hls-long/long.ts`n#EXT-X-ENDLIST`n"))
+    [IO.File]::WriteAllText((Join-Path $pkg 'target.txt'), 'https://cdn.test/pl/7?token=k#fs-content=anime&fs-id=b2c3d4e5f6071829')
+    $pkgEp = Join-Path $m 'fs-package/ep#fs-content=anime&fs-id=b2c3d4e5f6071829.ts'
+    if (-not (Test-Path -LiteralPath $pkgEp)) {
+        New-Item -ItemType Directory -Force (Split-Path -Parent $pkgEp) | Out-Null
+        Copy-Item -LiteralPath (Join-Path $m 'hls-long/long.ts') -Destination $pkgEp
+    }
     # stream-resume: the episode sent from a private window (fs-private=1), which keeps nothing.
     $privateEp = Join-Path $m 'fs-private/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718&fs-private=1&fs-page=x.mkv'
     if (-not (Test-Path -LiteralPath $privateEp)) {
@@ -2590,6 +2603,11 @@ $HeadlessTests = @(
             @{ Script = 'headless/test-stream-resume-save.lua'; File = 'fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv' }
             @{ Script = 'headless/test-stream-resume-restore.lua'; File = 'fs-anime-token2/ep1-newtoken#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv'; After = $DamageResumeFile }
             @{ Script = 'headless/test-stream-resume-save.lua'; File = 'fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv'; After = $ResumeSavedAnew })
+    }
+    @{ Name = 'stream-resume-package'; Phases = @(
+            @{ Script = 'headless/test-stream-resume-package.lua'; File = 'faststream-mpv-hls-test1/0.m3u8'; Phase = 'save'
+                Args = @("--script-opts-append=faststream_fragment-temp=$(Join-Path $WorkDir "media-$MediaVersion")") }
+            @{ Script = 'headless/test-stream-resume-package.lua'; File = 'fs-package/ep#fs-content=anime&fs-id=b2c3d4e5f6071829.ts'; Phase = 'restore' })
     }
     @{ Name = 'shader-cache'; Phases = @(
             @{ Script = 'headless/test-shader-cache-cold.lua'; File = 'plain/clip.mkv'; Args = $ShaderCacheOn }
