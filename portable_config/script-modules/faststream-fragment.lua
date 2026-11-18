@@ -23,10 +23,58 @@ function M.reopen_options()
 	return file_options
 end
 
+-- An HLS stream mpv cannot open from its address plays from files FastStream's helper (27) wrote:
+-- <temp>/faststream-mpv-hls-<6 random>/<n>.m3u8 or master.m3u8 (p-<6 random> for a private window's), beside
+-- target.txt, the stream as sent with its tags. Known by the folder's name alone: the helper's temp folder and
+-- mpv's need not be spelled alike (doc/scripts.md).
+local PACKAGE_FOLDERS = { '^faststream%-mpv%-hls%-%w%w%w%w%w%w$', '^faststream%-mpv%-hls%-p%-%w%w%w%w%w%w$' }
+local MAX_TARGET_BYTES = 600 * 1024
+local package_targets = {}
+
+---@param path string
+---@return string|nil the stream as sent, for a playlist file of the helper's
+local function package_target(path)
+	if package_targets[path] ~= nil then
+		return package_targets[path] or nil
+	end
+	local target = false
+	local dir, name = path:gsub('\\', '/'):match('^(.*)/([^/]+)$')
+	local folder = dir and dir:match('([^/]+)$')
+	if
+		folder
+		and (name == 'master.m3u8' or name:match('^%d%d?%.m3u8$'))
+		and (folder:match(PACKAGE_FOLDERS[1]) or folder:match(PACKAGE_FOLDERS[2]))
+	then
+		local file = io.open(dir .. '/target.txt', 'rb')
+		if file then
+			local text = file:read(MAX_TARGET_BYTES + 1) or ''
+			file:close()
+			if #text <= MAX_TARGET_BYTES and text:match('^https?://[^%c]+$') then
+				target = text
+			end
+		end
+	end
+	package_targets[path] = target
+	return target or nil
+end
+
+-- Read as each file starts, by every script with this module: a private window's folder goes 15 s on, and a script
+-- may ask later (Auto upscale picked during playback).
+if mp and mp.observe_property then
+	mp.observe_property('path', 'string', function(_, path)
+		if path and not path:find('#', 1, true) then
+			package_target(path)
+		end
+	end)
+end
+
 ---@param path string|nil
 ---@return string[]
 function M.items(path)
 	local items = {}
+	if type(path) == 'string' and not path:find('#', 1, true) then
+		path = package_target(path) or path
+	end
 	local hash = type(path) == 'string' and path:find('#', 1, true)
 	if hash and path then
 		for item in (path:sub(hash + 1) .. '&'):gmatch('([^&]*)&') do
