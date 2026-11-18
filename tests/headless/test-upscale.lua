@@ -194,6 +194,20 @@ H.run(function()
 	H.load(H.media_path('plain/clip.mkv'))
 	H.expect('Auto + local file afterwards -> off again', chain, OFF)
 
+	-- A site tagged @native in FastStream: plain playback, Anime and Movie still by hand.
+	H.load(H.media_path('fs-native/clip#fs-content=native&fs-id=1f1f1f1f1f1f1f1f.mkv'))
+	H.expect('Auto + #fs-content=native -> off', chain, OFF)
+	binding('cycle-upscale')
+	H.expect('native cycle: Auto (off here) -> Anime', chain, ANIME)
+	binding('cycle-upscale')
+	H.expect('native cycle: Anime -> Movie', chain, MOVIE)
+	binding('cycle-upscale')
+	H.expect('native cycle: Movie -> Off', chain, OFF)
+	binding('cycle-upscale')
+	H.expect('native cycle: Off -> Anime (Auto skipped)', chain, ANIME)
+	send('set-upscale', '1')
+	H.expect('back to Auto on the native stream -> off', chain, OFF)
+
 	-- Only the host's own fragment item counts (FastStream #155): "fs-content=anime" in the
 	-- stream URL's query or in a fragment item of its own picked Anime for a movie.
 	H.load(

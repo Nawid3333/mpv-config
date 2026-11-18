@@ -177,18 +177,19 @@ macOS and Linux builds were 11.8 MB of LFS that every install fetched).
 
 **FastStream contract** (the extension and helper live in `Nawid3333/FastStream`):
 the helper starts mpv with `--force-window=immediate` and appends URL-fragment
-items to the stream URL - `fs-content=anime|movie`, `fs-id=<16 hex>` (resume key),
+items to the stream URL - `fs-content=anime|movie|native` (native: no upscaler), `fs-id=<16 hex>` (resume key),
 `fs-private=1` (a private window's stream: stream-resume keeps nothing, since
 2026-10-14), `fs-page=<encoded page URL>`. Scripts read the LAST whole item of the fragment
 (after the first `#`, split on `&`), never a match anywhere in the URL. The helper
 sets `user-data/faststream/connected`, `.../autoplay` and `.../heartbeat` (every
 30 s; stale after 90 s), and hears `script-message faststream-next|previous|autoplay|pause` (pause: Space and a click on
 the video; FastStream's extension stops an end's autoplay countdown with it, autoplay stays on).
-mpv tells no observer when a user-data key is deleted. FastStream never sends
-YouTube; YouTube links pasted into mpv go through `ytdl_hook` and `yt-dlp.exe`, which
-solves YouTube's challenges with Node.js (mpv.conf `ytdl-raw-options`; Deno is not needed).
+mpv tells no observer when a user-data key is deleted. FastStream sends a YouTube video
+as its watch-page URL (`https://www.youtube.com/watch?v=<id>` plus the tags), like a link
+pasted into mpv: both go through `ytdl_hook` and `yt-dlp.exe`, which solves YouTube's
+challenges with Node.js (mpv.conf `ytdl-raw-options`; Deno is not needed).
 
-**Upscaling.** Auto applies a chain to FastStream content only (`fs-content=`);
+**Upscaling.** Auto applies a chain to FastStream content only (`fs-content=`, not `native`);
 local files stay off unless Anime or Movie is picked. Anime = Anime4K C+A (Fast:
 Anime4K's low-end template). Movie by the real display scale: SSimSuperRes below
 2x, FSRCNNX + SSimSuperRes from 2x; both with CfL chroma and adaptive-sharpen on

@@ -36,9 +36,11 @@ local function is_anime_content()
 	return fs_content(mp.get_property('path', '')) == 'anime'
 end
 
--- Any fs-content tag: a FastStream stream. Auto upscales only those; a local file gets shaders only when picked.
-local function is_faststream_content()
-	return fs_content(mp.get_property('path', '')) ~= nil
+-- Auto upscales FastStream streams only, and not those tagged native (the user's "no upscaler");
+-- other files get shaders only when picked.
+local function auto_upscales_content()
+	local content = fs_content(mp.get_property('path', ''))
+	return content ~= nil and content ~= 'native'
 end
 
 -- ---- Upscale (2 user-facing presets: Anime / Movie) -----------------------
@@ -474,9 +476,9 @@ local function set_sharpen_opt(value)
 	return ok
 end
 
--- Auto's preset: nil unless FastStream content, then by content type.
+-- Auto's preset: nil unless auto_upscales_content(), then by content type.
 local function current_upscale_preset()
-	if not is_faststream_content() then
+	if not auto_upscales_content() then
 		return nil
 	end
 	-- not `a and b or c`: with Anime off as too slow here (nil), that ran Movie on
@@ -632,16 +634,19 @@ local function update_upscale_button()
 		badge = 'Off'
 		tooltip = 'Upscale: off'
 	elseif upscale_mode == 1 then
-		-- Auto on a non-FastStream file says "Off"; the mode stays 1 so a FastStream stream next gets its preset.
+		-- Auto on a file it does not upscale says "Off"; the mode stays 1 so a FastStream stream next gets its preset.
 		local preset = mp.get_property_number('height') and current_upscale_preset() or nil
 		if preset then
 			badge = UPSCALE_BADGES[preset.name] or '?'
 			tooltip = 'Upscale: ' .. preset.name .. sharpen_suffix(preset) .. ' (Auto, for this file)'
-		elseif mp.get_property_number('height') and is_faststream_content() then
+		elseif mp.get_property_number('height') and auto_upscales_content() then
 			-- A FastStream stream Auto measured too slow for this GPU; the text
 			-- keeps the promise of an automatic start.
 			badge = 'Off'
 			tooltip = 'Upscale: off here - too slow on this GPU (Auto; Settings > Upscaling quality)'
+		elseif fs_content(mp.get_property('path', '')) == 'native' then
+			badge = 'Off'
+			tooltip = 'Upscale: off (FastStream: tagged native, no upscaler)'
 		else
 			badge = 'Off'
 			tooltip = 'Upscale: off (FastStream streams start automatically)'
@@ -721,7 +726,7 @@ local function auto_off_note()
 		family = 'anime'
 	elseif upscale_mode == 3 then
 		family = 'movie'
-	elseif is_faststream_content() then
+	elseif auto_upscales_content() then
 		family = is_anime_content() and 'anime' or 'movie'
 	else
 		return nil
@@ -920,16 +925,16 @@ local function publish_quality()
 end
 
 local function open_upscale_menu(update)
-	-- Auto is offered only for FastStream content; elsewhere it is Off, so Off is highlighted.
-	local faststream = is_faststream_content()
+	-- Auto is offered only where it upscales; elsewhere it is Off, so Off is highlighted.
+	local auto_here = auto_upscales_content()
 	local items = {
 		{
 			title = 'Off',
 			value = 'script-message-to gpu_toggles set-upscale 0',
-			active = upscale_mode == 0 or (upscale_mode == 1 and not faststream),
+			active = upscale_mode == 0 or (upscale_mode == 1 and not auto_here),
 		},
 	}
-	if faststream then
+	if auto_here then
 		items[#items + 1] = {
 			title = 'Auto',
 			value = 'script-message-to gpu_toggles set-upscale 1',
@@ -1090,8 +1095,8 @@ end
 
 local function cycle_upscale()
 	local n = (upscale_mode + 1) % UPSCALE_MODE_COUNT
-	-- Auto is Off on non-FastStream files: the cycle skips it there (Off -> Anime -> Movie).
-	if n == 1 and not is_faststream_content() then
+	-- Auto is Off where it does not upscale: the cycle skips it there (Off -> Anime -> Movie).
+	if n == 1 and not auto_upscales_content() then
 		n = 2
 	end
 	upscale_mode = n

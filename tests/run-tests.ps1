@@ -2155,9 +2155,10 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
         Copy-Item -LiteralPath $ep -Destination $forged
     }
     # gpu-toggles: "fs-content=anime" in a stream URL's own query and fragment, with the host's
-    # movie tag after them; and in a query only, with no host fragment at all.
+    # movie tag after them; in a query only, with no host fragment at all; and a native tag (no upscaler).
     foreach ($rel in 'fs-forged/ep&x=fs-content=anime#xfs-content=anime&fs-content=movie&fs-id=0f0f0f0f0f0f0f0f.mkv',
-        'fs-forged-query/ep&x=fs-content=anime.mkv') {
+        'fs-forged-query/ep&x=fs-content=anime.mkv',
+        'fs-native/clip#fs-content=native&fs-id=1f1f1f1f1f1f1f1f.mkv') {
         $forgedContent = Join-Path $m $rel
         if (-not (Test-Path -LiteralPath $forgedContent)) {
             New-Item -ItemType Directory -Force (Split-Path -Parent $forgedContent) | Out-Null
