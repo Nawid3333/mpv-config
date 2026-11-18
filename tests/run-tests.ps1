@@ -2138,7 +2138,7 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
     # stream-resume-package: a stream FastStream's helper 27 wrote to files (an HLS stream mpv cannot open
     # from its address), its fs-* tags in target.txt beside the playlist; and an ordinary file with its fs-id,
     # the same clip (stream-resume resumes only at the saved duration).
-    $pkg = Join-Path $m 'faststream-mpv-hls-test1'
+    $pkg = Join-Path $m 'faststream-mpv-hls-tst001'
     $null = New-Item -ItemType Directory -Force $pkg
     [IO.File]::WriteAllText((Join-Path $pkg '0.m3u8'), ("#EXTM3U`n#EXT-X-VERSION:3`n#EXT-X-TARGETDURATION:180`n" +
             "#EXT-X-PLAYLIST-TYPE:VOD`n#EXTINF:180.0,`n../hls-long/long.ts`n#EXT-X-ENDLIST`n"))
@@ -2605,8 +2605,7 @@ $HeadlessTests = @(
             @{ Script = 'headless/test-stream-resume-save.lua'; File = 'fs-anime/ep1#fs-content=anime&fs-id=a1b2c3d4e5f60718.mkv'; After = $ResumeSavedAnew })
     }
     @{ Name = 'stream-resume-package'; Phases = @(
-            @{ Script = 'headless/test-stream-resume-package.lua'; File = 'faststream-mpv-hls-test1/0.m3u8'; Phase = 'save'
-                Args = @("--script-opts-append=faststream_fragment-temp=$(Join-Path $WorkDir "media-$MediaVersion")") }
+            @{ Script = 'headless/test-stream-resume-package.lua'; File = 'faststream-mpv-hls-tst001/0.m3u8'; Phase = 'save' }
             @{ Script = 'headless/test-stream-resume-package.lua'; File = 'fs-package/ep#fs-content=anime&fs-id=b2c3d4e5f6071829.ts'; Phase = 'restore' })
     }
     @{ Name = 'shader-cache'; Phases = @(

@@ -24,41 +24,28 @@ function M.reopen_options()
 end
 
 -- An HLS stream mpv cannot open from its address plays from files FastStream's helper (27) wrote:
--- <temp>/faststream-mpv-hls-*/<n>.m3u8 or master.m3u8, beside target.txt, the stream as sent with its tags.
-local PACKAGE_PREFIX = 'faststream-mpv-hls-'
+-- <temp>/faststream-mpv-hls-<6 random>/<n>.m3u8 or master.m3u8 (p-<6 random> for a private window's), beside
+-- target.txt, the stream as sent with its tags. Known by the folder's name alone: the helper's temp folder and
+-- mpv's need not be spelled alike (doc/scripts.md).
+local PACKAGE_FOLDERS = { '^faststream%-mpv%-hls%-%w%w%w%w%w%w$', '^faststream%-mpv%-hls%-p%-%w%w%w%w%w%w$' }
 local MAX_TARGET_BYTES = 600 * 1024
 local package_targets = {}
 
----@param dir string
----@return string
-local function comparable(dir)
-	local forward = dir:gsub('\\', '/')
-	return (forward:gsub('/+$', ''):lower())
-end
-
 ---@param path string
----@return string|nil the stream as sent, for a playlist file of the helper's in the temp folder
+---@return string|nil the stream as sent, for a playlist file of the helper's
 local function package_target(path)
 	if package_targets[path] ~= nil then
 		return package_targets[path] or nil
 	end
 	local target = false
-	local forward = path:gsub('\\', '/')
-	local dir, name = forward:match('^(.*)/([^/]+)$')
-	local parent, folder = (dir or ''):match('^(.*)/([^/]+)$')
+	local dir, name = path:gsub('\\', '/'):match('^(.*)/([^/]+)$')
+	local folder = dir and dir:match('([^/]+)$')
 	if
-		parent
+		folder
 		and (name == 'master.m3u8' or name:match('^%d%d?%.m3u8$'))
-		and folder:sub(1, #PACKAGE_PREFIX) == PACKAGE_PREFIX
+		and (folder:match(PACKAGE_FOLDERS[1]) or folder:match(PACKAGE_FOLDERS[2]))
 	then
-		local in_temp = false
-		-- faststream_fragment-temp: the folder the regression tests write a package into.
-		local temps =
-			{ os.getenv('TEMP'), os.getenv('TMP'), os.getenv('TMPDIR'), '/tmp', mp.get_opt('faststream_fragment-temp') }
-		for i = 1, 5 do
-			in_temp = in_temp or (temps[i] ~= nil and comparable(temps[i]) == comparable(parent))
-		end
-		local file = in_temp and io.open(dir .. '/target.txt', 'rb')
+		local file = io.open(dir .. '/target.txt', 'rb')
 		if file then
 			local text = file:read(MAX_TARGET_BYTES + 1) or ''
 			file:close()
@@ -69,6 +56,16 @@ local function package_target(path)
 	end
 	package_targets[path] = target
 	return target or nil
+end
+
+-- Read as each file starts, by every script with this module: a private window's folder goes 15 s on, and a script
+-- may ask later (Auto upscale picked during playback).
+if mp and mp.observe_property then
+	mp.observe_property('path', 'string', function(_, path)
+		if path and not path:find('#', 1, true) then
+			package_target(path)
+		end
+	end)
 end
 
 ---@param path string|nil
