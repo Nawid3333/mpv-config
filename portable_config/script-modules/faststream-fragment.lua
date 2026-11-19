@@ -58,13 +58,21 @@ local function package_target(path)
 	return target or nil
 end
 
--- Read as each file starts, by every script with this module: a private window's folder goes 15 s on, and a script
--- may ask later (Auto upscale picked during playback).
+--- The stream as FastStream sent it, for a playlist file of its helper's (doc/scripts.md).
+---@param path string|nil
+---@return string|nil nil for an address and for any other file
+function M.target(path)
+	if type(path) ~= 'string' or path:find('^%a[%w+.-]*://') then
+		return nil
+	end
+	return package_target(path)
+end
+
+-- Read as each file starts, by every script with this module: the helper removes a private window's folder once
+-- mpv moved on from it, and a script may ask later (Auto upscale picked during playback).
 if mp and mp.observe_property then
 	mp.observe_property('path', 'string', function(_, path)
-		if path and not path:find('#', 1, true) then
-			package_target(path)
-		end
+		M.target(path)
 	end)
 end
 
@@ -72,9 +80,7 @@ end
 ---@return string[]
 function M.items(path)
 	local items = {}
-	if type(path) == 'string' and not path:find('#', 1, true) then
-		path = package_target(path) or path
-	end
+	path = M.target(path) or path
 	local hash = type(path) == 'string' and path:find('#', 1, true)
 	if hash and path then
 		for item in (path:sub(hash + 1) .. '&'):gmatch('([^&]*)&') do

@@ -2,6 +2,7 @@
 local mp = require('mp')
 local msg = require('mp.msg')
 local options = require('mp.options')
+local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
 
 local opts = {
 	-- for tests: a local file is buffered as a stream (no test serves HTTP)
@@ -74,6 +75,7 @@ local NETWORK = {
 	mmsh = true,
 }
 local function is_stream(path)
+	path = fragment.target(path) or path
 	local scheme = type(path) == 'string' and path:match('^(%a[%w+.-]*)://')
 	return scheme ~= nil and NETWORK[scheme:lower()] == true
 end

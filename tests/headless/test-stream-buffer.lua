@@ -1,5 +1,5 @@
 -- Scripts/stream-buffer.lua (2026-10-12): FastStream's buffer settings in mpv.
--- Two processes (tests/run-tests.ps1, "stream-buffer"):
+-- Three processes (tests/run-tests.ps1, "stream-buffer"):
 --   stream - stream_buffer-local_is_stream=yes makes long/long.mkv (14.5 MB, 180 s)
 --            buffer as a stream would (no test serves HTTP), and headroom_mb=0 puts
 --            the RAM limit on the budget (a local file is read at once): predownload in RAM,
@@ -7,7 +7,9 @@
 --            on after it - a demuxer idle at its limit reads new options only
 --            when playback takes a packet), on disk from the start, the maximum
 --            size, a window (seconds ahead/behind), RAM only, nothing kept;
---   local  - a local file: mpv's 150 MB / 50 MB within the RAM budget, never on disk.
+--   local  - a local file: mpv's 150 MB / 50 MB within the RAM budget, never on disk;
+--   package - a stream played from the playlist files FastStream's helper wrote (a local
+--            path, media from the network): buffered as the stream it is.
 -- The real stream was measured by hand: a 61-minute 2.9 GB HLS stream (the PR).
 -- MPV_TEST_PHASE names the phase.
 local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$') .. 'lib/harness.lua')
@@ -281,6 +283,39 @@ H.run(function()
 			return mp.get_property_native('user-data/uosc/menu/type')
 		end, 'settings-menu', nil, 3)
 		mp.commandv('script-message-to', 'uosc', 'close-menu')
+	elseif PHASE == 'package' then
+		-- The playlist is a file in the temp folder, its media comes from the network (here a local clip:
+		-- no test serves HTTP): the stream FastStream sent, buffered like one opened from its address.
+		-- The phase before left the RAM budget at 0, and a file is buffered by the settings it loads with.
+		set('ram_budget', 'auto')
+		H.load(H.media_path('faststream-mpv-hls-tst001/0.m3u8'))
+		local cfg = mp.get_property_native('user-data/settings/buffering') or {}
+		H.expect("a stream played from the helper's playlist files starts in RAM", buf('storage'), 'ram')
+		H.eq('... predownloading', buf('mode')(), 'predownload')
+		H.eq(
+			"... its ahead limit the RAM budget and the headroom before the disk, not a local file's 150 MB",
+			num(opt('demuxer-max-bytes'))(),
+			math.floor(cfg.ram_budget) + 64 * MiB
+		)
+		H.eq('... nothing on disk before the RAM budget', opt('cache-on-disk')(), 'no')
+		H.expect('... and the whole video is read', cache('eof'), true, nil, 10)
+		-- A '#' in a folder above the playlist (a Windows account's name) starts no tags: they are target.txt's.
+		local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
+		local hashed = H.media_path('user#1/faststream-mpv-hls-tst002/0.m3u8')
+		H.eq(
+			"a '#' in the playlist's folder: its fs-id is target.txt's",
+			fragment.value(hashed, 'fs-id='),
+			'c3d4e5f607182930'
+		)
+		H.eq('... and its fs-content', fragment.value(hashed, 'fs-content='), 'movie')
+		-- Loaded as the helper loads it: ffmpeg knows a playlist by its address's ending, which a '#' in the path
+		-- hides from it, and reads it when asked for by name (demuxer=lavf).
+		local restarted = H.expect_event('playback-restart')
+		mp.command_native({ name = 'loadfile', url = hashed, flags = 'replace', options = { demuxer = 'lavf' } })
+		H.check('... it plays, loaded as the helper loads it', restarted(15))
+		H.expect('... buffered as the stream it is', buf('storage'), 'ram')
+		H.load(H.media_path('plain/clip.mkv'))
+		H.eq('a file of the user after it: not buffered as a stream', buf('storage')(), 'local')
 	else
 		H.eq('a local file: not buffered as a stream', buf('storage')(), 'local')
 		H.eq("... mpv's 150 MB ahead", opt('demuxer-max-bytes')(), tostring(150 * MiB))

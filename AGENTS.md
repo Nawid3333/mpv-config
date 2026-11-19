@@ -183,7 +183,8 @@ items to the stream URL - `fs-content=anime|movie|native` (native: no upscaler),
 (after the first `#`, split on `&`), never a match anywhere in the URL. A stream mpv cannot
 open from its address (helper 27: a disguised or keyed HLS stream) plays from playlist files,
 `<temp>/faststream-mpv-hls-*/master.m3u8` or `<n>.m3u8`; its tags are in `target.txt` beside
-them (the stream as sent), which faststream-fragment.lua reads for such a path. The helper
+them (the stream as sent), which faststream-fragment.lua reads for such a path
+(`target(path)`; stream-buffer.lua asks it, to buffer such a stream as one). The helper
 sets `user-data/faststream/connected`, `.../autoplay` and `.../heartbeat` (every
 30 s; stale after 90 s), and hears `script-message faststream-next|previous|autoplay|pause` (pause: Space and a click on
 the video; FastStream's extension stops an end's autoplay countdown with it, autoplay stays on).
