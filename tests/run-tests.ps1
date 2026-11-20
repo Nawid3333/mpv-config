@@ -2158,6 +2158,31 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
     [IO.File]::WriteAllText((Join-Path $pkgHash '0.m3u8'), ("#EXTM3U`n#EXT-X-VERSION:3`n#EXT-X-TARGETDURATION:180`n" +
             "#EXT-X-PLAYLIST-TYPE:VOD`n#EXTINF:180.0,`n" + (Join-Path $m 'hls-long/long.ts').Replace('\', '/') + "`n#EXT-X-ENDLIST`n"))
     [IO.File]::WriteAllText((Join-Path $pkgHash 'target.txt'), 'https://cdn.test/pl/8?token=k#fs-content=movie&fs-id=c3d4e5f607182930')
+    # faststream-private: a private window's packages and subtitles, which faststream-private.lua removes (so
+    # written anew each run), beside an ordinary window's and a folder named private whose target is not.
+    $privateFiles = Join-Path $m 'fs-private-files'
+    $privateMedia = "#EXTM3U`n#EXT-X-VERSION:3`n#EXT-X-TARGETDURATION:180`n#EXT-X-PLAYLIST-TYPE:VOD`n#EXTINF:180.0,`n" +
+        (Join-Path $m 'hls-long/long.ts').Replace('\', '/') + "`n#EXT-X-ENDLIST`n"
+    foreach ($p in @(
+            @('faststream-mpv-hls-p-tst101', 'https://cdn.test/pl/9?token=k#fs-content=anime&fs-id=d4e5f60718293a4b&fs-private=1'),
+            @('faststream-mpv-hls-p-tst102', 'https://cdn.test/pl/10?token=k#fs-content=anime&fs-private=1&fs-id=e5f60718293a4b5c'),
+            @('faststream-mpv-hls-tst103', 'https://cdn.test/pl/11?token=k#fs-content=anime&fs-id=f60718293a4b5c6d'),
+            @('faststream-mpv-hls-p-tst104', 'https://cdn.test/pl/12?token=k#fs-content=anime'),
+            @('faststream-mpv-hls-p-tst105', 'https://cdn.test/pl/13?token=k#fs-private=1'))) {
+        $dir = Join-Path $privateFiles $p[0]
+        $null = New-Item -ItemType Directory -Force $dir
+        [IO.File]::WriteAllText((Join-Path $dir '0.m3u8'), $privateMedia)
+        [IO.File]::WriteAllText((Join-Path $dir 'target.txt'), $p[1])
+    }
+    # tst106: a private package mpv cannot open (no playlist in it).
+    $dir = Join-Path $privateFiles 'faststream-mpv-hls-p-tst106'
+    $null = New-Item -ItemType Directory -Force $dir
+    [IO.File]::WriteAllText((Join-Path $dir 'target.txt'), 'https://cdn.test/pl/14?token=k#fs-private=1')
+    foreach ($name in 'faststream-mpv-subs-p-tst201', 'faststream-mpv-subs-p-tst202', 'faststream-mpv-subs-tst203', 'faststream-mpv-subs-p-tst205', 'faststream-mpv-subs-p-tst206') {
+        $dir = Join-Path $privateFiles $name
+        $null = New-Item -ItemType Directory -Force $dir
+        [IO.File]::WriteAllText((Join-Path $dir '1 English.srt'), "1`n00:00:00,000 --> 00:10:00,000`nprivate words`n")
+    }
     $pkgEp = Join-Path $m 'fs-package/ep#fs-content=anime&fs-id=b2c3d4e5f6071829.ts'
     if (-not (Test-Path -LiteralPath $pkgEp)) {
         New-Item -ItemType Directory -Force (Split-Path -Parent $pkgEp) | Out-Null
@@ -2600,6 +2625,10 @@ $HeadlessTests = @(
     @{ Name = 'ytdl-node'; Phases = @(
             @{ Script = 'headless/test-ytdl-node.lua'; File = 'plain/clip.mkv'; Phase = 'none'; Env = @{ LOCALAPPDATA = $FakeLocalAppData }; After = $MakePrivateNode }
             @{ Script = 'headless/test-ytdl-node.lua'; File = 'plain/clip.mkv'; Phase = 'private'; Env = @{ LOCALAPPDATA = $FakeLocalAppData } })
+    }
+    @{ Name = 'faststream-private'; Phases = @(
+            @{ Script = 'headless/test-faststream-private.lua'; File = 'plain/clip.mkv'; Phase = 'move-on' }
+            @{ Script = 'headless/test-faststream-private.lua'; File = 'plain/clip.mkv'; Phase = 'after-quit' })
     }
     @{ Name = 'stream-buffer'; Phases = @(
             @{ Script = 'headless/test-stream-buffer.lua'; File = 'plain/clip.mkv'; Phase = 'stream'; Args = @('--script-opts-append=stream_buffer-local_is_stream=yes', '--script-opts-append=stream_buffer-headroom_mb=0') }
