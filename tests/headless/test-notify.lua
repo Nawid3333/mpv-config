@@ -84,7 +84,9 @@ H.run(function()
 	)
 	H.eq('mpv OSD text has the banner title size (14 x 1.19, Segoe UI)', mp.get_property_number('osd-font-size'), 17)
 	H.eq('mpv OSD text box is solid black like the banners', mp.get_property('osd-back-color'), '#FF000000')
-	H.eq('nothing shown: mpv OSD text at its normal place', offset(), 0)
+	-- notify sets the offset before it publishes the cards: a read between the two counted video-info's banner
+	-- without seeing it (CI, 2026-11-20), so this waits until the two agree
+	H.expect('nothing shown: mpv OSD text at its normal place', offset, 0)
 
 	show('t1', 'First', '', '0')
 	H.expect('a banner shows', field('t1', 'title'), 'First')
