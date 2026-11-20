@@ -88,3 +88,23 @@ engineering log; `AGENTS.md` holds the current state and is read first).
   commits: failed with the old filter, passed with the script; with one msys2 job made to
   fail, failed, naming it. The static tier holds nine cases and the way the workflow calls it.
 - The builds still go through this suite and the owner's merge as before.
+
+## 2026-11-19/20: the cross-repository audit, and FastStream's offer
+
+- The audit of this repo and FastStream as one system (the hand-off of a stream to mpv) is
+  recorded in FastStream's `docs/history/reviews.md`, "The cross-repository audit, FastStream
+  and mpv-config": what was found, measured, disproved and left open. Its fixes here:
+  - #49: a stream from the helper's HLS package is buffered and labelled as a network stream,
+    also with `#` in the temp path (M1, M2).
+  - #50: such streams draw the buffer and fetch no thumbnails, the source menu shows "Stream
+    URL", and the episode keys name the right reason (D2-D4).
+  - #51: `faststream-private.lua` removes a private window's package when mpv moves on or
+    closes (D1, with FastStream's helper 29).
+- #52 and #54: two main-CI failures, both timing in the tests (`test-notify.lua` raced
+  notify.lua's offset before publish; the launcher check tripped StrictMode reading the offer
+  before it existed).
+- #53 and #55: the "Play here" / "Play in a new window" banners, for a file opened from
+  Explorer (`single-instance.lua`) and for a stream FastStream sends (`faststream-offer.lua`,
+  with FastStream #786). The click code is one module (`script-modules/banner-click.lua`) with
+  one guard for every script's banners; reviews by glm, Codex and the Claude API reviewer are
+  in the pull requests.
