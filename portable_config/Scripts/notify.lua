@@ -53,7 +53,9 @@ local ICONS = {
 	-- the episode keys without it (faststream-episodes.lua): the autoplay switch's icon
 	['faststream'] = 'playlist_play',
 	['welcome'] = 'waving_hand', -- the first start (welcome.lua)
-	['single-instance'] = 'open_in_new', -- "Play this in a new window" (single-instance.lua)
+	-- a file opened while another plays (single-instance.lua): play it here, or in a new window
+	['single-instance'] = 'play_arrow',
+	['single-instance-window'] = 'open_in_new',
 }
 
 -- The user's size knob: 1 = the original design, 1.35 = noticeably bigger.

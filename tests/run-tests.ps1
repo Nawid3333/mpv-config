@@ -1708,9 +1708,9 @@ function Invoke-StaticCheck {
 # mpv-single.cs, with single-instance.lua: files opened at once - Explorer
 # starts one launcher per selected file, within a few milliseconds - go into
 # ONE mpv (in mpv's GUI mode), all of them in its playlist; a file opened later
-# replaces them in that mpv, never in one that plays a stream; the banner's way
-# out (accept) puts the old files back and plays the new one on in a second mpv,
-# from where it got to; Ctrl opens a new mpv; with only a stream playing a local
+# is offered in that mpv, never in one that plays a stream, which plays its files
+# on; the banner "Play in a new window" (choose window) gives the new file a
+# second mpv that waits paused and minimized; Ctrl opens a new mpv; with only a stream playing a local
 # file gets its own mpv; an mpv without the script (on the one pipe name older
 # launchers used) still gets the file. mpv runs with vo=null/ao=null, so no
 # window: which window is in front (the launcher's choice among several local
@@ -1739,10 +1739,12 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
     # mpv players that are not the launcher's: another folder's mpv.exe
     Copy-Item -LiteralPath (Join-Path $dir 'mpv.exe') (Join-Path $dir 'other/mpv.exe')
     # a file plays on (a slow runner would reach the next one between two checks), and the
-    # banner's offer outlasts the checks
+    # banner's offer outlasts the checks; auto-start.lua clears a file's pause at load, but for
+    # the waiting window's first
     Copy-Item -LiteralPath (Join-Path $Cfg 'Scripts/single-instance.lua') (Join-Path $dir 'portable_config/single-instance.lua')
+    Copy-Item -LiteralPath (Join-Path $Cfg 'Scripts/auto-start.lua') (Join-Path $dir 'portable_config/auto-start.lua')
     Set-Content -LiteralPath (Join-Path $dir 'portable_config/mpv.conf') (
-        "vo=null`nao=null`nkeep-open=no`nidle=no`nload-scripts=no`nscript=~~/single-instance.lua`n" +
+        "vo=null`nao=null`nkeep-open=no`nidle=no`nload-scripts=no`nscript=~~/single-instance.lua`nscript=~~/auto-start.lua`n" +
         "script-opts=single_instance-banner_seconds=60`nloop-file=inf")
     foreach ($n in 'a', 'b', 'c', 'd', 'e', 'f', 'g') { Copy-Item -LiteralPath (Join-Path $Media 'plain/clip.mkv') (Join-Path $dir "media/$n.mkv") }
     $launcher = Join-Path $dir 'mpv-single.exe'
@@ -1821,40 +1823,41 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
         try { & $open 'd' }
         finally { Remove-Item Env:MPV_SINGLE_RAISE_LOG -ErrorAction SilentlyContinue }
         & $launchersDone
-        # The launcher has handed it over; a slow machine's mpv may take a moment to swap.
-        & $waitFor { (& $ask $main 'playlist-count') -eq 1 -and (& $ask $main 'filename') -eq 'd.mkv' }
+        # The launcher has handed it over; a slow machine's mpv may take a moment to offer it.
+        & $waitFor { "$((& $ask $main 'user-data/single-instance').offer.files)" -like '*d.mkv' }
         $count = @(& $players).Count
         $playlist = & $ask $main 'playlist-count'
         $file = & $ask $main 'filename'
-        Test-Check $t '... a file opened later replaces them, in the same mpv' (
-            $count -eq 1 -and $playlist -eq 1 -and $file -eq 'd.mkv') "$count mpv players, playlist-count $playlist, playing $file"
+        $offered = & $ask $main 'user-data/single-instance'
+        $mainPaused = & $ask $main 'pause'
+        Test-Check $t '... a file opened later is offered in the same mpv' (
+            $count -eq 1 -and "$($offered.offer.files)" -like '*d.mkv') "$count mpv players; $($offered | ConvertTo-Json -Compress)"
+        Test-Check $t '... which plays its files on meanwhile' ($file -eq $was -and $playlist -eq 3 -and $mainPaused -eq $false) (
+            "playing $file (was $was), playlist-count $playlist, pause $mainPaused")
         $streamPath = & $ask $streamPipe 'path'
         Test-Check $t '... not in the mpv that plays a stream' ($streamPath -like 'av://*') "the stream mpv plays $streamPath"
         $served = & $ask $main 'pid'
         $raised = if (Test-Path -LiteralPath $raiseLog) { (Get-Content -LiteralPath $raiseLog -Raw).Trim() } else { 'nothing' }
         Test-Check $t '... and the window raised is that mpv''s, not another one''s' (
             $null -ne $served -and $raised -eq [string]$served) "raised $raised, the pipe's mpv $served, the others $($stream.Id), $($other.Id)"
-        $offered = & $ask $main 'user-data/single-instance'
-        Test-Check $t '... and its banner offers the old files back' ($was -and "$($offered.offer.old)" -like "*$was") "was playing $was; $($offered | ConvertTo-Json -Compress)"
 
-        # the banner clicked: a second mpv plays the new file on, the first the old ones
-        $played = & $ask $main 'time-pos'
-        $null = & $call $main '["script-message-to","single_instance","accept"]'
+        # "Play in a new window": a second mpv takes the new file and waits, paused and
+        # minimized; the first plays its files on
+        $null = & $call $main '["script-message-to","single_instance","choose","window"]'
         & $waitFor { @(& $players).Count -eq 2 } 10000
         & $launchersDone
         $second = @(& $players | Where-Object { $_.Id -ne $served })
         $secondPipe = if ($second.Count -eq 1) { & $pipeOf $second[0].Id }
         $file = if ($secondPipe) { & $ask $secondPipe 'filename' }
-        # its start, not its time-pos: the launcher waits for a window that vo=null never
-        # opens, and the file plays on meanwhile
-        $start = if ($secondPipe) { & $ask $secondPipe 'file-local-options/start' }
-        $at = if ("$start" -match '[\d.]+') { [double]$Matches[0] } else { $null }
-        Test-Check $t 'the banner''s click: the new file goes on in a second mpv' ($second.Count -eq 1 -and $file -eq 'd.mkv') "$($second.Count) new mpv players, playing $file"
-        Test-Check $t '... from where it got to' ($null -ne $at -and $null -ne $played -and $at -ge $played - 0.1 -and $at -le $played + 1.5) "start $start, was at $played"
-        & $waitFor { (& $ask $main 'filename') -eq $was }
+        $paused = if ($secondPipe) { & $ask $secondPipe 'pause' }
+        $minimized = if ($secondPipe) { & $ask $secondPipe 'window-minimized' }
+        Test-Check $t '"Play in a new window": the new file goes to a second mpv' ($second.Count -eq 1 -and $file -eq 'd.mkv') "$($second.Count) new mpv players, playing $file"
+        Test-Check $t '... which waits paused and minimized' ($paused -eq $true -and $minimized -eq $true) "pause $paused, window-minimized $minimized"
         $file = & $ask $main 'filename'
         $playlist = & $ask $main 'playlist-count'
-        Test-Check $t '... and the old files come back in the first' ($file -eq $was -and $playlist -eq 3) "playing $file (was $was), playlist-count $playlist"
+        $mainPaused = & $ask $main 'pause'
+        Test-Check $t '... and the first plays its files on' ($file -eq $was -and $playlist -eq 3 -and $mainPaused -eq $false) (
+            "playing $file (was $was), playlist-count $playlist, pause $mainPaused")
 
         # Ctrl held (MPV_SINGLE_CTRL: no key press is sent): a new mpv, the others untouched
         $env:MPV_SINGLE_CTRL = '1'
@@ -2542,10 +2545,10 @@ $HeadlessTests = @(
             Args = $RealOsd + @('--vo-sixel-cols=40', '--vo-sixel-rows=5', '--vo-sixel-width=320', '--vo-sixel-height=300')
         })
     }
-    # an OSD surface for the banner's box (the click's target); 2 frames a second, so sixel
+    # an OSD surface for the banners' boxes (the clicks' targets); 2 frames a second, so sixel
     # writes little while the clips play
     @{ Name = 'single-instance'; Phases = @(@{ Script = 'headless/test-single-instance.lua'; File = 'plain/clip.mkv'
-            Args = $RealOsd + @('--vf=fps=2', '--script-opts-append=single_instance-banner_seconds=2')
+            Args = $RealOsd + @('--vf=fps=2', '--script-opts-append=single_instance-banner_seconds=4')
         })
     }
     @{ Name = 'bottom-bar'; Phases = @(@{ Script = 'headless/test-bottom-bar.lua'; File = 'subs/movie.mkv' }) }
@@ -2584,6 +2587,15 @@ $HeadlessTests = @(
             @{ Script = 'headless/test-remember-speed-first-load.lua'; File = 'plain/clip.mkv' })
     }
     @{ Name = 'auto-start'; Phases = @(@{ Script = 'headless/test-auto-start.lua'; File = 'plain/clip.mkv' }) }
+    @{ Name = 'auto-start-paused'; Phases = @(@{ Script = 'headless/test-auto-start-paused.lua'; File = 'plain/clip.mkv'
+            Args = @('--pause', '--script-opts-append=auto_start-start_paused=yes')
+        })
+    }
+    # ... and a first file that fails: av://lavfi with a filter that does not exist
+    @{ Name = 'auto-start-paused-failed'; Phases = @(@{ Script = 'headless/test-auto-start-paused-failed.lua'; File = 'av://lavfi:no-such-filter'
+            Args = @('--pause', '--idle=yes', '--script-opts-append=auto_start-start_paused=yes')
+        })
+    }
     @{ Name = 'pause-flash'; Phases = @(@{ Script = 'headless/test-pause-flash.lua'; File = 'plain/clip.mkv' }) }
     # an OSD surface: uosc lays out (and publishes user-data/uosc/bottom-ui) only with one; a
     # sound track, or uosc draws no volume slider

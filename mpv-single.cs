@@ -11,10 +11,11 @@
 // new mpv. Ctrl held at launch, or --new-window: always a new mpv.
 //
 // The hand-off goes to the mpv's single-instance.lua (script-message-to
-// single_instance open ...), which replaces what plays and offers, in a corner
-// banner, to put it back and play the new file in a new window - it starts
-// this launcher with --new-window [--start=<seconds>] for that. An mpv without
-// the script (an older config, a test) gets plain loadfile commands.
+// single_instance open ...): what plays there plays on, and two corner banners
+// ask whether the new file plays here or in a new window - it starts this
+// launcher with --new-window --paused for that: the new mpv waits paused and
+// minimized, and is not raised. An mpv without the script (an older config, a
+// test) gets plain loadfile commands.
 //
 // Several files opened at once: Explorer starts one launcher per selected
 // file, all within a few milliseconds. Each found no pipe yet and started its
@@ -149,6 +150,7 @@ static class MpvSingle
     static void Main(string[] argv)
     {
         bool newWindow = false;
+        bool paused = false;
         string start = null;
         int first = 0;
         for (; first < argv.Length; first++)
@@ -161,6 +163,8 @@ static class MpvSingle
             }
             if (a == "--new-window")
                 newWindow = true;
+            else if (a == "--paused")
+                paused = true;
             else if (a.StartsWith("--start=", StringComparison.Ordinal) && Regex.IsMatch(a.Substring(8), @"^\d+(\.\d+)?$"))
                 start = a.Substring(8);
             else
@@ -180,9 +184,11 @@ static class MpvSingle
         if (newWindow)
         {
             string pipe = NewPipeName();
-            Process mpv = LaunchNewInstance(mpvCom, files, start, pipe);
+            Process mpv = LaunchNewInstance(mpvCom, files, start, pipe, paused);
             WaitForPipe(mpv, pipe);
-            RaiseWhenShown(pipe);
+            // a paused one waits in the taskbar; the window in front plays on
+            if (!paused)
+                RaiseWhenShown(pipe);
             return;
         }
 
@@ -198,7 +204,7 @@ static class MpvSingle
                 {
                     // the launchers before it still hold the gate: neither the burst
                     // nor a running mpv's playlist is this one's to touch
-                    LaunchNewInstance(mpvCom, files, null, NewPipeName());
+                    LaunchNewInstance(mpvCom, files, null, NewPipeName(), false);
                     return;
                 }
             }
@@ -245,7 +251,7 @@ static class MpvSingle
                 {
                     string pipe = NewPipeName();
                     WriteBurstPipe(burst, pipe, ctrlHeld);
-                    WaitForPipe(LaunchNewInstance(mpvCom, files, null, pipe), pipe);
+                    WaitForPipe(LaunchNewInstance(mpvCom, files, null, pipe, false), pipe);
                 }
                 Thread.Sleep(HoldMs);
             }
@@ -578,12 +584,16 @@ static class MpvSingle
     // start: the first file's start position in seconds (a file that already
     // played a while in the window it leaves), as a per-file option so the
     // files handed to this mpv later start at their beginning
-    static Process LaunchNewInstance(string mpvCom, string[] files, string start, string pipeName)
+    static Process LaunchNewInstance(string mpvCom, string[] files, string start, string pipeName, bool paused)
     {
         // mpv.exe started from Explorer runs as a GUI program (pseudo-gui: a
         // window at once, also for a song without a picture); through mpv.com's
         // console it would not, so it is asked for.
         var sb = new StringBuilder("--player-operation-mode=pseudo-gui --input-ipc-server=\\\\.\\pipe\\").Append(pipeName).Append(' ');
+        // a window that waits: paused (auto-start.lua leaves its first file so),
+        // in the taskbar
+        if (paused)
+            sb.Append("--pause --window-minimized=yes --script-opts-append=auto_start-start_paused=yes ");
         for (int i = 0; i < files.Length; i++)
         {
             if (i == 0 && start != null)

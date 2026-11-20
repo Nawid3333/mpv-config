@@ -91,10 +91,11 @@ suite checks every feature.
   and open together become one playlist.
 - A window playing a stream (from FastStream, a web link) is left alone: a
   local file then gets a window of its own.
-- For a few seconds a banner top right offers **Play this in a new window**:
-  one click puts the old file back, at the same second, and the new one
-  plays on in a second window. Hold `Ctrl` while opening a file to get a new
-  window straight away.
+- While a file plays, the one you open does not replace it: two banners top
+  right ask **Play here** or **Play in a new window** (that window waits
+  paused and minimized in the taskbar, ready when you are). No click within
+  15 seconds, and nothing changes. Hold `Ctrl` while opening a file to get a
+  new window straight away.
 
 **Streams from the browser**
 - Works with a [FastStream fork](https://github.com/Nawid3333/FastStream) for

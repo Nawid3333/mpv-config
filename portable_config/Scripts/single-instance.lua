@@ -1,24 +1,29 @@
--- single-instance.lua - a file opened from Explorer plays in this window, and a
--- banner offers to keep what played
+-- single-instance.lua - a file opened from Explorer while another plays: the
+-- old one plays on, and two banners ask where the new one goes - here, in its
+-- place, or to a new window that waits paused and minimized
 
 local mp = require('mp')
 
 local o = {
-	banner_seconds = 8, -- how long the banner offers the way back
+	banner_seconds = 15, -- how long the choice is offered; no click, and nothing changes
 }
 require('mp.options').read_options(o, 'single_instance')
 
-local BANNER = 'single-instance'
+-- the two banners, by the choice each one is
+local BANNERS = { here = 'single-instance', window = 'single-instance-window' }
 local SECTION = 'single-instance-click'
 local STATE = 'user-data/single-instance'
-local KEEP_PAUSE = 'user-data/auto-start/keep-pause'
--- the old title in the banner's detail line, in bytes
-local TITLE_BYTES = 60
+-- a title in a banner's detail line, in bytes
+local TITLE_BYTES = 50
+-- files opened together come over about a second: the launchers take turns (mpv-single.cs TogetherMs)
+local BURST_SECONDS = 1
 
-local offer -- {old = snapshot(), files = {...}, launcher = <path>}
-local expiry -- the timer that ends the offer with its banner
-local box -- the banner's rectangle {x, y, w, h} in OSD pixels, once drawn
-local over = false -- the pointer is over the banner
+local offer -- {old = {path, title}, files = {...}, launcher = <path>}
+local expiry -- the timer that ends the offer with its banners
+local boxes = {} -- the banners' rectangles {x, y, w, h} in OSD pixels by choice, once drawn
+local over -- the choice whose banner is under the pointer
+local leaving -- {files, launcher, timer}: "Play in a new window" taken, its burst's last files may still come
+local last_open = 0 -- mp.get_time() of the last hand-off
 local spawned
 
 local function publish()
@@ -54,35 +59,32 @@ local function shorten(s)
 	return s:sub(1, cut) .. '…'
 end
 
--- What plays, for the way back; nil when nothing would be lost by replacing
--- it (idle, or stopped at its end).
+-- the new files as a banner names them: the first one's name, and how many more
+local function named(files)
+	local name = shorten(files[1]:match('[^/\\]+$') or files[1])
+	return #files > 1 and string.format('%s and %d more', name, #files - 1) or name
+end
+
+-- What plays, which a replace would end; nil when nothing would be lost by
+-- replacing it (idle, or stopped at its end).
 local function snapshot()
 	local path = mp.get_property('path')
 	if not path or mp.get_property_native('idle-active') or mp.get_property_native('eof-reached') then
 		return nil
 	end
-	local entries = {}
-	for i, entry in ipairs(mp.get_property_native('playlist') or {}) do
-		entries[i] = entry.filename
-	end
-	return {
-		path = path,
-		title = mp.get_property('media-title') or path,
-		pos = mp.get_property_number('time-pos'),
-		pause = mp.get_property_native('pause'),
-		playlist = entries,
-		current = (mp.get_property_number('playlist-pos') or 0) + 1,
-	}
+	return { path = path, title = mp.get_property('media-title') or path }
 end
 
-local function inside(pos)
-	return box ~= nil
-		and pos ~= nil
-		and pos.hover ~= false
-		and pos.x >= box.x
-		and pos.x <= box.x + box.w
-		and pos.y >= box.y
-		and pos.y <= box.y + box.h
+local function under(pos)
+	if pos == nil or pos.hover == false then
+		return nil
+	end
+	for choice, box in pairs(boxes) do
+		if pos.x >= box.x and pos.x <= box.x + box.w and pos.y >= box.y and pos.y <= box.y + box.h then
+			return choice
+		end
+	end
+	return nil
 end
 
 local function raise()
@@ -92,26 +94,51 @@ local function raise()
 end
 
 local function on_mouse(_, pos)
-	local now = offer ~= nil and inside(pos)
+	local now = offer ~= nil and under(pos) or nil
 	if now then
-		over = true
+		over = now
 		raise()
 		-- uosc reacts to the same move, in no set order with this script
 		mp.add_timeout(0.05, raise)
 	elseif over then
-		over = false
+		over = nil
 		mp.disable_key_bindings(SECTION)
 	end
 end
 
 local function on_cards(_, notify)
-	box = nil
+	boxes = {}
 	for _, card in ipairs(notify and notify.cards or {}) do
-		if card.id == BANNER then
-			box = card.box
+		for choice, id in pairs(BANNERS) do
+			if card.id == id then
+				boxes[choice] = card.box
+			end
 		end
 	end
 	on_mouse(nil, mp.get_property_native('mouse-pos'))
+end
+
+local function show_banners(current)
+	local seconds = tostring(o.banner_seconds)
+	local old = shorten(current.old.title)
+	mp.commandv(
+		'script-message-to',
+		'notify',
+		'show',
+		BANNERS.here,
+		'Play here',
+		named(current.files) .. ', in place of ' .. old,
+		seconds
+	)
+	mp.commandv(
+		'script-message-to',
+		'notify',
+		'show',
+		BANNERS.window,
+		'Play in a new window',
+		'It waits there paused; ' .. old .. ' plays on',
+		seconds
+	)
 end
 
 local function set_offer(new)
@@ -122,23 +149,17 @@ local function set_offer(new)
 	if offer and not new then
 		mp.unobserve_property(on_mouse)
 		mp.unobserve_property(on_cards)
-		mp.commandv('script-message-to', 'notify', 'hide', BANNER)
-		box = nil
+		for _, id in pairs(BANNERS) do
+			mp.commandv('script-message-to', 'notify', 'hide', id)
+		end
+		boxes = {}
 	elseif new and not offer then
 		mp.observe_property('user-data/notify', 'native', on_cards)
 		mp.observe_property('mouse-pos', 'native', on_mouse)
 	end
 	offer = new
 	if new then
-		mp.commandv(
-			'script-message-to',
-			'notify',
-			'show',
-			BANNER,
-			'Play this in a new window',
-			'Click, and ' .. shorten(new.old.title) .. ' plays on in this one',
-			tostring(o.banner_seconds)
-		)
+		show_banners(new)
 		expiry = mp.add_timeout(o.banner_seconds, function()
 			set_offer(nil)
 		end)
@@ -148,55 +169,24 @@ local function set_offer(new)
 	publish()
 end
 
-local function open(mode, launcher, ...)
-	local files = { ... }
-	if #files == 0 then
-		return
-	end
-	if mode == 'append' then
-		-- not twice: autoload.lua queued the first file's folder before these came
-		local queued = {}
-		for i, entry in ipairs(mp.get_property_native('playlist') or {}) do
-			queued[i] = entry.filename
-		end
-		for _, file in ipairs(files) do
-			if not listed(queued, file) then
-				mp.commandv('loadfile', file, 'append')
-			end
-			if offer and not listed(offer.files, file) then
-				offer.files[#offer.files + 1] = file
-			end
-		end
-		publish()
-		return
-	end
-	local old = snapshot()
+local function play_here(files)
 	mp.commandv('loadfile', files[1], 'replace')
 	for i = 2, #files do
 		mp.commandv('loadfile', files[i], 'append')
 	end
-	if old and not same(old.path, files[1]) and launcher and launcher ~= '' then
-		set_offer({ old = old, files = files, launcher = launcher })
-	else
-		set_offer(nil)
-	end
 end
 
-local function accept()
-	local taken = offer
-	if not taken then
+local function start_window()
+	local going = leaving
+	if not going then
 		return
 	end
-	set_offer(nil)
-	-- the new file(s) go on in a new window, a single file where it got to
-	local args = { taken.launcher, '--new-window' }
-	local pos = mp.get_property_number('time-pos')
-	-- (time-pos can be a little below 0 at a file's start)
-	if #taken.files == 1 and pos and same(mp.get_property('path'), taken.files[1]) then
-		args[#args + 1] = string.format('--start=%.3f', math.max(0, pos))
+	if going.timer then
+		going.timer:kill()
 	end
-	args[#args + 1] = '--'
-	for _, file in ipairs(taken.files) do
+	leaving = nil
+	local args = { going.launcher, '--new-window', '--paused', '--' }
+	for _, file in ipairs(going.files) do
 		args[#args + 1] = file
 	end
 	spawned = args
@@ -206,35 +196,94 @@ local function accept()
 		detach = true,
 		playback_only = false,
 	}, function() end)
-	-- and the old playlist comes back here, the old file where it was
-	local old = taken.old
-	if old.pause then
-		-- auto-start.lua clears an inherited pause, except for the file named here
-		mp.set_property_native(KEEP_PAUSE, old.path)
-		mp.set_property_native('pause', true)
-	end
-	mp.commandv(
-		'loadfile',
-		old.path,
-		'replace',
-		'-1',
-		old.pos and string.format('start=%.3f', math.max(0, old.pos)) or ''
-	)
-	for i = 1, old.current - 1 do
-		mp.commandv('loadfile', old.playlist[i], 'insert-at', tostring(i - 1))
-	end
-	for i = old.current + 1, #old.playlist do
-		mp.commandv('loadfile', old.playlist[i], 'append')
-	end
 	publish()
 end
 
--- The click takes the offer on its release; the section stays a moment so a double click's second press does nothing.
-local function on_click()
-	if not offer then
+-- the new window once its burst is in: a file of it that came later would stay here
+local function start_window_later()
+	local going = leaving
+	if not going then
 		return
 	end
-	accept()
+	if going.timer then
+		going.timer:kill()
+	end
+	local wait = last_open + BURST_SECONDS - mp.get_time()
+	if wait > 0 then
+		going.timer = mp.add_timeout(wait, start_window)
+	else
+		start_window()
+	end
+end
+
+local function open(mode, launcher, ...)
+	local files = { ... }
+	if #files == 0 then
+		return
+	end
+	last_open = mp.get_time()
+	if mode == 'append' then
+		local current = offer or leaving
+		if current then
+			-- opened together with the offered one: it goes where that one goes
+			for _, file in ipairs(files) do
+				if not listed(current.files, file) then
+					current.files[#current.files + 1] = file
+				end
+			end
+			if current == offer then
+				show_banners(current)
+				publish()
+			else
+				start_window_later()
+			end
+			return
+		end
+		-- not twice: autoload.lua queued the first file's folder before these came
+		local queued = {}
+		for i, entry in ipairs(mp.get_property_native('playlist') or {}) do
+			queued[i] = entry.filename
+		end
+		for _, file in ipairs(files) do
+			if not listed(queued, file) then
+				mp.commandv('loadfile', file, 'append')
+			end
+		end
+		return
+	end
+	local old = snapshot()
+	if old and not same(old.path, files[1]) and launcher and launcher ~= '' then
+		set_offer({ old = old, files = files, launcher = launcher })
+		return
+	end
+	set_offer(nil)
+	play_here(files)
+end
+
+-- here: the offered files in place of what plays; window: the launcher starts a
+-- new mpv for them, paused and minimized (mpv-single.exe --paused)
+local function choose(choice)
+	local taken = offer
+	if not taken or (choice ~= 'here' and choice ~= 'window') then
+		return
+	end
+	set_offer(nil)
+	if choice == 'here' then
+		-- (a late file of its burst is appended here, as it should be)
+		play_here(taken.files)
+		return
+	end
+	leaving = { files = taken.files, launcher = taken.launcher }
+	start_window_later()
+end
+
+-- The click takes the choice under the pointer on its release; the section stays a moment so a double click's
+-- second press does nothing.
+local function on_click()
+	if not offer or not over then
+		return
+	end
+	choose(over)
 	mp.enable_key_bindings(SECTION, 'allow-hide-cursor')
 	mp.add_timeout(0.5, function()
 		if not over then
@@ -245,11 +294,11 @@ end
 
 mp.set_key_bindings({
 	{ 'mbtn_left', on_click },
-	{ 'mbtn_left_dbl', function() end }, -- so input.conf's fullscreen double click does not fire on the banner
+	{ 'mbtn_left_dbl', function() end }, -- so input.conf's fullscreen double click does not fire on a banner
 }, SECTION, 'force')
 
 mp.register_script_message('open', open)
--- the banner's click without a pointer (tests)
-mp.register_script_message('accept', accept)
+-- a banner's click without a pointer (tests): here or window
+mp.register_script_message('choose', choose)
 
 publish()
