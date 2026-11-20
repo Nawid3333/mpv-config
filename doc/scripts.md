@@ -302,6 +302,7 @@ AGENTS.md; this file does not repeat them.
 ### banner-click.lua
 
 - A click on notify.lua's banners, for single-instance.lua and faststream-offer.lua. The banners' boxes (`user-data/notify`) are the targets. A forced key section takes the click only while the pointer is over a box, and is raised again on every move there: uosc pushes its own click section on top whenever the pointer crosses one of its zones. Anywhere else a click stays input.conf's (pause). The click counts on its release; after it the section stays half a second and swallows `mbtn_left_dbl`, so a double click's second press neither pauses nor goes fullscreen.
+- That half second holds for every script's banners (`user-data/banner-click/until`, mpv's clock): with both scripts' banners up, one script's going moves the other's under the pointer, and the second press would take that choice too.
 - `new(section, ids, on_click)`: `ids` maps each choice to its banner's notify id, `on_click(choice)` gets the click; `watch()` while the banners are up, `stop()` once they are gone.
 - Loaded with `dofile(mp.command_native({ 'expand-path', '~~/script-modules/banner-click.lua' }))`. run-tests.ps1's launcher check copies it beside single-instance.lua.
 

@@ -6,6 +6,11 @@ local mp = require('mp')
 
 local M = {}
 
+-- mp.get_time() until which no banner takes a click, for every script that uses this: one script's banners going
+-- can move another's under the pointer, and a double click's second press would take that one's choice
+local GUARD = 'user-data/banner-click/until'
+local GUARD_SECONDS = 0.5
+
 ---@param section string the key section's name, one per script
 ---@param ids table<string, string> the banners' notify ids by choice
 ---@param on_click fun(choice: string)
@@ -62,12 +67,13 @@ function M.new(section, ids, on_click)
 	-- The click takes the choice under the pointer on its release; the section stays a moment so a double click's
 	-- second press does nothing.
 	local function click()
-		if not watching or not over then
+		if not watching or not over or (mp.get_property_number(GUARD) or 0) > mp.get_time() then
 			return
 		end
+		mp.set_property_native(GUARD, mp.get_time() + GUARD_SECONDS)
 		on_click(over)
 		mp.enable_key_bindings(section, 'allow-hide-cursor')
-		mp.add_timeout(0.5, function()
+		mp.add_timeout(GUARD_SECONDS, function()
 			if not over then
 				mp.disable_key_bindings(section)
 			end

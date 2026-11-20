@@ -276,6 +276,65 @@ H.run(function()
 	cancel()
 	H.check('... and goes with a cancel', H.wait_until(gone, 3))
 
+	-- Both scripts' banners at once: single-instance.lua offers a local file beneath FastStream's. A double click takes
+	-- FastStream's "Play here"; its banners go and single-instance's move up under the pointer, where the second press
+	-- lands. It takes nothing: banner-click.lua's guard after a click holds for every script's banners.
+	answers = {}
+	offer('c1', '10')
+	H.check('an offer', H.wait_until(drawn, 5))
+	mp.commandv(
+		'script-message-to',
+		'single_instance',
+		'open',
+		'replace',
+		H.root .. '/no-such-launcher.exe',
+		H.media_path('plain/clip.mkv')
+	)
+	local function local_here()
+		for _, card in ipairs(cards()) do
+			if card.id == 'single-instance' then
+				return card.box
+			end
+		end
+	end
+	H.check(
+		'... and a local file offered beneath it',
+		H.wait_until(function()
+			return local_here() ~= nil and drawn()
+		end, 5)
+	)
+	local top = banner('here').box
+	-- near the right edge, where the banners line up whatever their widths
+	local px, py = math.floor(top.x + top.w - 20), math.floor(top.y + top.h / 2)
+	local function local_here_under_pointer()
+		local box = local_here()
+		return box ~= nil and px >= box.x and px <= box.x + box.w and py >= box.y and py <= box.y + box.h
+	end
+	H.check('... not under the pointer yet', not local_here_under_pointer())
+	mp.commandv('mouse', tostring(px), tostring(py))
+	H.sleep(0.2)
+	mp.commandv('keydown', 'MBTN_LEFT')
+	mp.commandv('keyup', 'MBTN_LEFT')
+	local first = mp.get_time()
+	local moved = H.wait_until(local_here_under_pointer, 0.35, 0.01)
+	-- its section raised (banner-click.lua raises again 50 ms after a move)
+	H.sleep(0.07)
+	mp.commandv('keydown', 'MBTN_LEFT')
+	mp.commandv('keyup', 'MBTN_LEFT')
+	local second = mp.get_time() - first
+	H.expect('the first press of a double click answers here', heard, 'c1 here')
+	H.check(
+		"... the local file's banner moved under the pointer before the second press",
+		moved and second < 0.5,
+		string.format('second press %.2f s after the first', second)
+	)
+	H.sleep(0.6)
+	H.check(
+		'... which took nothing: the local file is still only offered',
+		((mp.get_property_native('user-data/single-instance') or {}).offer or {}).files ~= nil
+	)
+	mp.commandv('script-message-to', 'single_instance', 'choose', 'window')
+
 	H.eq('through it all nothing was loaded', starts - starts_then, 0)
 	H.eq('... the playlist as it was', mp.get_property_number('playlist-count'), 1)
 	plays_on('... and what plays plays on')
