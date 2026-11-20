@@ -38,7 +38,7 @@ local function private_subtitle(file)
 		return false
 	end
 	local _, name, own = split(file)
-	return own ~= nil and own:match(SUBTITLE_FOLDER) ~= nil and name:match(SUBTITLE_FILE) ~= nil
+	return own ~= nil and name ~= nil and own:match(SUBTITLE_FOLDER) ~= nil and name:match(SUBTITLE_FILE) ~= nil
 end
 
 --- The private subtitle files the file loading or playing now was given (sub-files, as the helper hands them
