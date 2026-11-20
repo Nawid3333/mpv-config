@@ -83,7 +83,8 @@ mpv-build.json), make it again (RECREATE.md section 5).
 menu from trailing menu comments - uosc reads them), `Scripts/*.lua`,
 `script-modules/` (code the scripts load with `dofile`, not scripts themselves: mpv
 runs every file and folder in `Scripts/`; `state-file.lua` writes every state file
-whole or not at all and keeps a damaged one aside), `script-opts/*.conf`, `shaders/` (only the files the presets use, committed as
+whole or not at all and keeps a damaged one aside; `banner-click.lua` takes a click on
+notify.lua's banners only where they are), `script-opts/*.conf`, `shaders/` (only the files the presets use, committed as
 their sources published them, except the locally modified `adaptive-sharpen.glsl`).
 A new shader goes into `shaders/`, `gpu-toggles.lua` (a preset naming a missing file
 drops it with only a warning) and THIRD-PARTY-NOTICES.md's shader table (its source and
@@ -152,6 +153,7 @@ playlist.
 | `stream-resume.lua` | resume FastStream streams by `fs-id` (`~~state/stream-resume.json`, 7 days) |
 | `faststream-private.lua` | removes a private window's temp files (helper 29+: `faststream-mpv-hls-p-*`, `faststream-mpv-subs-p-*`) once mpv moved on from the stream, idles or closes |
 | `faststream-episodes.lua` | previous/next episode and autoplay buttons while the helper follows the window |
+| `faststream-offer.lua` | FastStream's offer while a window plays: banners "Play here" / "Play in a new window" (`faststream-offer`, `faststream-offer-cancel`), the click answered as `faststream-choice`; loads and pauses nothing (the extension loads); marker `user-data/faststream/offer` |
 | `faststream-quality.lua` | the one Quality button and menu (uosc's own `stream-quality` is not in the bar): the page's files (`fs-quality=` fragment item, FastStream host 12+; loadfile from the same second, http(s) only), else the stream's own variants - mpv makes an HLS master's and YouTube's (ytdl_hook `all_formats`) editions, switched in place as a file-local `edition` (uosc's Editions button hides meanwhile), DASH's tracks (file-local `vid`); one row per height |
 | `source-info.lua` | the source button: stream URL, original URL, site page; copy/open |
 | `notify.lua` | the only drawer of messages: banners top right (speed: top left) |
@@ -193,6 +195,10 @@ them (the stream as sent), which faststream-fragment.lua reads for such a path
 sets `user-data/faststream/connected`, `.../autoplay` and `.../heartbeat` (every
 30 s; stale after 90 s), and hears `script-message faststream-next|previous|autoplay|pause` (pause: Space and a click on
 the video; FastStream's extension stops an end's autoplay countdown with it, autoplay stays on).
+A stream for a window that plays is offered, not loaded, once `user-data/faststream/offer` is 1
+(faststream-offer.lua): `script-message faststream-offer <id> <seconds> <here-title> <here-detail>
+<window-title> <window-detail>` shows the banners, `faststream-offer-cancel [<id>]` takes them down, and
+the answer is the broadcast `faststream-choice <id> here|window|none` (doc/scripts.md).
 mpv tells no observer when a user-data key is deleted. FastStream sends a YouTube video
 as its watch-page URL (`https://www.youtube.com/watch?v=<id>` plus the tags), like a link
 pasted into mpv: both go through `ytdl_hook` and `yt-dlp.exe`, which solves YouTube's

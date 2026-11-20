@@ -1727,7 +1727,7 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
     if ($running.Count) { Add-Result $t 'mpv-single.exe' 'SKIP' "an mpv runs (pid $($running.Id -join ', ')): the owner may be watching"; return }
     $dir = Join-Path $WorkDir 'mpv-single'
     Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
-    New-Item -ItemType Directory -Force (Join-Path $dir 'portable_config'), (Join-Path $dir 'media'), (Join-Path $dir 'other') | Out-Null
+    New-Item -ItemType Directory -Force (Join-Path $dir 'portable_config/script-modules'), (Join-Path $dir 'media'), (Join-Path $dir 'other') | Out-Null
     $built = & $csc /nologo /target:winexe "/out:$(Join-Path $dir 'mpv-single.exe')" (Join-Path $RepoRoot 'mpv-single.cs') 2>&1
     if (-not (Test-Path -LiteralPath (Join-Path $dir 'mpv-single.exe'))) { Add-Result $t 'mpv-single.cs builds' 'FAIL' ($built -join ' '); return }
     # mpv.com too, which the launcher starts: the pinned build's folder, not the test root
@@ -1742,6 +1742,7 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
     # banner's offer outlasts the checks; auto-start.lua clears a file's pause at load, but for
     # the waiting window's first
     Copy-Item -LiteralPath (Join-Path $Cfg 'Scripts/single-instance.lua') (Join-Path $dir 'portable_config/single-instance.lua')
+    Copy-Item -LiteralPath (Join-Path $Cfg 'script-modules/banner-click.lua') (Join-Path $dir 'portable_config/script-modules/banner-click.lua')
     Copy-Item -LiteralPath (Join-Path $Cfg 'Scripts/auto-start.lua') (Join-Path $dir 'portable_config/auto-start.lua')
     Set-Content -LiteralPath (Join-Path $dir 'portable_config/mpv.conf') (
         "vo=null`nao=null`nkeep-open=no`nidle=no`nload-scripts=no`nscript=~~/single-instance.lua`nscript=~~/auto-start.lua`n" +
@@ -2566,6 +2567,8 @@ $HeadlessTests = @(
             Args = $RealOsd + @('--vf=fps=2', '--script-opts-append=single_instance-banner_seconds=4')
         })
     }
+    # FastStream's offer on the same surface; a long clip plays on under the banners
+    @{ Name = 'faststream-offer'; Phases = @(@{ Script = 'headless/test-faststream-offer.lua'; File = 'long/long.mkv'; Args = $RealOsd + @('--vf=fps=2') }) }
     @{ Name = 'bottom-bar'; Phases = @(@{ Script = 'headless/test-bottom-bar.lua'; File = 'subs/movie.mkv' }) }
     @{ Name = 'video-info'; Phases = @(@{ Script = 'headless/test-video-info.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'source-info'; Phases = @(@{ Script = 'headless/test-source-info.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=source_info-launch=no') }) }
@@ -2720,6 +2723,8 @@ $ShardSeconds = @{
     'config-load' = 1.1
     'config' = 0.6
     'faststream-episodes' = 10.6
+    # not measured on CI: single-instance's 8.1, scaled by the two's times here (15 s, 18 s)
+    'faststream-offer' = 6.8
     'faststream-quality' = 12.4
     'keys' = 9.1
     'menus' = 1.5

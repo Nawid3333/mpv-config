@@ -56,6 +56,9 @@ local ICONS = {
 	-- a file opened while another plays (single-instance.lua): play it here, or in a new window
 	['single-instance'] = 'play_arrow',
 	['single-instance-window'] = 'open_in_new',
+	-- a stream FastStream sends while a window plays (faststream-offer.lua): the same two choices
+	['faststream-here'] = 'play_arrow',
+	['faststream-window'] = 'open_in_new',
 }
 
 -- The user's size knob: 1 = the original design, 1.35 = noticeably bigger.
