@@ -129,8 +129,9 @@ per-user command over them, the old one kept in `mpv-single-was` for the unregis
 `mpv-register.bat`/`mpv-install.bat` write mpv.exe back, so run it again after them (the
 one-click setup runs it). A local file goes to the front-most mpv window (not a minimized one) that plays a local
 file or nothing - each mpv the launcher starts has its own pipe `mpv-single-<id>` - never to
-a stream's window; `single-instance.lua` takes it and offers the banner. Ctrl held, or
-`--new-window`: a new mpv; files opened together: one playlist.
+a stream's window; `single-instance.lua` takes it and asks with its banners. Ctrl held, or
+`--new-window`: a new mpv (`--paused`: it waits paused and minimized, not raised); files opened together: one
+playlist.
 
 **Scripts** (each publishes its state as `user-data/<name>` for the tests):
 
@@ -142,7 +143,7 @@ a stream's window; `single-instance.lua` takes it and offers the banner. Ctrl he
 | `percent-seek.lua` | number keys: N x 10 %, as a time seek when the buffer holds the spot (mpv's own percent seek reads HLS/MPEG-TS again there), else mpv's percent seek |
 | `skip-forward.lua` | x, k, Right, Forward: a skip that would pass the end (or land in its last second) is an exact seek to the end that plays on to it, so the file ends and FastStream's autoplay goes on (mpv's own seek past an HLS end not yet buffered went on from the buffer's end) |
 | `pause-flash.lua` | each step into pause flashes uosc's whole UI (`flash-ui`, uosc.conf's `flash_duration`, shared with the volume/speed flashes) |
-| `auto-start.lua` | an inherited pause is cleared at file-loaded, except for a quality switch made while paused (`user-data/auto-start/keep-pause`); sub/audio delay back to 0 at unload |
+| `auto-start.lua` | an inherited pause is cleared at file-loaded, except for a quality switch made while paused (`user-data/auto-start/keep-pause`) and the first file with `auto_start-start_paused=yes`; sub/audio delay back to 0 at unload |
 | `gpu-toggles.lua` | the upscale state (Off/Auto/Anime/Movie), quality High/Fast/Auto (measured per GPU, `~~state/upscale.json`), screen override, Movie sharpness, the upscale button and menus |
 | `shader-cache/` | background shader warm-up in a hidden second mpv when the cache is stale (`fingerprint.lua`), "Rebuild shaders" |
 | `settings.lua` | per-PC settings and their menus (`~~state/settings.json`): buffering, start/stall wait, languages, HDR brightness per screen; the Welcome menu |
@@ -159,7 +160,7 @@ a stream's window; `single-instance.lua` takes it and offers the banner. Ctrl he
 | `subtitle-sync.lua` | `t`: the sync timeline (audio loudness + subtitle lines, drag to shift) |
 | `subtitle-toggle.lua`, `title-bar.lua` | `c` smart subtitles; black Windows title bar (DWM) |
 | `subtitle-cleanup.lua` | at each start, deletes the subtitles uosc downloaded for a stream (`~~/subtitles`, which mpv never loads again) once they are older than a week |
-| `single-instance.lua` | takes mpv-single.exe's hand-off (`open replace\|append`); after a replace mid-file the banner "Play this in a new window" (8 s; click: the old playlist back at its second, the new file on in a new window) |
+| `single-instance.lua` | takes mpv-single.exe's hand-off (`open replace\|append`); while a file plays, a replace waits: banners "Play here" / "Play in a new window" (15 s; the window waits paused and minimized: launcher `--new-window --paused`; no click = nothing) |
 | `uosc/`, `thumbfast.lua`, `autoload.lua` | vendored (uosc 5.13.0, current) |
 
 **uosc local changes**, marked `Local change` in its code, re-applied after every uosc
