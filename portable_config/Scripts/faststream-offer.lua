@@ -14,6 +14,7 @@ local STATE = 'user-data/faststream/offer-state'
 
 local offer -- {id, seconds, timer}
 local banners -- (below) their clicks (banner-click.lua)
+local on_ended -- (below) what plays came to its end while the banners ask
 
 local function publish()
 	mp.set_property_native(
@@ -34,6 +35,7 @@ local function close()
 	offer.timer:kill()
 	offer = nil
 	banners.stop()
+	mp.unobserve_property(on_ended)
 	for _, id in pairs(BANNERS) do
 		mp.commandv('script-message-to', 'notify', 'hide', id)
 	end
@@ -78,6 +80,8 @@ local function on_offer(id, seconds, here_title, here_detail, window_title, wind
 		old.timer:kill()
 		if old.id ~= id then
 			answer(old.id, 'none')
+			-- a click on its way was meant for the old one
+			banners.hold()
 		end
 	end
 	local current = { id = id, seconds = seconds_of(seconds) }
@@ -91,7 +95,18 @@ local function on_offer(id, seconds, here_title, here_detail, window_title, wind
 	show('here', here_title, here_detail, current.seconds)
 	show('window', window_title, window_detail, current.seconds)
 	banners.watch()
+	if not old then
+		mp.observe_property('eof-reached', 'bool', on_ended)
+		mp.observe_property('idle-active', 'bool', on_ended)
+	end
 	publish()
+end
+
+-- at its end (keep-open) or gone idle there is nothing to lose any more: the stream plays here
+on_ended = function(_, value)
+	if value and offer then
+		choose('here')
+	end
 end
 
 -- with an id, only that offer: a cancel that comes late leaves a newer one up

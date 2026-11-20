@@ -220,6 +220,22 @@ H.run(function()
 	H.expect('... in a window of its own', spawned, LAUNCHER .. ' --new-window --paused -- ' .. before, nil, 3)
 	plays_on('... and the old file plays on here', clip)
 
+	-- a newer hand-off while the pointer rests on "Play here": a click a moment after was meant for the one replaced
+	open('replace', new)
+	H.check('a new offer', H.wait_until(drawn, 5))
+	local qx, qy = middle('here')
+	mp.commandv('mouse', tostring(math.floor(qx)), tostring(math.floor(qy)))
+	H.sleep(0.2)
+	open('replace', before)
+	H.expect('... replaced by a newer one', function()
+		return ((offer() or {}).files or {})[1]
+	end, before)
+	mp.commandv('keydown', 'MBTN_LEFT')
+	mp.commandv('keyup', 'MBTN_LEFT')
+	H.sleep(0.3)
+	H.check('... a click right after it takes nothing', offer() ~= nil and path() == norm(clip), path())
+	plays_on('... and the old file plays on', clip)
+
 	-- left alone, the offer goes with its banners, and nothing changes; the pointer rests on a banner meanwhile
 	open('replace', new)
 	H.check('a new offer', H.wait_until(drawn, 5))

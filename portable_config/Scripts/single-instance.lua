@@ -114,6 +114,9 @@ local function set_offer(new)
 		banners.watch()
 		mp.observe_property('eof-reached', 'bool', on_ended)
 		mp.observe_property('idle-active', 'bool', on_ended)
+	elseif new then
+		-- a click on its way was meant for the offer before
+		banners.hold()
 	end
 	offer = new
 	if new then

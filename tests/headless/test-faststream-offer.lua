@@ -139,9 +139,12 @@ H.run(function()
 	)
 	H.eq('no offer at the start', state().shown, false)
 	-- no other banner above ours (video-info's, from the load): its end would move ours under the pointer
-	H.wait_until(function()
-		return #cards() == 0
-	end, 6)
+	H.check(
+		'no other banner up before the first offer',
+		H.wait_until(function()
+			return #cards() == 0
+		end, 6)
+	)
 
 	offer('o1', '10')
 	H.check('an offer shows both banners', H.wait_until(drawn, 5))
@@ -216,8 +219,17 @@ H.run(function()
 	answers = {}
 	offer('o4', '10', 'Play here', 'first')
 	H.check('an offer', H.wait_until(drawn, 5))
+	local rx, ry = middle('here')
+	mp.commandv('mouse', tostring(math.floor(rx)), tostring(math.floor(ry)))
+	H.sleep(0.2)
 	offer('o5', '10', 'Play here', 'second')
 	H.expect('a new offer replaces it, and the replaced one is answered none', heard, 'o4 none')
+	-- a click on its way for the old one, landing a moment after
+	mp.commandv('keydown', 'MBTN_LEFT')
+	mp.commandv('keyup', 'MBTN_LEFT')
+	H.sleep(0.3)
+	H.eq('... a click right after it takes nothing: it was meant for the one replaced', heard(), 'o4 none')
+	H.eq('... nor pauses', mp.get_property_native('pause'), false)
 	H.expect('... its banners show the new one', function()
 		return (banner('here') or {}).detail
 	end, 'second')
@@ -316,9 +328,9 @@ H.run(function()
 	mp.commandv('keydown', 'MBTN_LEFT')
 	mp.commandv('keyup', 'MBTN_LEFT')
 	local first = mp.get_time()
-	local moved = H.wait_until(local_here_under_pointer, 0.35, 0.01)
-	-- its section raised (banner-click.lua raises again 50 ms after a move)
-	H.sleep(0.07)
+	local moved = H.wait_until(local_here_under_pointer, 0.3, 0.01)
+	-- late in the half second, so single-instance.lua has surely raised its section over the moved banner
+	H.sleep(math.max(0.07, 0.38 - (mp.get_time() - first)))
 	mp.commandv('keydown', 'MBTN_LEFT')
 	mp.commandv('keyup', 'MBTN_LEFT')
 	local second = mp.get_time() - first
@@ -338,4 +350,14 @@ H.run(function()
 	H.eq('through it all nothing was loaded', starts - starts_then, 0)
 	H.eq('... the playlist as it was', mp.get_property_number('playlist-count'), 1)
 	plays_on('... and what plays plays on')
+
+	-- what plays comes to its end while the banners ask: nothing to lose any more, so the answer is here
+	answers = {}
+	mp.commandv('seek', tostring(mp.get_property_number('duration') - 1.5), 'absolute', 'exact')
+	H.sleep(0.2)
+	offer('e1', '10')
+	H.check('an offer near the end of what plays', H.wait_until(drawn, 5))
+	H.expect('... once that ends, it answers here by itself', heard, 'e1 here', nil, 6)
+	H.check('... and its banners go', H.wait_until(gone, 3))
+	H.eq('... and the offer', state().shown, false)
 end)

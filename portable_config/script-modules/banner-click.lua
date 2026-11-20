@@ -109,6 +109,11 @@ function M.new(section, ids, on_click)
 		on_mouse(nil, nil)
 	end
 
+	--- The banners now ask something else: a click on its way was meant for what they showed before.
+	function handle.hold()
+		mp.set_property_native(GUARD, mp.get_time() + GUARD_SECONDS)
+	end
+
 	return handle
 end
 
