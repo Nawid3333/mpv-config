@@ -865,13 +865,21 @@ end)
 mp.observe_property('display-hidpi-scale', 'native', create_state_setter('hidpi_scale', update_display_dimensions))
 mp.observe_property('cache', 'string', create_state_setter('cache'))
 mp.observe_property('cache-buffering-state', 'number', create_state_setter('cache_buffering'))
-mp.observe_property(
-	'demuxer-via-network',
-	'native',
-	create_state_setter('is_stream', function()
-		Elements:trigger('dispositions')
-	end)
-)
+-- Local change (not upstream uosc): a stream FastStream's helper plays from its playlist files has a
+-- local path (demuxer-via-network false) and its media from the network: a stream as well, so its
+-- buffer is drawn (faststream-fragment.lua, doc/scripts.md).
+local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
+local via_network = false
+local function update_is_stream()
+	set_state('is_stream', via_network or fragment.target(mp.get_property('path')) ~= nil)
+	Elements:trigger('dispositions')
+	request_render()
+end
+mp.observe_property('demuxer-via-network', 'native', function(_, value)
+	via_network = value == true
+	update_is_stream()
+end)
+mp.observe_property('path', 'string', update_is_stream)
 mp.observe_property('demuxer-cache-state', 'native', function(prop, cache_state)
 	local cached_ranges, bof, eof, uncached_ranges = nil, nil, nil, nil
 	if cache_state then

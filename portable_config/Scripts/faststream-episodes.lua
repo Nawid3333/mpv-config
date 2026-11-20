@@ -175,7 +175,10 @@ for name, title in pairs(KEY_TITLES) do
 			return
 		end
 		local detail = 'only for videos FastStream sends to mpv'
-		if step and path and not path:find('^%a[%w+.-]*://') then
+		if is_faststream(path) then
+			-- FastStream sent it, but no helper of its answers here (its tab or Firefox closed, a relay never started)
+			detail = 'FastStream is not connected to this window'
+		elseif step and path and not path:find('^%a[%w+.-]*://') then
 			detail = step == 'playlist-next' and 'this is the last file of its folder'
 				or 'this is the first file of its folder'
 		elseif step then

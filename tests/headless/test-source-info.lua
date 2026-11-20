@@ -208,6 +208,31 @@ H.run(function()
 		'https://cdn.example/a.m3u8'
 	)
 
+	-- The rows and their actions. A stream played from the playlist files FastStream's helper wrote (the
+	-- runner's faststream-mpv-hls-tst001, its target.txt beside them) is no local file: its Stream URL is the
+	-- stream as sent, without the fs tags, and only copied (mpv cannot open it by its address alone).
+	local function rows_for(path)
+		mp.set_property_native('user-data/source-info/links-for', {})
+		mp.commandv('script-message-to', 'source_info', 'links-for', path)
+		H.wait_until(function()
+			return (mp.get_property_native('user-data/source-info/links-for') or {}).rows ~= nil
+		end, 3)
+		return table.concat((mp.get_property_native('user-data/source-info/links-for') or {}).rows or {}, ' | ')
+	end
+	local package = H.media .. '/faststream-mpv-hls-tst001/0.m3u8'
+	H.eq('a helper playlist: its stream, copied only, and no local file', rows_for(package), 'Stream URL: Copy')
+	H.eq('... the stream as sent, without the fs tags', links_for(package).stream, 'https://cdn.test/pl/7?token=k')
+	H.eq(
+		'a stream: copied and opened again',
+		rows_for('https://cdn.example/a.m3u8#fs-content=anime'),
+		'Stream URL: Copy, Open in mpv'
+	)
+	H.eq(
+		'a local file: its path and folder',
+		rows_for(H.media .. '/plain/clip.mkv'),
+		'Local file: Copy path, Show in directory'
+	)
+
 	-- A link pasted into mpv that yt-dlp resolves (YouTube: FastStream hands mpv no
 	-- YouTube, those links are pasted into mpv directly): for separate audio and video
 	-- formats ytdl_hook gives mpv an edl:// - no address anyone can copy or open

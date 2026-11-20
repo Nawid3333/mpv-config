@@ -74,13 +74,14 @@ local function without_fs_tags(url)
 	return url:sub(1, hash - 1) .. (#kept > 0 and ('#' .. table.concat(kept, '&')) or '')
 end
 
---- The URL mpv opened, or nil for local files - "stream URL" only means URLs.
+--- The URL mpv opened, or nil for local files - "stream URL" only means URLs. For a stream played from the
+--- playlist files FastStream's helper wrote, the stream they stand for (faststream-fragment.lua).
 ---@return string|nil
 local function stream_url()
 	if state.opened and state.opened:find('://', 1, true) then
 		return state.opened
 	end
-	local path = state.path or ''
+	local path = fragment.target(state.path) or state.path or ''
 	if path:find('://', 1, true) then
 		return without_fs_tags(path)
 	end
@@ -158,18 +159,24 @@ local function link_item(title, hint, icon, url, commands)
 	}
 end
 
-local function build_menu()
+--- The menu's rows for state.path, and the links behind them.
+---@return table[] items, string|nil stream, string|nil origin, string|nil page
+local function menu_items()
 	local items = {}
 
 	local stream = stream_url()
+	-- Played from the helper's playlist files: a temp file to no one, and a stream mpv cannot open by its
+	-- address alone (that is why the helper wrote them), so the stream is only copied.
+	local package = fragment.target(state.path) ~= nil
 	if stream then
 		-- Opened again with the FastStream tags, so Auto upscale and resume still
 		-- know it; copied without them.
 		local reopen = state.opened or state.path or stream
-		items[#items + 1] = link_item('Stream URL', 'what mpv is playing', 'link', stream, {
-			{ title = 'Copy', icon = 'content_copy', value = 'copy:' .. stream },
-			{ title = 'Open in mpv', icon = 'play_arrow', value = 'open:' .. reopen },
-		})
+		local commands = { { title = 'Copy', icon = 'content_copy', value = 'copy:' .. stream } }
+		if not package then
+			commands[#commands + 1] = { title = 'Open in mpv', icon = 'play_arrow', value = 'open:' .. reopen }
+		end
+		items[#items + 1] = link_item('Stream URL', 'what mpv is playing', 'link', stream, commands)
 	end
 	local origin = origin_or_nil()
 	if origin and origin ~= stream then
@@ -179,7 +186,6 @@ local function build_menu()
 		})
 	end
 	local page = page_url()
-	mp.set_property_native('user-data/source-info/links', { stream = stream, origin = origin, page = page })
 	if page then
 		items[#items + 1] = link_item('Site page', 'the FastStream tab it came from', 'public', page, {
 			{ title = 'Copy', icon = 'content_copy', value = 'copy:' .. page },
@@ -187,12 +193,18 @@ local function build_menu()
 		})
 	end
 	local local_path = state.path
-	if local_path and not local_path:find('://', 1, true) then
+	if local_path and not package and not local_path:find('://', 1, true) then
 		items[#items + 1] = link_item('Local file', 'on disk', 'description', local_path, {
 			{ title = 'Copy path', icon = 'content_copy', value = 'copy:' .. local_path },
 			{ title = 'Show in directory', icon = 'folder', value = 'show:' .. local_path },
 		})
 	end
+	return items, stream, origin, page
+end
+
+local function build_menu()
+	local items, stream, origin, page = menu_items()
+	mp.set_property_native('user-data/source-info/links', { stream = stream, origin = origin, page = page })
 
 	if #items == 0 then
 		items[#items + 1] = { title = 'No links for this file', muted = true, selectable = false, value = '' }
@@ -327,11 +339,21 @@ end)
 
 mp.register_script_message('open-menu', open_menu)
 
--- For the regression test: the links the menu would offer for <path>, without loading it.
+-- For the regression test: the links the menu would offer for <path>, without loading it; rows: each row's
+-- title and its actions ("Stream URL: Copy, Open in mpv").
 mp.register_script_message('links-for', function(path)
 	local saved = state
 	state = { path = path }
-	mp.set_property_native('user-data/source-info/links-for', { stream = stream_url(), page = page_url() })
+	local items, stream, _, page = menu_items()
+	local rows = {}
+	for _, item in ipairs(items) do
+		local actions = {}
+		for _, command in ipairs(item.items or {}) do
+			actions[#actions + 1] = command.title
+		end
+		rows[#rows + 1] = item.title .. ': ' .. table.concat(actions, ', ')
+	end
+	mp.set_property_native('user-data/source-info/links-for', { stream = stream, page = page, rows = rows })
 	state = saved
 end)
 
