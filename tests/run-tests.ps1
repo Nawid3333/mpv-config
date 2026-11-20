@@ -963,6 +963,13 @@ function Invoke-StaticCheck {
     }
     Test-Check $t "settings.lua: each key the feature tour names runs that command in input.conf ($tourKeys keys)" (
         $tourKeys -gt 5 -and $tourBad.Count -eq 0) ($tourBad -join '; ')
+    # A stream played from the playlist files FastStream's helper wrote has a local path: both take it for the
+    # network stream it is (faststream-fragment.lua), uosc to draw its buffer, thumbfast to make no thumbnails.
+    Test-Check $t 'uosc local change present: main.lua takes a stream played from the helper''s playlist files for a stream' (
+        $uoscMain.Contains("via_network or fragment.target(mp.get_property('path')) ~= nil")) 're-apply it after a uosc update (AGENTS.md)'
+    $thumbfastLua = Get-Content -Raw (Join-Path $Cfg 'Scripts/thumbfast.lua')
+    Test-Check $t 'thumbfast local change present: no thumbnails for a stream played from the helper''s playlist files' (
+        $thumbfastLua.Contains("or (fragment.target(properties['path']) and not options.network)")) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
     $uoscIntl = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/lib/intl.lua')
     Test-Check $t 'uosc local change present: intl.lua reads the subtitle languages from settings.json (settings.lua)' (
         $uoscIntl.Contains("'~~state/settings.json'") -and $uoscIntl.Contains('settings_slang() or')) 're-apply it after a uosc update (AGENTS.md)'
@@ -2599,6 +2606,7 @@ $HeadlessTests = @(
             @{ Script = 'headless/test-stream-buffer.lua'; File = 'plain/clip.mkv'; Phase = 'local' }
             @{ Script = 'headless/test-stream-buffer.lua'; File = 'faststream-mpv-hls-tst001/0.m3u8'; Phase = 'package' })
     }
+    @{ Name = 'thumbfast-package'; Phases = @(@{ Script = 'headless/test-thumbfast-package.lua'; File = 'faststream-mpv-hls-tst001/0.m3u8' }) }
     @{ Name = 'screens'; Phases = @(
             @{ Script = 'headless/test-screens.lua'; File = 'plain/clip.mkv'; Phase = 'first' }
             @{ Script = 'headless/test-screens.lua'; File = 'plain/clip.mkv'; Phase = 'again' })

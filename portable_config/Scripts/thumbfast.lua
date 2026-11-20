@@ -58,6 +58,9 @@ mp.utils = require('mp.utils')
 mp.options = require('mp.options')
 mp.options.read_options(options, 'thumbfast')
 
+-- Local change (not upstream thumbfast): FastStream's playlist-file streams (faststream-fragment.lua).
+local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/faststream-fragment.lua' }))
+
 local properties = {}
 local pre_0_30_0 = mp.command_native_async == nil
 local pre_0_33_0 = true
@@ -440,6 +443,9 @@ local function info(w, h)
 		or (h or 0) == 0
 		or has_vid == 0
 		or (properties['demuxer-via-network'] and not options.network)
+		-- Local change: a stream played from FastStream's playlist files is a network stream too. A thumbnail
+		-- would fetch it again, without the page's headers (doc/scripts.md).
+		or (fragment.target(properties['path']) and not options.network)
 		or (albumart and not options.audio)
 		or (image and not albumart)
 		or force_disabled
