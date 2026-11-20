@@ -1,0 +1,111 @@
+-- faststream-offer.lua - a stream FastStream sends while this window plays: two banners ask "Play here" or "Play in
+-- a new window", and the click goes back to the extension, which loads the stream itself. This script only shows and
+-- answers: what plays keeps playing.
+
+local mp = require('mp')
+local clicks = dofile(mp.command_native({ 'expand-path', '~~/script-modules/banner-click.lua' }))
+
+local BANNERS = { here = 'faststream-here', window = 'faststream-window' }
+-- the extension's texts come localized; these stand in only for one that did not come
+local TITLES = { here = 'Play here', window = 'Play in a new window' }
+local DEFAULT_SECONDS = 15
+local MAX_SECONDS = 60
+local STATE = 'user-data/faststream/offer-state'
+
+local offer -- {id, seconds, timer}
+local banners -- (below) their clicks (banner-click.lua)
+
+local function publish()
+	mp.set_property_native(
+		STATE,
+		offer and { shown = true, id = offer.id, seconds = offer.seconds } or { shown = false }
+	)
+end
+
+-- a broadcast: the helper's IPC client hears it as a client-message
+local function answer(id, choice)
+	mp.commandv('script-message', 'faststream-choice', id, choice)
+end
+
+local function close()
+	if not offer then
+		return
+	end
+	offer.timer:kill()
+	offer = nil
+	banners.stop()
+	for _, id in pairs(BANNERS) do
+		mp.commandv('script-message-to', 'notify', 'hide', id)
+	end
+	publish()
+end
+
+local function choose(choice)
+	local taken = offer
+	if not taken or not BANNERS[choice] then
+		return
+	end
+	answer(taken.id, choice)
+	close()
+end
+
+---@param value string|nil
+---@return integer
+local function seconds_of(value)
+	local n = type(value) == 'string' and value:match('^%d+$') and tonumber(value)
+	return n and n >= 1 and n <= MAX_SECONDS and n or DEFAULT_SECONDS
+end
+
+local function show(choice, title, detail, seconds)
+	mp.commandv(
+		'script-message-to',
+		'notify',
+		'show',
+		BANNERS[choice],
+		(title and title ~= '') and title or TITLES[choice],
+		detail or '',
+		tostring(seconds)
+	)
+end
+
+-- A new offer replaces the one up, which is answered none; the same id again only changes its texts and time.
+local function on_offer(id, seconds, here_title, here_detail, window_title, window_detail)
+	if not id or id == '' then
+		return
+	end
+	local old = offer
+	if old then
+		old.timer:kill()
+		if old.id ~= id then
+			answer(old.id, 'none')
+		end
+	end
+	local current = { id = id, seconds = seconds_of(seconds) }
+	current.timer = mp.add_timeout(current.seconds, function()
+		if offer == current then
+			answer(current.id, 'none')
+			close()
+		end
+	end)
+	offer = current
+	show('here', here_title, here_detail, current.seconds)
+	show('window', window_title, window_detail, current.seconds)
+	banners.watch()
+	publish()
+end
+
+-- with an id, only that offer: a cancel that comes late leaves a newer one up
+local function on_cancel(id)
+	if offer and (not id or id == '' or id == offer.id) then
+		close()
+	end
+end
+
+banners = clicks.new('faststream-offer-click', BANNERS, choose)
+
+mp.register_script_message('faststream-offer', on_offer)
+mp.register_script_message('faststream-offer-cancel', on_cancel)
+
+-- the extension reads it: without it, a new stream replaces what plays
+mp.set_property_native('user-data/faststream/offer', 1)
+publish()

@@ -3,6 +3,7 @@
 -- place, or to a new window that waits paused and minimized
 
 local mp = require('mp')
+local clicks = dofile(mp.command_native({ 'expand-path', '~~/script-modules/banner-click.lua' }))
 
 local o = {
 	banner_seconds = 15, -- how long the choice is offered; no click, and nothing changes
@@ -11,7 +12,6 @@ require('mp.options').read_options(o, 'single_instance')
 
 -- the two banners, by the choice each one is
 local BANNERS = { here = 'single-instance', window = 'single-instance-window' }
-local SECTION = 'single-instance-click'
 local STATE = 'user-data/single-instance'
 -- a title in a banner's detail line, in bytes
 local TITLE_BYTES = 50
@@ -20,8 +20,7 @@ local BURST_SECONDS = 1
 
 local offer -- {old = {path, title}, files = {...}, launcher = <path>}
 local expiry -- the timer that ends the offer with its banners
-local boxes = {} -- the banners' rectangles {x, y, w, h} in OSD pixels by choice, once drawn
-local over -- the choice whose banner is under the pointer
+local banners -- (below) their clicks (banner-click.lua)
 local leaving -- {files, launcher, timer}: "Play in a new window" taken, its burst's last files may still come
 local last_open = 0 -- mp.get_time() of the last hand-off
 local spawned
@@ -75,49 +74,6 @@ local function snapshot()
 	return { path = path, title = mp.get_property('media-title') or path }
 end
 
-local function under(pos)
-	if pos == nil or pos.hover == false then
-		return nil
-	end
-	for choice, box in pairs(boxes) do
-		if pos.x >= box.x and pos.x <= box.x + box.w and pos.y >= box.y and pos.y <= box.y + box.h then
-			return choice
-		end
-	end
-	return nil
-end
-
-local function raise()
-	if over then
-		mp.enable_key_bindings(SECTION, 'allow-hide-cursor')
-	end
-end
-
-local function on_mouse(_, pos)
-	local now = offer ~= nil and under(pos) or nil
-	if now then
-		over = now
-		raise()
-		-- uosc reacts to the same move, in no set order with this script
-		mp.add_timeout(0.05, raise)
-	elseif over then
-		over = nil
-		mp.disable_key_bindings(SECTION)
-	end
-end
-
-local function on_cards(_, notify)
-	boxes = {}
-	for _, card in ipairs(notify and notify.cards or {}) do
-		for choice, id in pairs(BANNERS) do
-			if card.id == id then
-				boxes[choice] = card.box
-			end
-		end
-	end
-	on_mouse(nil, mp.get_property_native('mouse-pos'))
-end
-
 local function show_banners(current)
 	local seconds = tostring(o.banner_seconds)
 	local old = shorten(current.old.title)
@@ -149,16 +105,13 @@ local function set_offer(new)
 		expiry = nil
 	end
 	if offer and not new then
-		mp.unobserve_property(on_mouse)
-		mp.unobserve_property(on_cards)
+		banners.stop()
 		mp.unobserve_property(on_ended)
 		for _, id in pairs(BANNERS) do
 			mp.commandv('script-message-to', 'notify', 'hide', id)
 		end
-		boxes = {}
 	elseif new and not offer then
-		mp.observe_property('user-data/notify', 'native', on_cards)
-		mp.observe_property('mouse-pos', 'native', on_mouse)
+		banners.watch()
 		mp.observe_property('eof-reached', 'bool', on_ended)
 		mp.observe_property('idle-active', 'bool', on_ended)
 	end
@@ -168,8 +121,6 @@ local function set_offer(new)
 		expiry = mp.add_timeout(o.banner_seconds, function()
 			set_offer(nil)
 		end)
-	else
-		on_mouse(nil, nil)
 	end
 	publish()
 end
@@ -294,25 +245,7 @@ local function choose(choice)
 	start_window_later()
 end
 
--- The click takes the choice under the pointer on its release; the section stays a moment so a double click's
--- second press does nothing.
-local function on_click()
-	if not offer or not over then
-		return
-	end
-	choose(over)
-	mp.enable_key_bindings(SECTION, 'allow-hide-cursor')
-	mp.add_timeout(0.5, function()
-		if not over then
-			mp.disable_key_bindings(SECTION)
-		end
-	end)
-end
-
-mp.set_key_bindings({
-	{ 'mbtn_left', on_click },
-	{ 'mbtn_left_dbl', function() end }, -- so input.conf's fullscreen double click does not fire on a banner
-}, SECTION, 'force')
+banners = clicks.new('single-instance-click', BANNERS, choose)
 
 mp.register_script_message('open', open)
 -- a banner's click without a pointer (tests): here or window

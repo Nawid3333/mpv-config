@@ -284,11 +284,26 @@ AGENTS.md; this file does not repeat them.
 
 - mpv-single.exe (what Explorer starts for mpv's file types) hands a local file to the mpv window used last that plays a local file or nothing: `script-message-to single_instance open <replace|append> <launcher> <file>...`. The script makes the playlist change itself, so it still knows what played.
 - A `replace` while a file plays (not idle, not at its end) changes nothing yet: that file plays on, and two banners top right ask for `banner_seconds` (15): **Play here** (the new file(s) in place of the playlist) or **Play in a new window** (the launcher with `--new-window --paused`: a second mpv that waits paused and minimized, not raised). Left alone, the banners go and the new file is not played. With nothing to lose (idle, at the end, the same file again) the replace happens at once, also when the old file reaches its end (or goes idle) while the banners ask. `append` (the rest of a burst of files opened together) joins the offer while there is one, else the window just chosen, else the playlist. A new window starts once its burst is in (1 s after its last file), or at once when the next hand-off comes.
-- The banners are notify.lua's cards, and their boxes (`user-data/notify`) the click targets. The script's mouse section is on only while the pointer is over a box, and raised on every move there: uosc pushes its own click section on top whenever the pointer crosses one of its zones. Anywhere else a click stays input.conf's (pause). After the click the section stays a moment, so the second press of a double click does not reach input.conf.
+- The banners are notify.lua's cards; a click on one is taken through banner-click.lua (below): anywhere else a click stays input.conf's (pause), and a double click's second press does nothing.
 - Paths compare with `/` and `\` alike and without case (Windows).
 - State: `user-data/single-instance` = {offer = {old, files} while the banners ask, spawned = the launcher's arguments of the last "Play in a new window"}. `script-message-to single_instance choose here|window` stands in for a click (tests).
 
+## faststream-offer.lua
+
+- FastStream's half of the same question for a stream: the extension, about to send a stream to a window that plays something, offers it first. `script-message faststream-offer <id> <seconds> <here-title> <here-detail> <window-title> <window-detail>` shows two banners top right, **Play here** (`faststream-here`) above **Play in a new window** (`faststream-window`), with single-instance.lua's icons.
+- The texts come localized from the extension and are shown as given: notify.lua escapes them for ASS, and nothing expands `${...}` (the script passes them on with `commandv`, the helper sends them as an IPC array). Only a missing or empty title falls back to the English one. `<seconds>` is whole seconds, 1 to 60; anything else is 15.
+- The answer is a broadcast, `script-message faststream-choice <id> here|window|none`, which the helper's IPC client hears as a `client-message`: a click on a banner (here, window), no click before the time is up (none), or a newer offer taking its place (none for the old id; the same id again only changes the texts and the time). The banners go with the answer. `script-message faststream-offer-cancel [<id>]` takes them down with no answer; with an id only when that offer is the one up, so a cancel that comes late leaves a newer offer alone.
+- The script only shows and answers: it never loads, pauses or stops anything. What plays plays on under the banners until the extension acts on the answer.
+- `user-data/faststream/offer` = 1, set at load, tells the extension this setup can show the offer; without it the extension replaces what plays, as before. Both of the script's keys are under `user-data/faststream/`, the only part the helper lets the extension read.
+- State: `user-data/faststream/offer-state` = {shown, id, seconds} (id and seconds while an offer is up).
+
 ## Script modules
+
+### banner-click.lua
+
+- A click on notify.lua's banners, for single-instance.lua and faststream-offer.lua. The banners' boxes (`user-data/notify`) are the targets. A forced key section takes the click only while the pointer is over a box, and is raised again on every move there: uosc pushes its own click section on top whenever the pointer crosses one of its zones. Anywhere else a click stays input.conf's (pause). The click counts on its release; after it the section stays half a second and swallows `mbtn_left_dbl`, so a double click's second press neither pauses nor goes fullscreen.
+- `new(section, ids, on_click)`: `ids` maps each choice to its banner's notify id, `on_click(choice)` gets the click; `watch()` while the banners are up, `stop()` once they are gone.
+- Loaded with `dofile(mp.command_native({ 'expand-path', '~~/script-modules/banner-click.lua' }))`. run-tests.ps1's launcher check copies it beside single-instance.lua.
 
 ### faststream-fragment.lua
 
