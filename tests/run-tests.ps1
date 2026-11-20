@@ -2143,6 +2143,14 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
     [IO.File]::WriteAllText((Join-Path $pkg '0.m3u8'), ("#EXTM3U`n#EXT-X-VERSION:3`n#EXT-X-TARGETDURATION:180`n" +
             "#EXT-X-PLAYLIST-TYPE:VOD`n#EXTINF:180.0,`n../hls-long/long.ts`n#EXT-X-ENDLIST`n"))
     [IO.File]::WriteAllText((Join-Path $pkg 'target.txt'), 'https://cdn.test/pl/7?token=k#fs-content=anime&fs-id=b2c3d4e5f6071829')
+    # The same under a folder with a '#' in its name (a Windows account's name may hold one, and the helper
+    # writes into that account's temp folder): the path's '#' starts no tags. Its media by a whole address, as
+    # the helper writes it: ffmpeg cuts the playlist's own address at the '#' before it resolves a relative one.
+    $pkgHash = Join-Path $m 'user#1/faststream-mpv-hls-tst002'
+    $null = New-Item -ItemType Directory -Force $pkgHash
+    [IO.File]::WriteAllText((Join-Path $pkgHash '0.m3u8'), ("#EXTM3U`n#EXT-X-VERSION:3`n#EXT-X-TARGETDURATION:180`n" +
+            "#EXT-X-PLAYLIST-TYPE:VOD`n#EXTINF:180.0,`n" + (Join-Path $m 'hls-long/long.ts').Replace('\', '/') + "`n#EXT-X-ENDLIST`n"))
+    [IO.File]::WriteAllText((Join-Path $pkgHash 'target.txt'), 'https://cdn.test/pl/8?token=k#fs-content=movie&fs-id=c3d4e5f607182930')
     $pkgEp = Join-Path $m 'fs-package/ep#fs-content=anime&fs-id=b2c3d4e5f6071829.ts'
     if (-not (Test-Path -LiteralPath $pkgEp)) {
         New-Item -ItemType Directory -Force (Split-Path -Parent $pkgEp) | Out-Null
@@ -2588,7 +2596,8 @@ $HeadlessTests = @(
     }
     @{ Name = 'stream-buffer'; Phases = @(
             @{ Script = 'headless/test-stream-buffer.lua'; File = 'plain/clip.mkv'; Phase = 'stream'; Args = @('--script-opts-append=stream_buffer-local_is_stream=yes', '--script-opts-append=stream_buffer-headroom_mb=0') }
-            @{ Script = 'headless/test-stream-buffer.lua'; File = 'plain/clip.mkv'; Phase = 'local' })
+            @{ Script = 'headless/test-stream-buffer.lua'; File = 'plain/clip.mkv'; Phase = 'local' }
+            @{ Script = 'headless/test-stream-buffer.lua'; File = 'faststream-mpv-hls-tst001/0.m3u8'; Phase = 'package' })
     }
     @{ Name = 'screens'; Phases = @(
             @{ Script = 'headless/test-screens.lua'; File = 'plain/clip.mkv'; Phase = 'first' }
