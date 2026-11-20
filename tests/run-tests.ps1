@@ -1782,6 +1782,14 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
         finally { if ($client) { $client.Dispose() } }
     }
     $ask = { param([string]$Pipe, [string]$Name) & $call $Pipe ('["get_property","' + $Name + '"]') }
+    # the files single-instance.lua offers, '' while it offers none: its state then has no offer (an empty table
+    # reads as []), and StrictMode makes a plain .offer throw instead of reading as nothing
+    $offerFiles = {
+        param([string]$Pipe)
+        $state = & $ask $Pipe 'user-data/single-instance'
+        $offer = if ($state -is [pscustomobject] -and $state.PSObject.Properties['offer']) { $state.offer }
+        if ($offer -is [pscustomobject] -and $offer.PSObject.Properties['files']) { "$($offer.files)" } else { '' }
+    }
     # the pipe of the mpv with this process id
     $pipeOf = {
         param([int]$ProcessId)
@@ -1824,14 +1832,14 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
         finally { Remove-Item Env:MPV_SINGLE_RAISE_LOG -ErrorAction SilentlyContinue }
         & $launchersDone
         # The launcher has handed it over; a slow machine's mpv may take a moment to offer it.
-        & $waitFor { "$((& $ask $main 'user-data/single-instance').offer.files)" -like '*d.mkv' }
+        & $waitFor { (& $offerFiles $main) -like '*d.mkv' } 10000
         $count = @(& $players).Count
         $playlist = & $ask $main 'playlist-count'
         $file = & $ask $main 'filename'
-        $offered = & $ask $main 'user-data/single-instance'
+        $offered = & $offerFiles $main
         $mainPaused = & $ask $main 'pause'
-        Test-Check $t '... a file opened later is offered in the same mpv' (
-            $count -eq 1 -and "$($offered.offer.files)" -like '*d.mkv') "$count mpv players; $($offered | ConvertTo-Json -Compress)"
+        Test-Check $t '... a file opened later is offered in the same mpv' ($count -eq 1 -and $offered -like '*d.mkv') (
+            "$count mpv players; offered: '$offered'; state $(& $ask $main 'user-data/single-instance' | ConvertTo-Json -Compress)")
         Test-Check $t '... which plays its files on meanwhile' ($file -eq $was -and $playlist -eq 3 -and $mainPaused -eq $false) (
             "playing $file (was $was), playlist-count $playlist, pause $mainPaused")
         $streamPath = & $ask $streamPipe 'path'
