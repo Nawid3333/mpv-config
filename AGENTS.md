@@ -149,6 +149,7 @@ a stream's window; `single-instance.lua` takes it and offers the banner. Ctrl he
 | `welcome.lua` | first-start banner, F1 tour |
 | `stream-buffer.lua` | per-file buffering of streams the FastStream way (RAM budget, then disk) |
 | `stream-resume.lua` | resume FastStream streams by `fs-id` (`~~state/stream-resume.json`, 7 days) |
+| `faststream-private.lua` | removes a private window's temp files (helper 29+: `faststream-mpv-hls-p-*`, `faststream-mpv-subs-p-*`) once mpv moved on from the stream, idles or closes |
 | `faststream-episodes.lua` | previous/next episode and autoplay buttons while the helper follows the window |
 | `faststream-quality.lua` | the one Quality button and menu (uosc's own `stream-quality` is not in the bar): the page's files (`fs-quality=` fragment item, FastStream host 12+; loadfile from the same second, http(s) only), else the stream's own variants - mpv makes an HLS master's and YouTube's (ytdl_hook `all_formats`) editions, switched in place as a file-local `edition` (uosc's Editions button hides meanwhile), DASH's tracks (file-local `vid`); one row per height |
 | `source-info.lua` | the source button: stream URL, original URL, site page; copy/open |
@@ -181,7 +182,8 @@ macOS and Linux builds were 11.8 MB of LFS that every install fetched).
 the helper starts mpv with `--force-window=immediate` and appends URL-fragment
 items to the stream URL - `fs-content=anime|movie|native` (native: no upscaler), `fs-id=<16 hex>` (resume key),
 `fs-private=1` (a private window's stream: stream-resume keeps nothing, since
-2026-10-14), `fs-page=<encoded page URL>`. Scripts read the LAST whole item of the fragment
+2026-10-14; helper 29+ puts its temp files in `-p-` folders, which faststream-private.lua
+empties), `fs-page=<encoded page URL>`. Scripts read the LAST whole item of the fragment
 (after the first `#`, split on `&`), never a match anywhere in the URL. A stream mpv cannot
 open from its address (helper 27: a disguised or keyed HLS stream) plays from playlist files,
 `<temp>/faststream-mpv-hls-*/master.m3u8` or `<n>.m3u8`; its tags are in `target.txt` beside

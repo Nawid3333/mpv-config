@@ -160,6 +160,15 @@ AGENTS.md; this file does not repeat them.
 - Progress is mpv's own; FastStream's browser player keeps its own. A stream from a private window (`fs-private=1`) is neither resumed nor saved; its fs-id stays for faststream-episodes.lua.
 - State: `~~state/stream-resume.json`, gitignored, safe to delete, written whole or not at all (state-file.lua). Saves go through a temp file and a rename, so an unreadable file is damaged: it is kept beside as `.corrupt-<time>` and saving goes on (skipped every time, resuming would stop for good). What was moved is read again, since another window may have saved a good file over it meanwhile.
 
+## faststream-private.lua
+
+- A private window's stream leaves no files behind once mpv is done with it. FastStream's helper (29+) names what it writes for one so: the playlists of a stream mpv cannot open alone go into `<temp>/faststream-mpv-hls-p-<6>/` (`master.m3u8`, `<n>.m3u8`, and `target.txt`: the stream as sent, `fs-private=1` among its tags), the page's subtitles into `<temp>/faststream-mpv-subs-p-<6>/` (`<n> <label>.srt`).
+- A package folder counts only when its name says so and its `target.txt` carries `fs-private=1` (faststream-fragment.lua); a subtitle file only when its folder's name says so and the file's name is one the helper writes. Only those files go, never anything else in such a folder. Lua cannot remove a folder: the empty folders go by the helper's age rules (a package folder when a helper ends, a subtitle folder at the next send with subtitles).
+- What: each load is noted in an `on_load` hook, also one that then fails to open: its package (by `path`) and its subtitle files (by `sub-files`, as the helper hands them over; a file that fails never makes them tracks). A `path` observer may report late or not at all.
+- When: at each `file-loaded` what the files before used goes, except what the file now playing uses (a quality switch takes the subtitle files along; the same package loaded again keeps its own). When nothing plays any more (`idle-active`, asked again as the notification may come after the next load started) or mpv closes (`shutdown`), all of it goes.
+- `user-data/faststream-private/passes` counts the removals: the tests wait on it, as the script runs in a thread of its own.
+- The helper removes a private window's package itself once mpv moved on from it, while it still follows the window. This script covers the rest: a helper that is gone, a load that was still in mpv's pipe when the helper gave up waiting (it leaves that folder, since mpv may still open it), and the subtitles.
+
 ## faststream-episodes.lua
 
 - uosc's own prev/next are playlist buttons, and a FastStream stream is a playlist of one; mpv offers no autoplay switch. So the script puts previous, next and an autoplay switch into uosc's control bar while FastStream plays a series in this window.
