@@ -141,6 +141,8 @@ local function show_banners(current)
 	)
 end
 
+local on_ended -- (below) what plays came to its end while the banners ask
+
 local function set_offer(new)
 	if expiry then
 		expiry:kill()
@@ -149,6 +151,7 @@ local function set_offer(new)
 	if offer and not new then
 		mp.unobserve_property(on_mouse)
 		mp.unobserve_property(on_cards)
+		mp.unobserve_property(on_ended)
 		for _, id in pairs(BANNERS) do
 			mp.commandv('script-message-to', 'notify', 'hide', id)
 		end
@@ -156,6 +159,8 @@ local function set_offer(new)
 	elseif new and not offer then
 		mp.observe_property('user-data/notify', 'native', on_cards)
 		mp.observe_property('mouse-pos', 'native', on_mouse)
+		mp.observe_property('eof-reached', 'bool', on_ended)
+		mp.observe_property('idle-active', 'bool', on_ended)
 	end
 	offer = new
 	if new then
@@ -173,6 +178,15 @@ local function play_here(files)
 	mp.commandv('loadfile', files[1], 'replace')
 	for i = 2, #files do
 		mp.commandv('loadfile', files[i], 'append')
+	end
+end
+
+-- at its end (keep-open) or gone idle there is nothing to lose any more: the offered files play here
+on_ended = function(_, value)
+	local waiting = offer
+	if value and waiting then
+		set_offer(nil)
+		play_here(waiting.files)
 	end
 end
 
@@ -251,6 +265,8 @@ local function open(mode, launcher, ...)
 		end
 		return
 	end
+	-- a new burst: the window chosen for the last one starts now, with what came of it
+	start_window()
 	local old = snapshot()
 	if old and not same(old.path, files[1]) and launcher and launcher ~= '' then
 		set_offer({ old = old, files = files, launcher = launcher })
@@ -273,6 +289,7 @@ local function choose(choice)
 		play_here(taken.files)
 		return
 	end
+	start_window() -- (a window chosen a moment before, for other files)
 	leaving = { files = taken.files, launcher = taken.launcher }
 	start_window_later()
 end

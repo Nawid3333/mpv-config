@@ -26,10 +26,10 @@ mp.register_event('file-loaded', function()
 	end
 end)
 
--- a first file that never loads (an error) ends the wait too: the next one plays; a playlist file's own end
--- (redirect) comes before its first entry loads
-mp.register_event('end-file', function(event)
-	if event.reason ~= 'redirect' then
+-- a first file that never loads ends the wait once nothing is left to load (idle): a file opened later plays; a good
+-- entry after a failed one still waits
+mp.observe_property('idle-active', 'bool', function(_, idle)
+	if idle then
 		o.start_paused = false
 	end
 end)

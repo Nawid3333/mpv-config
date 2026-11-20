@@ -119,7 +119,10 @@ H.run(function()
 	mp.commandv('loadfile', before, 'insert-at', '0')
 	mp.commandv('loadfile', after, 'append')
 	mp.commandv('seek', '3', 'absolute', 'exact')
-	H.sleep(0.5)
+	-- no other banner above ours (video-info's, from the load): its end would move ours under the pointer
+	H.wait_until(function()
+		return #((mp.get_property_native('user-data/notify') or {}).cards or {}) == 0
+	end, 6)
 	local old_list = playlist()
 
 	open('replace', new)
@@ -155,11 +158,15 @@ H.run(function()
 			return banner('here') == nil and banner('window') == nil
 		end, 3)
 	)
+	click_at(wx, wy)
+	H.eq("a click where the banner was is the video's again", mp.get_property_native('pause'), true)
+	mp.set_property_native('pause', false)
 
-	-- "Play here": the new file in place of what plays
+	-- "Play here": the new file in place of what plays, which plays even when paused before
 	open('replace', new)
 	H.check('a new offer', H.wait_until(drawn, 5))
 	local was = spawned()
+	mp.set_property_native('pause', true)
 	click_at(middle('here'))
 	H.expect('"Play here" plays the new file here', path, norm(new))
 	H.eq('... in place of the old playlist', mp.get_property_number('playlist-count'), 1)
@@ -196,15 +203,37 @@ H.run(function()
 	H.eq('... none of it to the playlist here', playlist(), list)
 	plays_on('... and the old file plays on here', clip)
 
-	-- left alone, the offer goes with its banners, and nothing changes
+	-- the next hand-off within that second: the window chosen before starts at once, with its own files
 	open('replace', new)
-	H.check('a new offer', H.wait_until(offer, 3))
+	H.check('a new offer', H.wait_until(offer, 2))
+	mp.commandv('script-message-to', 'single_instance', 'choose', 'window')
+	open('replace', before)
+	H.expect(
+		'a hand-off right after "Play in a new window" starts that window with its files',
+		spawned,
+		LAUNCHER .. ' --new-window --paused -- ' .. new,
+		nil,
+		0.5
+	)
+	H.check('... and is offered itself', H.wait_until(offer, 2))
+	mp.commandv('script-message-to', 'single_instance', 'choose', 'window')
+	H.expect('... in a window of its own', spawned, LAUNCHER .. ' --new-window --paused -- ' .. before, nil, 3)
+	plays_on('... and the old file plays on here', clip)
+
+	-- left alone, the offer goes with its banners, and nothing changes; the pointer rests on a banner meanwhile
+	open('replace', new)
+	H.check('a new offer', H.wait_until(drawn, 5))
+	local hx, hy = middle('here')
+	mp.commandv('mouse', tostring(math.floor(hx)), tostring(math.floor(hy)))
 	H.check(
 		'... gone after banner_seconds',
 		H.wait_until(function()
 			return offer() == nil and banner('here') == nil and banner('window') == nil
 		end, 8)
 	)
+	click_at(hx, hy)
+	H.eq("... and a click where it was is the video's again", mp.get_property_native('pause'), true)
+	mp.set_property_native('pause', false)
 	plays_on('... and the old file plays on', clip)
 
 	-- nothing to lose: the file that plays opened again, a file at its end
@@ -226,4 +255,13 @@ H.run(function()
 	H.expect('... and one opened with it is queued', function()
 		return mp.get_property_number('playlist-count')
 	end, 2)
+
+	-- what plays comes to its end while the banners ask: nothing to lose any more, the offered file plays here
+	H.load(before)
+	mp.commandv('seek', tostring(mp.get_property_number('duration') - 1.5), 'absolute', 'exact')
+	H.sleep(0.2)
+	open('replace', new)
+	H.check('a file handed over near the end of what plays: an offer', H.wait_until(offer, 2))
+	H.expect('... and once that ends, the offered file plays here', path, norm(new), nil, 6)
+	H.check('... with the offer done', offer() == nil)
 end)

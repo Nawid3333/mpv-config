@@ -1849,10 +1849,17 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
         $second = @(& $players | Where-Object { $_.Id -ne $served })
         $secondPipe = if ($second.Count -eq 1) { & $pipeOf $second[0].Id }
         $file = if ($secondPipe) { & $ask $secondPipe 'filename' }
+        # loaded (auto-start.lua's file-loaded has run), and a moment more: --pause alone holds it until then
+        if ($secondPipe) {
+            & $waitFor { $null -ne (& $ask $secondPipe 'duration') } 10000
+            Start-Sleep -Milliseconds 500
+        }
         $paused = if ($secondPipe) { & $ask $secondPipe 'pause' }
+        $at = if ($secondPipe) { & $ask $secondPipe 'time-pos' }
         $minimized = if ($secondPipe) { & $ask $secondPipe 'window-minimized' }
         Test-Check $t '"Play in a new window": the new file goes to a second mpv' ($second.Count -eq 1 -and $file -eq 'd.mkv') "$($second.Count) new mpv players, playing $file"
-        Test-Check $t '... which waits paused and minimized' ($paused -eq $true -and $minimized -eq $true) "pause $paused, window-minimized $minimized"
+        Test-Check $t '... which waits paused and minimized, at its start' (
+            $paused -eq $true -and $null -ne $at -and $at -lt 0.5 -and $minimized -eq $true) "pause $paused, time-pos $at, window-minimized $minimized"
         $file = & $ask $main 'filename'
         $playlist = & $ask $main 'playlist-count'
         $mainPaused = & $ask $main 'pause'
@@ -2594,6 +2601,11 @@ $HeadlessTests = @(
     # ... and a first file that fails: av://lavfi with a filter that does not exist
     @{ Name = 'auto-start-paused-failed'; Phases = @(@{ Script = 'headless/test-auto-start-paused-failed.lua'; File = 'av://lavfi:no-such-filter'
             Args = @('--pause', '--idle=yes', '--script-opts-append=auto_start-start_paused=yes')
+        })
+    }
+    # ... and a failed first entry before a good one (the Args' file comes first in the playlist)
+    @{ Name = 'auto-start-paused-bad-first'; Phases = @(@{ Script = 'headless/test-auto-start-paused-bad-first.lua'; File = 'plain/clip.mkv'
+            Args = @('--pause', '--idle=yes', '--script-opts-append=auto_start-start_paused=yes', 'av://lavfi:no-such-filter')
         })
     }
     @{ Name = 'pause-flash'; Phases = @(@{ Script = 'headless/test-pause-flash.lua'; File = 'plain/clip.mkv' }) }
