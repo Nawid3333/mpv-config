@@ -962,11 +962,10 @@ local function tour_items()
 				info('A stream continues where you stopped (7 days)', 'Home = start'),
 				run(
 					'Next episode: the page goes on, this window plays it',
-					'Shift+N',
+					'media key',
 					'script-message faststream-next'
 				),
-				info('Previous episode', 'Shift+P'),
-				info("Or the keyboard's media keys (next / previous track)", 'media keys'),
+				run('Previous episode', 'media key', 'script-message faststream-previous'),
 				info('A local file: the next / previous file of its folder', 'same keys'),
 				info('At the end the next one follows (FastStream: Autoplay)', 'autoplay'),
 				info('Stop that countdown, autoplay stays on', 'Space'),
