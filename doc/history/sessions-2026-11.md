@@ -108,3 +108,13 @@ engineering log; `AGENTS.md` holds the current state and is read first).
   with FastStream #786). The click code is one module (`script-modules/banner-click.lua`) with
   one guard for every script's banners; reviews by glm, Codex and the Claude API reviewer are
   in the pull requests.
+
+## 2026-11-21/22: install.bat on its own
+
+- A review of the installer scripts (glm-5.3-flash) found, and a run confirmed: `install.bat`
+  without a setup beside it ran the fetched setup through `powershell -Command`, which joins
+  and splits its arguments again (`-InstallDir "C:\My mpv"`: "no positional parameter accepts
+  mpv") and drops the setup's exit code (a failed install ended with 0). It now downloads the
+  setup to `%TEMP%\mpv-config-setup`, runs it with `-File` and removes the folder; the static
+  tier runs it against a stand-in setup fetched from a `file:` URL. `setup.ps1 -Zip` checks for
+  `sync-config.ps1` beside it, as a fetched setup now has a folder too.

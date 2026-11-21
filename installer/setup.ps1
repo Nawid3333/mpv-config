@@ -159,8 +159,8 @@ function Invoke-MpvSetup {
     try {
         $syncArgs = @('-Root', $dir, '-Repo', $Repo, '-Ref', $Ref)
         if ($Zip) {
-            if (-not $PSScriptRoot) { throw '-Zip needs a local copy of this script' }
-            $sync = Join-Path $PSScriptRoot 'sync-config.ps1'
+            $sync = if ($PSScriptRoot) { Join-Path $PSScriptRoot 'sync-config.ps1' }
+            if (-not $sync -or -not (Test-Path -LiteralPath $sync)) { throw '-Zip needs a local copy of this script' }
             $syncArgs += @('-Zip', $Zip, '-Commit', $Commit)
             if ($LfsSource) { $syncArgs += @('-LfsSource', $LfsSource) }
         }
