@@ -76,6 +76,8 @@ suite checks every feature.
 - A **source** button lists every link of the current file (stream URL,
   original page, local path) to copy or open.
 - Right-click opens a menu with everything; see the screenshot below.
+- Hovering the timeline shows a small picture of that moment, for local files
+  and for streams from FastStream or a web link alike.
 
 **Speed**
 - Preset keys `r g b q w a y e h` (1x, 2x, 2.5x, 3x, 3.5x, 4x, 5x, 8x, 16x).

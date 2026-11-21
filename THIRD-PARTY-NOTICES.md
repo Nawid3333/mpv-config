@@ -8,7 +8,7 @@ license texts are in `LICENSES/`.
 |---|---|---|
 | `portable_config/Scripts/uosc/` (with `bin/ziggy-windows.exe`; uosc's macOS and Linux builds of it are left out), `portable_config/fonts/uosc_textures.ttf` | [uosc](https://github.com/tomasklaen/uosc) v5.13.0 by tomasklaen. Changed locally: every change is marked `Local change` in the source | LGPL-2.1 |
 | `portable_config/fonts/uosc_icons.otf` | Shipped with uosc; the icons are Google's [Material Icons](https://github.com/google/material-design-icons) | Apache-2.0 |
-| `portable_config/Scripts/thumbfast.lua` | [thumbfast](https://github.com/po5/thumbfast) by po5, upstream's commit `0f711de3` (2026-06-28). Changed locally: formatted by stylua, two functions made local, no thumbnails for a stream played from FastStream's helper's playlist files (marked `Local change`) | MPL-2.0 |
+| `portable_config/Scripts/thumbfast.lua` | [thumbfast](https://github.com/po5/thumbfast) by po5, upstream's commit `0f711de3` (2026-06-28). Changed locally: formatted by stylua, two functions made local, a stream's thumbnails made with its headers and demuxer options, sent over the thumbnailer's pipe (marked `Local change`) | MPL-2.0 |
 | `portable_config/Scripts/autoload.lua` | [mpv](https://github.com/mpv-player/mpv) (`TOOLS/lua/autoload.lua`), as of upstream's commit `867990d9` (2026-10-15), unchanged | mpv's license ([Copyright](https://github.com/mpv-player/mpv/blob/master/Copyright)) |
 | `doc/manual.txt` | The text of mpv's manual (`doc/manual.pdf` of the build its first line names) | GPL-2.0-or-later (as the manual states) |
 | `portable_config/shaders/Anime4K_*.glsl` | [Anime4K](https://github.com/bloc97/Anime4K) v4.0.1 by bloc97 | MIT. `AutoDownscalePre_x2/x4`: public domain (Unlicense) |
