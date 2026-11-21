@@ -171,8 +171,8 @@ replace the folder and drop them (a static check guards each): managed buttons t
 (right-click); `user-data/uosc/bottom-ui` and `user-data/uosc/ui-scale` are
 published; the timeline shows a second (real-time) remaining time only when it
 differs and hatches the buffer for streams only, a stream played from FastStream's
-helper's playlist files counting as one (faststream-fragment.lua; thumbfast has the same
-local change: no thumbnails for it); a timeline click seeks by
+helper's playlist files counting as one (faststream-fragment.lua; thumbfast takes it for a
+stream too); a timeline click seeks by
 keyframe, and one let go on its last pixel seeks exactly to the end and plays on to it
 (the file ends, as for skip-forward.lua); `flash-elements` takes a duration (ms) of its own, for the seek keys' timeline;
 `lib/intl.lua` reads the UI language from settings.json; `lib/cursor.lua` takes the

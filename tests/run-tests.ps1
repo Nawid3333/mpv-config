@@ -964,12 +964,24 @@ function Invoke-StaticCheck {
     Test-Check $t "settings.lua: each key the feature tour names runs that command in input.conf ($tourKeys keys)" (
         $tourKeys -gt 5 -and $tourBad.Count -eq 0) ($tourBad -join '; ')
     # A stream played from the playlist files FastStream's helper wrote has a local path: both take it for the
-    # network stream it is (faststream-fragment.lua), uosc to draw its buffer, thumbfast to make no thumbnails.
+    # network stream it is (faststream-fragment.lua), uosc to draw its buffer, thumbfast for its thumbnails.
     Test-Check $t 'uosc local change present: main.lua takes a stream played from the helper''s playlist files for a stream' (
         $uoscMain.Contains("via_network or fragment.target(mp.get_property('path')) ~= nil")) 're-apply it after a uosc update (AGENTS.md)'
     $thumbfastLua = Get-Content -Raw (Join-Path $Cfg 'Scripts/thumbfast.lua')
-    Test-Check $t 'thumbfast local change present: no thumbnails for a stream played from the helper''s playlist files' (
+    Test-Check $t 'thumbfast local change present: a stream played from the helper''s playlist files is a network stream' (
         $thumbfastLua.Contains("or (fragment.target(properties['path']) and not options.network)")) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
+    # A stream's thumbnailer gets the stream and its options over its own pipe, never on its command line
+    # (doc/scripts.md, thumbfast.lua).
+    Test-Check $t 'thumbfast local change present: a stream goes to the thumbnailer over a pipe of its own' (
+        $thumbfastLua.Contains('local function stream_load(path, time)') -and
+        $thumbfastLua.Contains("opts.vid = 'auto'") -and $thumbfastLua.Contains("(prop == 'vid' and own_variant)") -and
+        $thumbfastLua.Contains("table.insert(args, '--input-ipc-server=' .. pipe_name)") -and
+        $thumbfastLua.Contains("file = io.open('\\\\.\\pipe\\' .. pipe_name, 'r+b')") -and
+        $thumbfastLua -match 'if not load then\s+table\.insert\(args, ''--''\)') 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
+    Test-Check $t 'thumbfast local change present: no thumbnails for a private window''s stream (faststream-private.lua)' (
+        $thumbfastLua.Contains("or fragment.value(properties['path'], 'fs-private=') == '1'")) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
+    $thumbfastConf = Get-Content -Raw (Join-Path $Cfg 'script-opts/thumbfast.conf')
+    Test-Check $t 'thumbfast.conf: thumbnails for streams (network=yes)' ($thumbfastConf -match '(?m)^network=yes\r?$')
     $uoscIntl = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/lib/intl.lua')
     Test-Check $t 'uosc local change present: intl.lua reads the subtitle languages from settings.json (settings.lua)' (
         $uoscIntl.Contains("'~~state/settings.json'") -and $uoscIntl.Contains('settings_slang() or')) 're-apply it after a uosc update (AGENTS.md)'
@@ -2670,7 +2682,11 @@ $HeadlessTests = @(
             @{ Script = 'headless/test-stream-buffer.lua'; File = 'plain/clip.mkv'; Phase = 'local' }
             @{ Script = 'headless/test-stream-buffer.lua'; File = 'faststream-mpv-hls-tst001/0.m3u8'; Phase = 'package' })
     }
-    @{ Name = 'thumbfast-package'; Phases = @(@{ Script = 'headless/test-thumbfast-package.lua'; File = 'faststream-mpv-hls-tst001/0.m3u8' }) }
+    # the thumbnailer is the runner's own mpv.exe (Initialize-TestRoot): nothing on PATH
+    @{ Name = 'thumbfast-package'; Phases = @(@{ Script = 'headless/test-thumbfast-package.lua'; File = 'faststream-mpv-hls-tst001/0.m3u8'
+                Args = @("--script-opts-append=thumbfast-mpv_path=$((Join-Path $WorkDir 'root/mpv.exe').Replace('\', '/'))")
+            })
+    }
     @{ Name = 'screens'; Phases = @(
             @{ Script = 'headless/test-screens.lua'; File = 'plain/clip.mkv'; Phase = 'first' }
             @{ Script = 'headless/test-screens.lua'; File = 'plain/clip.mkv'; Phase = 'again' })

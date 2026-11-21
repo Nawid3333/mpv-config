@@ -446,6 +446,9 @@ local function info(w, h)
 		-- Local change: a stream played from FastStream's playlist files is a network stream too. A thumbnail
 		-- would fetch it again, without the page's headers (doc/scripts.md).
 		or (fragment.target(properties['path']) and not options.network)
+		-- Local change: none for a private window's stream, which leaves no files behind (faststream-private.lua);
+		-- the frames go through a file in TEMP.
+		or fragment.value(properties['path'], 'fs-private=') == '1'
 		or (albumart and not options.audio)
 		or (image and not albumart)
 		or force_disabled
@@ -487,6 +490,66 @@ local function remove_thumbnail_files()
 end
 
 local activity_timer
+
+-- Local change (not upstream thumbfast): a stream's thumbnails. The thumbnailer opens the stream as this mpv does:
+-- with the page's headers (a CDN may refuse it without its Referer or Cookie), the demuxer options that let ffmpeg
+-- read FastStream's playlist files, and the lowest HLS bitrate (a thumbnail is 200 px). The stream and its options
+-- go over the thumbnailer's pipe (send_when_open), never on its command line, which any program can read: a cookie,
+-- an address with a token. Nil for a local file, whose path stays on the command line as upstream has it.
+local send_when_open
+-- The running thumbnailer's pipe. A stream's gets a name of its own: a thumbnailer that quits (the video's size
+-- changed) may hold its pipe a while, and the load must reach the new one.
+local pipe_name = options.socket
+local stream_spawns = 0
+-- An HLS stream's qualities are its video tracks, and --vid names this mpv's: the thumbnailer picks its own, the
+-- lowest (vid=auto, hls-bitrate=min), and this mpv's track changes are not passed on (sync_changes).
+local own_variant = false
+
+local function stream_load(path, time)
+	own_variant = false
+	if os_name ~= 'windows' or not (properties['demuxer-via-network'] or fragment.target(properties['path'])) then
+		return nil
+	end
+	local opts = { start = tostring(time) }
+	if mp.get_property('file-format') == 'hls' then
+		own_variant = true
+		opts['hls-bitrate'] = 'min'
+		opts.vid = 'auto'
+	end
+	local fields = {}
+	for _, field in ipairs(mp.get_property_native('http-header-fields') or {}) do
+		-- As FastStream's helper writes them: a comma escaped; one ending in a backslash would swallow the next.
+		if not field:match('\\$') then
+			fields[#fields + 1] = (field:gsub(',', '\\,'))
+		end
+	end
+	if #fields > 0 then
+		opts['http-header-fields'] = table.concat(fields, ',')
+	end
+	-- Only one set for this file or in mpv.conf: the thumbnailer has the defaults (--no-config).
+	for _, name in ipairs({ 'user-agent', 'referrer', 'demuxer' }) do
+		local value = mp.get_property(name)
+		if value and value ~= mp.get_property('option-info/' .. name .. '/default-value') then
+			opts[name] = value
+		end
+	end
+	local lavf = {}
+	for key, value in pairs(mp.get_property_native('demuxer-lavf-o') or {}) do
+		lavf[#lavf + 1] = key .. '=[' .. value .. ']'
+	end
+	if #lavf > 0 then
+		table.sort(lavf)
+		opts['demuxer-lavf-o'] = table.concat(lavf, ',')
+	end
+	-- For the tests: which options went, never their values.
+	local names = {}
+	for name in pairs(opts) do
+		names[#names + 1] = name
+	end
+	table.sort(names)
+	mp.set_property_native('user-data/thumbfast/stream-options', names)
+	return { command = { 'loadfile', path, 'replace', -1, opts } }
+end
 
 local function spawn(time)
 	if disabled then
@@ -566,8 +629,19 @@ local function spawn(time)
 		table.insert(args, '--macos-app-activation-policy=accessory')
 	end
 
+	-- Local change: a stream goes over the pipe once the thumbnailer is up (stream_load); it starts idle.
+	local load = stream_load(path, time)
+	pipe_name = options.socket
+	if load then
+		stream_spawns = stream_spawns + 1
+		pipe_name = options.socket .. '-' .. stream_spawns
+	end
+	if options.direct_io and os_name == 'windows' then
+		winapi.socket_wc = winapi.MultiByteToWideChar('\\\\.\\pipe\\' .. pipe_name)
+	end
+
 	if os_name == 'windows' or pre_0_33_0 then
-		table.insert(args, '--input-ipc-server=' .. options.socket)
+		table.insert(args, '--input-ipc-server=' .. pipe_name)
 	elseif not script_written then
 		local client_script_path = options.socket .. '.run'
 		local script = io.open(client_script_path, 'w+')
@@ -586,11 +660,16 @@ local function spawn(time)
 		table.insert(args, '--scripts=' .. client_script_path)
 	end
 
-	table.insert(args, '--')
-	table.insert(args, path)
+	if not load then
+		table.insert(args, '--')
+		table.insert(args, path)
+	end
 
 	spawned = true
 	spawn_waiting = true
+	if load then
+		send_when_open(load)
+	end
 
 	subprocess(args, true, function(success, result)
 		if spawn_waiting and (success == false or (result.status ~= 0 and result.status ~= -2)) then
@@ -719,7 +798,8 @@ local function run(command)
 			file_bytes = 0
 		end
 		if not file then
-			file = io.open('\\\\.\\pipe\\' .. options.socket, 'r+b')
+			-- Local change: pipe_name (spawn), not options.socket.
+			file = io.open('\\\\.\\pipe\\' .. pipe_name, 'r+b')
 		end
 	elseif pre_0_33_0 then
 		subprocess({ '/usr/bin/env', 'sh', '-c', "echo '" .. command .. "' | socat - " .. options.socket })
@@ -732,6 +812,38 @@ local function run(command)
 		file:write(command_n)
 		file:flush()
 	end
+end
+
+-- Local change: waits up to 10 s for the thumbnailer's pipe, then loads the stream at the time the pointer is on now.
+local load_timer
+send_when_open = function(load)
+	if load_timer then
+		load_timer:kill()
+	end
+	local tries = 0
+	load_timer = mp.add_periodic_timer(0.05, function()
+		tries = tries + 1
+		if not spawned or tries > 200 then
+			load_timer:kill()
+			return
+		end
+		if not file then
+			local pipe = io.open('\\\\.\\pipe\\' .. pipe_name, 'r+b')
+			if not pipe then
+				return
+			end
+			if options.direct_io then
+				pipe:close()
+			else
+				file, file_bytes = pipe, 0
+			end
+		end
+		load_timer:kill()
+		if last_seek_time then
+			load.command[5].start = tostring(last_seek_time)
+		end
+		run(mp.utils.format_json(load))
+	end)
 end
 
 local function draw(w, h, script)
@@ -1088,7 +1200,8 @@ local function sync_changes(prop, val)
 		has_vid = 1
 	end
 
-	if not spawned then
+	-- Local change: own_variant (stream_load).
+	if not spawned or (prop == 'vid' and own_variant) then
 		return
 	end
 
