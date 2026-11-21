@@ -977,6 +977,8 @@ function Invoke-StaticCheck {
         $thumbfastLua.Contains("table.insert(args, '--input-ipc-server=' .. pipe_name)") -and
         $thumbfastLua.Contains("file = io.open('\\\\.\\pipe\\' .. pipe_name, 'r+b')") -and
         $thumbfastLua -match 'if not load then\s+table\.insert\(args, ''--''\)') 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
+    Test-Check $t 'thumbfast local change present: no thumbnails for a private window''s stream (faststream-private.lua)' (
+        $thumbfastLua.Contains("or fragment.value(properties['path'], 'fs-private=') == '1'")) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
     $thumbfastConf = Get-Content -Raw (Join-Path $Cfg 'script-opts/thumbfast.conf')
     Test-Check $t 'thumbfast.conf: thumbnails for streams (network=yes)' ($thumbfastConf -match '(?m)^network=yes\r?$')
     $uoscIntl = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/lib/intl.lua')

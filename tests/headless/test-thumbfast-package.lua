@@ -3,6 +3,7 @@
 -- path is local, its media comes from the network. The thumbnailer starts idle and gets the stream over its pipe,
 -- with this mpv's per-file options (the helper's headers and demuxer options) and the lowest HLS bitrate; a local
 -- file stays on its command line, as upstream has it. A thumbnail file proves the thumbnailer opened what it got.
+-- A private window's stream gets none.
 -- The thumbnailer is the runner's mpv.exe (thumbfast-mpv_path, run-tests.ps1).
 local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$') .. 'lib/harness.lua')
 local utils = require('mp.utils')
@@ -54,6 +55,27 @@ H.run(function()
 	thumbnail('... the thumbnailer opens it from its command line')
 	H.eq('... nothing over the pipe', options_sent(), 'none')
 
+	-- A private window's stream leaves no files behind (faststream-private.lua): no thumbnails. Its fs-private tag
+	-- on a copy of the local file, the way FastStream tags a stream's address.
+	local private = os.getenv('MPV_TEST_ROOT') .. '/private#fs-content=movie&fs-private=1&x.mkv'
+	local src = io.open(H.media_path('plain/clip.mkv'), 'rb')
+	local dst = io.open(private, 'wb')
+	H.check('a private copy is written', src and dst)
+	if src and dst then
+		dst:write(src:read('a'))
+	end
+	if src then
+		src:close()
+	end
+	if dst then
+		dst:close()
+	end
+	last = nil
+	H.check('a private stream loads', H.load(private))
+	H.expect('... no thumbnails', state, 'off', nil, 5)
+	H.sleep(0.5)
+	H.eq('... and it stays so', state(), 'off')
+
 	-- As the helper loads it: its headers and demuxer options for this file only (perFileOptions, hlsPlayOptions).
 	last = nil
 	local restarted = H.expect_event('playback-restart')
@@ -72,4 +94,5 @@ H.run(function()
 	H.expect('... thumbnails', state, 'on', nil, 5)
 	thumbnail('... the thumbnailer opens it with the same options')
 	H.eq('... which went over the pipe', options_sent(), 'demuxer,demuxer-lavf-o,hls-bitrate,http-header-fields,start')
+	os.remove(private)
 end)

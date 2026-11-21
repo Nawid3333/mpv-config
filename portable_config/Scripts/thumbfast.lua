@@ -446,6 +446,9 @@ local function info(w, h)
 		-- Local change: a stream played from FastStream's playlist files is a network stream too. A thumbnail
 		-- would fetch it again, without the page's headers (doc/scripts.md).
 		or (fragment.target(properties['path']) and not options.network)
+		-- Local change: none for a private window's stream, which leaves no files behind (faststream-private.lua);
+		-- the frames go through a file in TEMP.
+		or fragment.value(properties['path'], 'fs-private=') == '1'
 		or (albumart and not options.audio)
 		or (image and not albumart)
 		or force_disabled
