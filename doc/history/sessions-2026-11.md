@@ -115,6 +115,6 @@ engineering log; `AGENTS.md` holds the current state and is read first).
   without a setup beside it ran the fetched setup through `powershell -Command`, which joins
   and splits its arguments again (`-InstallDir "C:\My mpv"`: "no positional parameter accepts
   mpv") and drops the setup's exit code (a failed install ended with 0). It now downloads the
-  setup to `%TEMP%\mpv-config-setup`, runs it with `-File` and removes the folder; the static
+  setup to a folder of its own in `%TEMP%`, runs it with `-File` and removes the folder; the static
   tier runs it against a stand-in setup fetched from a `file:` URL. `setup.ps1 -Zip` checks for
   `sync-config.ps1` beside it, as a fetched setup now has a folder too.

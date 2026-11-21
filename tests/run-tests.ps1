@@ -190,27 +190,32 @@ function Invoke-OneClickCheck([string]$t) {
     }
     # install.bat on its own (no setup beside it) fetches the setup and runs it as a file:
     # through -Command, a quoted folder with a space reached it in two pieces and its exit code
-    # was lost. A stand-in setup, fetched from a file: URL, says what reached it.
+    # was lost. A stand-in setup, fetched from a file: URL, says what reached it and fails the way
+    # setup.ps1 ends: it exits with its code only when run as the file setup.ps1, else returns it.
     $fetchDir = Join-Path $WorkDir 'bat-fetch'
     $null = New-Item -ItemType Directory -Force $fetchDir
     $standIn = Join-Path $fetchDir 'stand-in.ps1'
     Set-Content -LiteralPath $standIn -Encoding ascii -Value @(
         '[CmdletBinding()] param([string]$InstallDir, [switch]$Yes)',
-        'Write-Host "got [$InstallDir] $Yes $(Split-Path -Leaf $PSCommandPath)"',
-        'exit 1')
+        'Write-Host "got [$InstallDir] $Yes"',
+        'if ($PSCommandPath -and (Split-Path -Leaf $PSCommandPath) -eq ''setup.ps1'') { exit 1 }',
+        'return 1')
     $setupUrl = 'https://raw.githubusercontent.com/Nawid3333/mpv-config/main/installer/setup.ps1'
     $batText = [IO.File]::ReadAllText((Join-Path $RepoRoot 'install.bat'))
     $fetchBat = Join-Path $fetchDir 'install.bat'
     [IO.File]::WriteAllText($fetchBat, $batText.Replace($setupUrl, ([Uri]$standIn).AbsoluteUri))
-    $fetchOut = Join-Path $fetchDir 'out.txt'
-    $p = Start-Process cmd.exe -ArgumentList "/d /c `"`"$fetchBat`" -InstallDir `"C:\My mpv`" -Yes`"" -PassThru -WindowStyle Hidden `
-        -RedirectStandardInput $emptyIn -RedirectStandardOutput $fetchOut -RedirectStandardError (Join-Path $fetchDir 'err.txt')
-    $done = $p.WaitForExit(60000)
-    if (-not $done) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
-    $got = "$(Get-Content -LiteralPath $fetchOut -Raw)"
-    Test-Check $t 'install.bat on its own runs the fetched setup with its arguments whole and hands on its exit code' (
-        $batText.Contains($setupUrl) -and $done -and $p.ExitCode -eq 1 -and $got.Contains('got [C:\My mpv] True setup.ps1')) (
-        "exit $(if ($done) { $p.ExitCode } else { 'timeout' }): $(($got -replace '\s+', ' ').Trim())")
+    foreach ($case in @(@('-InstallDir "C:\My mpv" -Yes', 'got [C:\My mpv] True'), @('-Yes', 'got [] True'))) {
+        $batArgs, $expected = $case
+        $fetchOut = Join-Path $fetchDir 'out.txt'
+        $p = Start-Process cmd.exe -ArgumentList "/d /c `"`"$fetchBat`" $batArgs`"" -PassThru -WindowStyle Hidden `
+            -RedirectStandardInput $emptyIn -RedirectStandardOutput $fetchOut -RedirectStandardError (Join-Path $fetchDir 'err.txt')
+        $done = $p.WaitForExit(60000)
+        if (-not $done) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+        $got = "$(Get-Content -LiteralPath $fetchOut -Raw)"
+        Test-Check $t "install.bat on its own runs the fetched setup with $batArgs whole, and fails when it fails" (
+            $batText.Contains($setupUrl) -and $done -and $p.ExitCode -eq 1 -and $got.Contains($expected)) (
+            "exit $(if ($done) { $p.ExitCode } else { 'timeout' }): $(($got -replace '\s+', ' ').Trim())")
+    }
     # update.ps1 in a folder INSIDE another repository (glm's review, 2026-10-12): git says
     # "inside a work tree" there too, and git pull ran in the outer repository. -ConfigOnly:
     # step 1 only. The control: the repository's own top does pull (no remote: it fails).

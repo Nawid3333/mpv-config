@@ -10,7 +10,7 @@
 :: a batch file line by line, by byte offset (see updater.bat): everything from
 :: the setup on is ONE block, and a failure goes to the label :failed.
 setlocal
-set "fetched=%TEMP%\mpv-config-setup"
+set "fetched=%TEMP%\mpv-config-setup-%RANDOM%%RANDOM%"
 (
     if exist "%~dp0installer\setup.ps1" (
         powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0installer\setup.ps1" %*

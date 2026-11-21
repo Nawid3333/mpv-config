@@ -121,7 +121,7 @@ two files run only when they match the release's `native-host.sha256`, node.exe 
 signed by the OpenJS Foundation (`install-faststream.ps1`).
 Installer scripts are plain ASCII and run native programs through `Invoke-Native`
 (Windows PowerShell 5.1 turns a redirected stderr line into a terminating error).
-`install.bat` on its own downloads `setup.ps1` to `%TEMP%\mpv-config-setup` and runs it with `-File`:
+`install.bat` on its own downloads `setup.ps1` to a folder of its own in `%TEMP%` and runs it with `-File`:
 through `-Command` a quoted folder with a space reached it in two pieces and its exit code was lost.
 
 **Opening files** (`mpv-single.exe`, built from `mpv-single.cs` - rebuild and commit both,
