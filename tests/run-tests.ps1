@@ -974,6 +974,7 @@ function Invoke-StaticCheck {
     # (doc/scripts.md, thumbfast.lua).
     Test-Check $t 'thumbfast local change present: a stream goes to the thumbnailer over a pipe of its own' (
         $thumbfastLua.Contains('local function stream_load(path, time)') -and
+        $thumbfastLua.Contains("opts.vid = 'auto'") -and $thumbfastLua.Contains("(prop == 'vid' and own_variant)") -and
         $thumbfastLua.Contains("table.insert(args, '--input-ipc-server=' .. pipe_name)") -and
         $thumbfastLua.Contains("file = io.open('\\\\.\\pipe\\' .. pipe_name, 'r+b')") -and
         $thumbfastLua -match 'if not load then\s+table\.insert\(args, ''--''\)') 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'

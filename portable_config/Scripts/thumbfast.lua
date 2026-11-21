@@ -501,12 +501,21 @@ local send_when_open
 -- changed) may hold its pipe a while, and the load must reach the new one.
 local pipe_name = options.socket
 local stream_spawns = 0
+-- An HLS stream's qualities are its video tracks, and --vid names this mpv's: the thumbnailer picks its own, the
+-- lowest (vid=auto, hls-bitrate=min), and this mpv's track changes are not passed on (sync_changes).
+local own_variant = false
 
 local function stream_load(path, time)
+	own_variant = false
 	if os_name ~= 'windows' or not (properties['demuxer-via-network'] or fragment.target(properties['path'])) then
 		return nil
 	end
-	local opts = { start = tostring(time), ['hls-bitrate'] = 'min' }
+	local opts = { start = tostring(time) }
+	if mp.get_property('file-format') == 'hls' then
+		own_variant = true
+		opts['hls-bitrate'] = 'min'
+		opts.vid = 'auto'
+	end
 	local fields = {}
 	for _, field in ipairs(mp.get_property_native('http-header-fields') or {}) do
 		-- As FastStream's helper writes them: a comma escaped; one ending in a backslash would swallow the next.
@@ -1191,7 +1200,8 @@ local function sync_changes(prop, val)
 		has_vid = 1
 	end
 
-	if not spawned then
+	-- Local change: own_variant (stream_load).
+	if not spawned or (prop == 'vid' and own_variant) then
 		return
 	end
 

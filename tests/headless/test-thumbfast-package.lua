@@ -46,7 +46,7 @@ end
 H.run(function()
 	H.expect('a helper playlist: thumbnails', state, 'on', nil, 5)
 	thumbnail('... the thumbnailer opens it from its pipe')
-	H.eq('... with the lowest HLS bitrate, at the time hovered', options_sent(), 'hls-bitrate,start')
+	H.eq('... its own HLS variant, the lowest, at the time hovered', options_sent(), 'hls-bitrate,start,vid')
 
 	mp.del_property('user-data/thumbfast/stream-options')
 	last = nil
@@ -93,6 +93,10 @@ H.run(function()
 	H.check('the helper playlist with its options', restarted(15))
 	H.expect('... thumbnails', state, 'on', nil, 5)
 	thumbnail('... the thumbnailer opens it with the same options')
-	H.eq('... which went over the pipe', options_sent(), 'demuxer,demuxer-lavf-o,hls-bitrate,http-header-fields,start')
+	H.eq(
+		'... which went over the pipe',
+		options_sent(),
+		'demuxer,demuxer-lavf-o,hls-bitrate,http-header-fields,start,vid'
+	)
 	os.remove(private)
 end)
