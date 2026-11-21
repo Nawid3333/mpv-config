@@ -123,9 +123,10 @@ H.run(function()
 	for _, key in ipairs({ 'n', 'N', 'P', 'NEXT', 'PREV' }) do
 		H.key(key)
 	end
-	H.expect('n, Shift+N and media Next send faststream-next; Shift+P and media Previous -previous', function()
+	-- No letter key: n, Shift+N and Shift+P send nothing (the owner uses the media keys).
+	H.expect('only the media keys send faststream-next and -previous, no letter key', function()
 		return table.concat(heard, ' ')
-	end, 'next next previous next previous')
+	end, 'next previous')
 
 	-- The basic keys input.conf binds itself, mpv's own being off. (The quit keys and the
 	-- window's close button would end this test: the static tier checks their lines.)

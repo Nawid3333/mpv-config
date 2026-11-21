@@ -76,14 +76,12 @@ H.run(function()
 	-- as FastStream's own notices; autoplay is FastStream's alone
 	local why = ' / only for videos FastStream sends to mpv / playlist_play'
 	local last = 'Next episode / this is the last file of its folder / playlist_play'
-	H.key('n')
-	H.expect('n, a local file, the last of its folder: says so', fs_card, last)
+	H.key('NEXT')
+	H.expect('media Next, a local file, the last of its folder: says so', fs_card, last)
 	mp.commandv('script-message-to', 'notify', 'hide', 'faststream')
-	H.key('N')
-	H.expect('Shift+N: the same', fs_card, last)
-	H.key('P')
+	H.key('PREV')
 	H.expect(
-		'Shift+P, the first of its folder: says so',
+		'media Previous, the first of its folder: says so',
 		fs_card,
 		'Previous episode / this is the first file of its folder / playlist_play'
 	)
@@ -96,8 +94,8 @@ H.run(function()
 		return mp.get_property_number('playlist-pos')
 	end
 	mp.commandv('loadfile', H.media_path('second/clip2.mkv'), 'append')
-	H.key('N')
-	H.expect('Shift+N, a local file with a next one: plays it', position, 1)
+	H.key('NEXT')
+	H.expect('media Next, a local file with a next one: plays it', position, 1)
 	H.key('PREV')
 	H.expect('the media key Previous: back to the first', position, 0)
 	H.key('NEXT')
@@ -212,8 +210,8 @@ H.run(function()
 	H.expect('the heartbeat stood still past its limit: hidden', visibility, 'hidden', nil, 4)
 	-- a video FastStream sent: not "only for videos FastStream sends", but that it is gone
 	local gone = ' / FastStream is not connected to this window / playlist_play'
-	H.key('n')
-	H.expect('n to a helper that stopped beating: says why', fs_card, 'Next episode' .. gone)
+	H.key('NEXT')
+	H.expect('media Next to a helper that stopped beating: says why', fs_card, 'Next episode' .. gone)
 	mp.commandv('script-message-to', 'notify', 'hide', 'faststream')
 	H.key('Ctrl+a')
 	H.expect('Ctrl+a, the same', fs_card, 'Autoplay' .. gone)
