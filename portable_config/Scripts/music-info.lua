@@ -511,9 +511,10 @@ mp.observe_property('user-data/uosc/bottom-ui', 'native', function(_, value)
 		draw()
 	end
 end)
--- The queue's card: the panel redraws on every music-info change, so only a new size may redraw here (no loop).
-mp.observe_property('user-data/queue-panel/card', 'native', function(_, value)
-	local new = type(value) == 'table' and value or nil
+-- The queue's card: the panel redraws on every music-info change, so only a new size may redraw here (no loop). The
+-- whole table is observed: a card gone is a key gone from it, and that must reach here too.
+mp.observe_property('user-data/queue-panel', 'native', function(_, value)
+	local new = type(value) == 'table' and type(value.card) == 'table' and value.card or nil
 	local same = (new and new.w) == (card and card.w) and (new and new.h) == (card and card.h)
 	card = new
 	if not same and song then

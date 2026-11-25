@@ -147,6 +147,14 @@ engineering log; `AGENTS.md` holds the current state and is read first).
   card's size, the seek a third in took effect (the frame differs from a run without it), a cover came square and a
   song without one wrote its tags only. `--aid=no` had hidden the audio track from `current-tracks` (every song read
   as no song): `track-list` is read instead.
+- On CI the frame came (`ready`) but was never counted as shown: overlay-add has no result, so `mp.command_native`
+  gives nil on success too and only an error means failure (glm's review named it as well, with what it would have
+  done: a hidden card leaving its frame on screen). glm also had music-info observe the card's own key, which a
+  publish without it may not reach (not established either way; the whole table is observed now). Its third
+  finding (`playlist()` never returning the current entry) did not hold.
+- The GPU flag named probe.lua's `vf`: it runs only in the hidden encode-mode mpv, never in the player. The owner
+  chose to exempt that file (`$NoGpuScript` in gpu-flag.ps1, three static cases: that file, the same line in a
+  player script, a file renamed onto it).
 - TODO.md is gone; AGENTS.md's open items are none again.
 
 ## 2026-11-21/22: install.bat on its own

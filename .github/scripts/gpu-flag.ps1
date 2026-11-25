@@ -31,6 +31,9 @@ $GpuFile = [ordered]@{
     '^portable_config/Scripts/shader-cache/'     = 'shader cache'
     '^tests/gpu/'                                = 'gpu tests'
 }
+# Scripts that run only in a hidden mpv in encoding mode (--o: no video output, no GPU), never
+# in the player: an option they set (the Up next card's picture scaled with vf) is that mpv's.
+$NoGpuScript = '^portable_config/Scripts/queue/probe\.lua$'
 
 # The video output paths in mpv's source, by the area named in the title.
 $MpvArea = [ordered]@{
@@ -83,6 +86,9 @@ function Get-GpuReason {
         $area = $GpuFile.Keys | Where-Object { $k = $_; $names | Where-Object { $_ -match $k } } | Select-Object -First 1
         if ($area) {
             & $add $GpuFile[$area] $name
+            continue
+        }
+        if (-not @($names | Where-Object { $_ -notmatch $NoGpuScript }).Count) {
             continue
         }
         # GitHub sends no patch for a diff too large to show: its lines cannot be read. A file

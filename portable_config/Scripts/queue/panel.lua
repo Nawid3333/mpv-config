@@ -281,8 +281,9 @@ return function(actions)
 		if overlay and overlay.file == picture.file and overlay.x == picture.x and overlay.y == picture.y then
 			return
 		end
-		-- named: the manual does not guarantee overlay-add's argument order
-		local done, err = mp.command_native({
+		-- named: the manual does not guarantee overlay-add's argument order. It has no result: only an error says it
+		-- failed (a nil first value is no failure)
+		local _, err = mp.command_native({
 			name = 'overlay-add',
 			id = OVERLAY_ID,
 			x = picture.x,
@@ -294,7 +295,7 @@ return function(actions)
 			h = picture.h,
 			stride = 4 * picture.w,
 		})
-		overlay = done ~= nil and picture or nil
+		overlay = err == nil and picture or nil
 		if not overlay and picture_state then
 			picture_state.why = 'overlay-add: ' .. tostring(err)
 		end

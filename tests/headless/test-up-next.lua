@@ -200,6 +200,18 @@ H.run(function()
 	H.check("music-info's own Up next line goes", not column:find('Up next', 1, true), column)
 	H.check('... its format and playlist lines stay', column:find('Playlist 1 / 2', 1, true) ~= nil, column)
 	H.eq('... its data still names what comes next', music().next, 'Nova Lane – Paper Lanterns')
+	-- nothing next any more: music-info gives the card's place back
+	mp.commandv('playlist-remove', '1')
+	H.expect('nothing next: no card', function()
+		return panel().card == nil and not panel().shown
+	end, true)
+	H.expect("... and music-info's panel keeps no place for it", function()
+		return music().slot == nil
+	end, true)
+	mp.commandv('loadfile', song, 'append')
+	H.expect('a next song again: its place is back', function()
+		return music().slot ~= nil and panel().place
+	end, 'slot', nil, 5)
 	bar(false)
 	H.expect('the bar hidden: the panel and the card go', shown, false, nil, 5)
 	H.eq('... and its cover', panel().picture, nil)
