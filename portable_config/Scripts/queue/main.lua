@@ -3,7 +3,9 @@
 -- that plays, in mpv's own playlist, in the order it came (the panel can change it). Before each one a countdown
 -- runs, as FastStream's autoplay counts down before the next episode; Space stops it. A replace of what plays (Play
 -- here, the next episode, a file dropped in) keeps the queue: it is put back behind the new entry. The panel bottom
--- right (panel.lua) shows it. Only what was queued counts: autoload's folder files are no queue.
+-- right (panel.lua) shows it. Only what was queued counts: autoload's folder files are no queue. Its card shows what
+-- comes next even without a queue: the playlist's next entry, when that is a local file (a folder's next episode, the
+-- next song).
 
 local mp = require('mp')
 local utils = require('mp.utils')
@@ -41,21 +43,27 @@ local countdown -- {timer, total, left, item}
 local stopped_at -- the playlist-pos whose end the user stopped the countdown at
 local panel -- (below) panel.lua's handle
 local last_added -- {id, at}: the panel marks it for a moment
+local shown_next -- what the card showed last as next: {id, path}
+
+local upcoming -- (below)
 
 local function publish()
 	local list = {}
 	for i, item in ipairs(items) do
 		list[i] = { id = item.id, title = item.title, detail = item.detail, kind = item.kind }
 	end
+	local up = upcoming()
+	shown_next = up and { id = up.id, path = up.path } or nil
 	mp.set_property_native(STATE, {
 		count = #items,
 		items = list,
 		countdown = countdown and { seconds = countdown.total, left = countdown.left, id = countdown.item.id } or nil,
 		added = last_added and last_added.id or nil,
+		next = up and { id = up.id, title = up.title, detail = up.detail, queued = up.queued, path = up.path } or nil,
 	})
 	mp.set_property_native(FASTSTREAM_STATE, { count = #items })
 	if panel then
-		panel.update(items, countdown, last_added)
+		panel.update(items, countdown, last_added, up)
 	end
 end
 
@@ -97,6 +105,50 @@ local function playlist()
 		end
 	end
 	return list, nil
+end
+
+--- A playlist entry's file when it is one on this PC (a path, or a file:// URL), else nil: a stream or a generated
+--- source is no file a picture can come from.
+---@param name string|nil
+---@return string|nil
+local function local_file(name)
+	if type(name) ~= 'string' or name == '' then
+		return nil
+	end
+	if name:match('^%a[%w+.-]*://') then
+		return name:match('^file://') and name or nil
+	end
+	return name
+end
+
+--- What comes next, for the card: the queue's first item, else the playlist's next entry when it is a local file (a
+--- stream next in the playlist is no queue, and FastStream's next episode comes from its tab, not the playlist).
+---@return table|nil {id, title, detail, path (a local file, for its picture), queued}
+upcoming = function()
+	local item = items[1]
+	if item then
+		return {
+			id = item.id,
+			title = item.title,
+			detail = item.detail,
+			path = item.kind == 'file' and local_file(item.url) or nil,
+			queued = true,
+		}
+	end
+	local list, current = playlist()
+	if not current then
+		return nil
+	end
+	local entry = list[current + 1]
+	if not entry and #list > 1 and mp.get_property('loop-playlist') ~= 'no' then
+		entry = list[1]
+	end
+	local path = entry and local_file(entry.filename)
+	if not path then
+		return nil
+	end
+	local name = path:gsub('^file://', '')
+	return { id = entry.id, title = entry.title or file_title(name), detail = folder_name(name), path = path }
 end
 
 ---@param list table[]
@@ -185,7 +237,11 @@ local at_end = false -- what plays stands at its end (eof-reached), as last seen
 local function sync()
 	local list, current = playlist()
 	if #list == 0 then
-		-- a replace passes through an empty playlist; idle with nothing is handled below (on_idle)
+		-- a replace passes through an empty playlist; idle with nothing is handled below (on_idle). The playlist's next
+		-- file is gone with it: the card must not stay up with it (the queue is kept for the replace)
+		if shown_next and #items == 0 then
+			publish()
+		end
 		return
 	end
 	local ids = {}
@@ -244,6 +300,12 @@ local function sync()
 	if changed then
 		publish()
 		follow_end()
+	else
+		-- the playlist's next entry changed (autoload added the folder, another entry plays): the card follows
+		local up = upcoming()
+		if (up and up.id) ~= (shown_next and shown_next.id) or (up and up.path) ~= (shown_next and shown_next.path) then
+			publish()
+		end
 	end
 end
 
@@ -399,6 +461,18 @@ local function move(id, to)
 	follow_end()
 end
 
+--- A click on the card of the playlist's next file (nothing queued): it plays now.
+local function play_upcoming()
+	local up = upcoming()
+	if not up or up.queued then
+		return
+	end
+	local at = index_of(playlist(), up.id)
+	if at then
+		mp.commandv('playlist-play-index', at - 1)
+	end
+end
+
 mp.register_script_message('play', play_now)
 mp.register_script_message('remove', remove)
 mp.register_script_message('clear', clear)
@@ -532,6 +606,9 @@ mp.register_event('start-file', function()
 end)
 
 mp.observe_property('playlist', 'native', sync)
+mp.observe_property('loop-playlist', 'native', function()
+	publish()
+end)
 
 -- Stopped with nothing left (the playlist cleared, stop): there is nothing to queue behind any more.
 mp.observe_property('idle-active', 'bool', function(_, idle)
@@ -549,6 +626,7 @@ panel = dofile(mp.get_script_directory() .. '/panel.lua')({
 	remove = remove,
 	clear = clear,
 	move = move,
+	next = play_upcoming,
 })
 
 publish()
