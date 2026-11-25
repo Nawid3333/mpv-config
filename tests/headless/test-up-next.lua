@@ -89,9 +89,16 @@ H.run(function()
 	H.eq('... says Up next', card_text('label')(), 'Up next')
 	H.eq('... names the next file', card_text('title')(), 'episode2')
 	H.expect('... its length and folder, once its hidden mpv read it', card_text('detail'), '0:10 · autoload', nil, 20)
-	H.expect('... and shows its frame', function()
-		return panel().picture ~= nil
-	end, true, nil, 20)
+	local framed = H.check(
+		'... and shows its frame',
+		H.wait_until(function()
+			return panel().picture ~= nil
+		end, 20),
+		utils.format_json(panel().picture_state or {})
+	)
+	if not framed then
+		return
+	end
 	local picture, box = panel().picture, panel().box
 	H.eq('... a 16:9 frame', picture.w / picture.h, 16 / 9, 0.1)
 	H.check(
@@ -181,10 +188,14 @@ H.run(function()
 	H.eq('... exactly there', edges(panel().box), edges(slot))
 	H.expect("... the next song's title from its tags", card_text('title'), 'Paper Lanterns', nil, 20)
 	H.eq('... artist and album', card_text('detail')(), 'Nova Lane feat. Test Artist · Night Signals')
-	H.expect('... and its cover', function()
-		local p = panel().picture
-		return p ~= nil and p.w == p.h
-	end, true, nil, 20)
+	H.check(
+		'... and its cover',
+		H.wait_until(function()
+			local p = panel().picture
+			return p ~= nil and p.w == p.h
+		end, 20),
+		utils.format_json({ picture = panel().picture, state = panel().picture_state })
+	)
 	local column = table.concat(music().column or {}, ' | ')
 	H.check("music-info's own Up next line goes", not column:find('Up next', 1, true), column)
 	H.check('... its format and playlist lines stay', column:find('Playlist 1 / 2', 1, true) ~= nil, column)

@@ -16,6 +16,7 @@ local WINDOWS = package.config:sub(1, 1) == '\\'
 ---@field w integer|nil
 ---@field h integer|nil
 ---@field info table probe.lua's tags: title, artist, album, duration, audio, cover
+---@field why string|nil why there is no picture (for the tests' log)
 
 ---@param script_dir string
 return function(script_dir)
@@ -53,7 +54,7 @@ return function(script_dir)
 
 	local start -- (below)
 
-	local function finish(run, ok)
+	local function finish(run, ok, why)
 		if running ~= run then
 			return
 		end
@@ -72,7 +73,11 @@ return function(script_dir)
 			keep(run.key, { state = 'ready', file = run.bgra, w = w, h = h, info = info })
 		else
 			os.remove(run.bgra)
-			keep(run.key, { state = 'none', info = info })
+			if not why then
+				why = not (w and h) and 'no picture'
+					or string.format('%s bytes, not %dx%dx4', stat and stat.size or 'no', w, h)
+			end
+			keep(run.key, { state = 'none', info = info, why = why })
 		end
 		on_change()
 		if wanted then
@@ -132,9 +137,16 @@ return function(script_dir)
 			playback_only = false,
 			capture_stdout = true,
 			capture_stderr = true,
-		}, function(success, result)
+		}, function(success, result, err)
 			-- probe.lua's quit 3 (no picture) is no failure: the size check below tells
-			finish(run, success and type(result) == 'table' and not result.killed_by_us)
+			local killed = type(result) == 'table' and result.killed_by_us
+			finish(
+				run,
+				success and type(result) == 'table' and not killed,
+				(not success and 'subprocess: ' .. tostring(err))
+					or (killed and 'stopped after ' .. TIMEOUT_SECONDS .. ' s')
+					or nil
+			)
 		end)
 		run.timer = mp.add_timeout(TIMEOUT_SECONDS, function()
 			if running == run then

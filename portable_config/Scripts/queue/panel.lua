@@ -50,6 +50,7 @@ return function(actions)
 	local overlay -- the picture overlay-add shows: {file, x, y, w, h}
 	local card_picture -- the picture the card drawn last wants shown
 	local card_text -- what the card drawn last says, for the tests
+	local picture_state -- the card's picture as picture.lua has it, and why there is none (for the tests' log)
 	local bottom -- user-data/uosc/bottom-ui
 	local scale = 1
 	local expanded, over = false, false
@@ -221,6 +222,7 @@ return function(actions)
 		end
 		local result = item.path and pictures.get(item.path, px(PIC_W), px(PIC_H)) or nil
 		local info = result and result.info or {}
+		picture_state = result and { state = result.state, why = result.why } or nil
 		-- a song: sound with a cover, or sound only
 		local song = info.audio and (info.cover or not info.w)
 		local pic_x, pic_h = x0 + px(PIC_PAD), px(PIC_H)
@@ -228,12 +230,13 @@ return function(actions)
 		local pic_w
 		if result and result.state == 'ready' then
 			pic_w = result.w
+			-- overlay-add takes whole pixels; uosc's edges can be fractions
 			card_picture = {
 				file = result.file,
-				x = pic_x,
-				y = pic_y + math.floor((pic_h - result.h) / 2),
-				w = result.w,
-				h = result.h,
+				x = math.floor(pic_x + 0.5),
+				y = math.floor(pic_y + (pic_h - result.h) / 2 + 0.5),
+				w = math.floor(result.w),
+				h = math.floor(result.h),
 			}
 		else
 			pic_w = pic_h
@@ -278,19 +281,23 @@ return function(actions)
 		if overlay and overlay.file == picture.file and overlay.x == picture.x and overlay.y == picture.y then
 			return
 		end
-		local done = mp.command_native({
-			'overlay-add',
-			OVERLAY_ID,
-			picture.x,
-			picture.y,
-			picture.file,
-			0,
-			'bgra',
-			picture.w,
-			picture.h,
-			4 * picture.w,
+		-- named: the manual does not guarantee overlay-add's argument order
+		local done, err = mp.command_native({
+			name = 'overlay-add',
+			id = OVERLAY_ID,
+			x = picture.x,
+			y = picture.y,
+			file = picture.file,
+			offset = 0,
+			fmt = 'bgra',
+			w = picture.w,
+			h = picture.h,
+			stride = 4 * picture.w,
 		})
 		overlay = done ~= nil and picture or nil
+		if not overlay and picture_state then
+			picture_state.why = 'overlay-add: ' .. tostring(err)
+		end
 	end
 
 	local function hide_picture()
@@ -430,7 +437,7 @@ return function(actions)
 		local fade, slot = current_fade()
 		-- the card's size, for music-info.lua's place in its panel
 		local card = upcoming and { w = px(CARD_W), h = px(CARD_H) } or nil
-		card_picture, card_text = nil, nil
+		card_picture, card_text, picture_state = nil, nil, nil
 		if not f or fade <= 0 or not upcoming then
 			canvas:remove()
 			hide_picture()
@@ -481,6 +488,7 @@ return function(actions)
 			card = card,
 			text = card_text,
 			picture = overlay and { x = overlay.x, y = overlay.y, w = overlay.w, h = overlay.h } or nil,
+			picture_state = picture_state,
 		})
 	end
 	pictures.on_change(function()
