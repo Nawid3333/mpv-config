@@ -268,14 +268,15 @@ return function(actions)
 				end
 				events[#events + 1] =
 					text(tx, ry + px(19), fs(DETAIL), is_new and ACCENT or DETAIL_COLOR, detail, fade, cut)
+				-- hit_at looks from the last box back: the x, inside its row, comes after it
+				hits[#hits + 1] =
+					{ x0 = x0, y0 = ry, x1 = f.right, y1 = ry + row_h, what = 'row', id = item.id, index = i }
 				if hovered then
 					local bx, by = f.right - pad - px(5) - xw, ry + (row_h - xw) / 2
 					events[#events + 1] = rect(bx, by, xw, xw, '2E2E2E', '00', px(4), fade)
 					events[#events + 1] = icon(bx + xw / 2, by + xw / 2, px(13), 'close', TITLE_COLOR, fade)
 					hits[#hits + 1] = { x0 = bx, y0 = by, x1 = bx + xw, y1 = by + xw, what = 'remove', id = item.id }
 				end
-				hits[#hits + 1] =
-					{ x0 = x0, y0 = ry, x1 = f.right, y1 = ry + row_h, what = 'row', id = item.id, index = i }
 			end
 		end
 		if dragging then
