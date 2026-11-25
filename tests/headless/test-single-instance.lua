@@ -9,7 +9,7 @@
 local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$') .. 'lib/harness.lua')
 
 local LAUNCHER = H.root .. '/no-such-launcher.exe'
-local IDS = { here = 'single-instance', window = 'single-instance-window' }
+local IDS = { here = 'single-instance', queue = 'single-instance-queue', window = 'single-instance-window' }
 
 -- mpv reports a local path with \ (Windows): compare paths that way
 local function norm(p)
@@ -280,4 +280,45 @@ H.run(function()
 	H.check('a file handed over near the end of what plays: an offer', H.wait_until(offer, 2))
 	H.expect('... and once that ends, the offered file plays here', path, norm(new), nil, 6)
 	H.check('... with the offer done', offer() == nil)
+
+	-- "Add to queue": the offered file waits behind what plays (queue/main.lua); one opened with it joins it
+	local function queued()
+		return (mp.get_property_native('user-data/queue') or {}).count
+	end
+	H.load(before)
+	mp.commandv('seek', '3', 'absolute', 'exact')
+	H.wait_until(function()
+		return #((mp.get_property_native('user-data/notify') or {}).cards or {}) == 0
+	end, 6)
+	open('replace', new)
+	H.check(
+		'a file handed over while another plays: the queue banner too',
+		H.wait_until(function()
+			local q = banner('queue')
+			return q ~= nil and q.box ~= nil and drawn()
+		end, 5)
+	)
+	H.eq(
+		'... with its texts',
+		banner('queue').title .. ' | ' .. banner('queue').detail,
+		'Add to queue | Plays after clip2.mkv'
+	)
+	H.check(
+		'... between "Play here" and "Play in a new window"',
+		banner('here').box.y < banner('queue').box.y and banner('queue').box.y < banner('window').box.y
+	)
+	click_at(middle('queue'))
+	H.expect('"Add to queue" queues the file', queued, 1)
+	H.check(
+		'... the banners go',
+		H.wait_until(function()
+			return banner('here') == nil and banner('queue') == nil and banner('window') == nil
+		end, 3)
+	)
+	plays_on('... what plays plays on', before)
+	open('append', after)
+	H.expect('... a file opened with it joins the queue', queued, 2)
+	H.eq('... both right behind what plays', norm(playlist()), norm(before .. ' | ' .. new .. ' | ' .. after))
+	mp.commandv('script-message-to', 'queue', 'clear')
+	H.expect('... (the queue cleared again)', queued, 0)
 end)

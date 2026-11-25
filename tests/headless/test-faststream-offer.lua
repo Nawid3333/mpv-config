@@ -6,7 +6,7 @@
 -- boxes, the clicks' targets.
 local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$') .. 'lib/harness.lua')
 
-local IDS = { here = 'faststream-here', window = 'faststream-window' }
+local IDS = { here = 'faststream-here', queue = 'faststream-queue', window = 'faststream-window' }
 
 -- what the helper's IPC client would hear: the script's answers, and input.conf's click on the video
 local answers, answered_at = {}, nil
@@ -59,7 +59,7 @@ local function drawn()
 end
 
 local function gone()
-	return banner('here') == nil and banner('window') == nil
+	return banner('here') == nil and banner('window') == nil and banner('queue') == nil
 end
 
 local function offer(id, seconds, here_title, here_detail, window_title, window_detail)
@@ -350,6 +350,60 @@ H.run(function()
 	H.eq('through it all nothing was loaded', starts - starts_then, 0)
 	H.eq('... the playlist as it was', mp.get_property_number('playlist-count'), 1)
 	plays_on('... and what plays plays on')
+
+	-- the queue's banner, from an extension that offers it (two texts more): here, queue, window, top to bottom
+	answers = {}
+	mp.commandv(
+		'script-message',
+		'faststream-offer',
+		'q1',
+		'10',
+		'Play here',
+		'Episode 2, in place of Episode 1',
+		'Play in a new window',
+		'Episode 1 plays on',
+		'Add to queue',
+		'plays after Episode 1'
+	)
+	H.check(
+		'an offer with the queue shows three banners',
+		H.wait_until(function()
+			local b = shown()
+			return b.here and b.here.box and b.queue and b.queue.box and b.window and b.window.box and true or false
+		end, 5)
+	)
+	H.eq(
+		'... "Add to queue" with its texts as given',
+		banner('queue').title .. ' | ' .. banner('queue').detail,
+		'Add to queue | plays after Episode 1'
+	)
+	H.eq('... with the queue icon', banner('queue').icon, 'playlist_add')
+	H.check(
+		'... between "Play here" and "Play in a new window"',
+		banner('here').box.y < banner('queue').box.y and banner('queue').box.y < banner('window').box.y
+	)
+	H.check(
+		'... smaller than a plain banner (three fit above the volume slider)',
+		banner('queue').box.h
+			< 40
+				* ((mp.get_property_native('user-data/notify') or {}).size or 1.35)
+				* (mp.get_property_number('user-data/uosc/ui-scale') or 1)
+	)
+	H.eq('... the offer is published with it', state().queue, true)
+	click_at(middle('queue'))
+	H.expect('"Add to queue" answers queue', heard, 'q1 queue')
+	H.check('... all three banners go', H.wait_until(gone, 3))
+	plays_on('... and nothing is loaded here: the extension sends the stream to the queue')
+
+	-- an older extension's offer (no queue texts): the two banners as before
+	answers = {}
+	offer('q2', '10')
+	H.check('an offer without the queue texts', H.wait_until(drawn, 5))
+	H.sleep(0.3)
+	H.eq('... shows no queue banner', banner('queue'), nil)
+	H.eq('... and publishes none', state().queue, false)
+	cancel('q2')
+	H.check('... cancelled', H.wait_until(gone, 3))
 
 	-- what plays comes to its end while the banners ask: nothing to lose any more, so the answer is here
 	answers = {}

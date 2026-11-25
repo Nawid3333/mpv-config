@@ -2609,6 +2609,8 @@ $HeadlessTests = @(
     }
     # FastStream's offer on the same surface; a long clip plays on under the banners
     @{ Name = 'faststream-offer'; Phases = @(@{ Script = 'headless/test-faststream-offer.lua'; File = 'long/long.mkv'; Args = $RealOsd + @('--vf=fps=2') }) }
+    # the queue behind what plays and its panel bottom right, on the same surface (the panel's boxes are the targets)
+    @{ Name = 'queue'; Phases = @(@{ Script = 'headless/test-queue.lua'; File = $RealOsdClip; Args = $RealOsd + @('--vf=fps=2') }) }
     @{ Name = 'bottom-bar'; Phases = @(@{ Script = 'headless/test-bottom-bar.lua'; File = 'subs/movie.mkv' }) }
     @{ Name = 'video-info'; Phases = @(@{ Script = 'headless/test-video-info.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'source-info'; Phases = @(@{ Script = 'headless/test-source-info.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=source_info-launch=no') }) }
