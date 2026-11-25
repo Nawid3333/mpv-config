@@ -177,7 +177,8 @@ local function insert(item, index)
 	return item.id ~= nil
 end
 
-local cancel_countdown -- (below)
+local cancel_countdown, follow_end -- (below)
+local at_end = false -- what plays stands at its end (eof-reached), as last seen
 
 --- Follows mpv's playlist: an item that plays now leaves the queue, one the user removed (uosc's playlist) too, and a
 --- replace of what plays (every entry gone, a new one current) is undone for the queue: its items go back behind it.
@@ -241,10 +242,8 @@ local function sync()
 	pin()
 	update_keep_open()
 	if changed then
-		if countdown and (not items[1] or countdown.item ~= items[1]) then
-			cancel_countdown(false)
-		end
 		publish()
+		follow_end()
 	end
 end
 
@@ -280,6 +279,7 @@ local function add(item)
 	pin()
 	update_keep_open()
 	publish()
+	follow_end()
 	return true
 end
 
@@ -341,6 +341,8 @@ local function play_now(id)
 	pin()
 	local _, current = playlist()
 	cancel_countdown(false)
+	-- the next file starts: no countdown for this end any more, whatever the playlist observer sees first
+	at_end = false
 	if current then
 		mp.commandv('playlist-play-index', current) -- 0-based: the entry right behind the current one
 	end
@@ -360,6 +362,7 @@ local function remove(id)
 	end
 	update_keep_open()
 	publish()
+	follow_end()
 end
 
 local function clear()
@@ -392,10 +395,8 @@ local function move(id, to)
 	table.remove(items, i)
 	table.insert(items, to, item)
 	pin()
-	if countdown and countdown.item ~= items[1] then
-		cancel_countdown(false)
-	end
 	publish()
+	follow_end()
 end
 
 mp.register_script_message('play', play_now)
@@ -485,13 +486,33 @@ local function start_countdown()
 	publish()
 end
 
+--- After the queue or the end changed: at the end of what plays (not the end the user stopped it at) the countdown is
+--- for the queue's first item, its time left kept when that item changed (moved, removed); with nothing queued, none.
+--- The end is an edge: an item queued, moved or removed while mpv already stands there counts down from here.
+follow_end = function()
+	if #items == 0 then
+		cancel_countdown(false)
+		return
+	end
+	if countdown then
+		if countdown.item ~= items[1] then
+			countdown.item = items[1]
+			show_countdown()
+			publish()
+		end
+		return
+	end
+	if at_end and stopped_at ~= mp.get_property_number('playlist-pos') then
+		start_countdown()
+	end
+end
+
 -- The end of what plays, held by keep-open=always while something is queued: the countdown starts. Not again at the
 -- end the user stopped it at; leaving the end (a seek back) ends it without a word.
 mp.observe_property('eof-reached', 'bool', function(_, ended)
-	if ended then
-		if #items > 0 and stopped_at ~= mp.get_property_number('playlist-pos') then
-			start_countdown()
-		end
+	at_end = ended == true
+	if at_end then
+		follow_end()
 	else
 		cancel_countdown(false)
 	end
@@ -506,6 +527,7 @@ end)
 
 mp.register_event('start-file', function()
 	stopped_at = nil
+	at_end = false
 	cancel_countdown(false)
 end)
 
