@@ -473,6 +473,12 @@ local function play_upcoming()
 	end
 end
 
+-- The media key Next (faststream-episodes.lua): the first one now, before any countdown ends.
+mp.register_script_message('play-next', function()
+	if items[1] then
+		play_now(items[1].id)
+	end
+end)
 mp.register_script_message('play', play_now)
 mp.register_script_message('remove', remove)
 mp.register_script_message('clear', clear)

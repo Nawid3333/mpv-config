@@ -230,13 +230,17 @@ H.run(function()
 	local function heard_now()
 		return table.concat(heard, ' ')
 	end
+	-- mpv gives a local path with Windows' backslashes
+	local function slashed(path)
+		return ((path or ''):gsub('\\', '/'))
+	end
 	local function playing()
-		return mp.get_property('path')
+		return slashed(mp.get_property('path'))
 	end
 	local function waiting()
 		return mp.get_property_number('user-data/queue/count')
 	end
-	local queued = H.media_path('second/clip2.mkv')
+	local queued = slashed(H.media_path('second/clip2.mkv'))
 	mp.set_property_native('user-data/faststream/autoplay', true)
 	mp.commandv('script-message-to', 'queue', 'add-files', queued)
 	H.expect('a file queued behind the FastStream stream', waiting, 1)
@@ -266,7 +270,7 @@ H.run(function()
 	H.expect("the bar's Next episode button: the next episode, autoplay off and a queue or not", heard_now, 'next')
 	H.sleep(0.3)
 	H.eq('... the queued file waits on', waiting(), 1)
-	H.eq('... what plays plays on', playing(), H.media_path(FS_MOVIE))
+	H.eq('... what plays plays on', playing(), slashed(H.media_path(FS_MOVIE)))
 	mp.commandv('script-message-to', 'queue', 'clear')
 	H.expect('(queue cleared)', waiting, 0)
 	heard = {}
