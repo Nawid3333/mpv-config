@@ -140,18 +140,26 @@ local function pin()
 	end
 end
 
+--- loadfile for an item. Its options only when it has some: mpv takes an empty Lua table for an array, which loadfile's
+--- key-value options refuse, and the whole command fails.
+---@param item QueueItem
+---@param flags string
+---@param index integer|nil
+---@return any nil when it failed
+local function loadfile(item, flags, index)
+	local command = { name = 'loadfile', url = item.url, flags = flags, index = index }
+	if item.options and next(item.options) ~= nil then
+		command.options = item.options
+	end
+	return mp.command_native(command)
+end
+
 --- Loads an item into the playlist at a 0-based index and takes its new entry id.
 ---@param item QueueItem
 ---@param index integer
 ---@return boolean
 local function insert(item, index)
-	local ok = mp.command_native({
-		name = 'loadfile',
-		url = item.url,
-		flags = 'insert-at',
-		index = index,
-		options = item.options or {},
-	})
+	local ok = loadfile(item, 'insert-at', index)
 	if ok == nil then
 		return false
 	end
@@ -249,7 +257,7 @@ local function add(item)
 	local index = (current or #list) + #items -- 0-based: behind the current entry and the queue
 	if not current and #list == 0 then
 		-- nothing loaded: it simply plays
-		mp.command_native({ name = 'loadfile', url = item.url, flags = 'replace', options = item.options or {} })
+		loadfile(item, 'replace')
 		return true
 	end
 	item.added = mp.get_time()
