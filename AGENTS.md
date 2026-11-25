@@ -155,7 +155,7 @@ playlist.
 | `stream-resume.lua` | resume FastStream streams by `fs-id` (`~~state/stream-resume.json`, 7 days) |
 | `faststream-private.lua` | removes a private window's temp files (helper 29+: `faststream-mpv-hls-p-*`, `faststream-mpv-subs-p-*`) once mpv moved on from the stream, idles or closes; a queued one's (helper 33 marks it `queued-<pid>`) once it left the playlist unplayed |
 | `faststream-episodes.lua` | previous/next episode and autoplay buttons while the helper follows the window |
-| `faststream-offer.lua` | FastStream's offer while a window plays: banners "Play here" / "Add to queue" (when the offer brings its texts and `queue/` runs) / "Play in a new window", smaller than other banners (`faststream-offer`, `faststream-offer-cancel`), the click answered as `faststream-choice`; loads and pauses nothing (the extension loads); marker `user-data/faststream/offer` |
+| `faststream-offer.lua` | FastStream's offer while a window plays: banners "Play here" / "Add to queue" (when the offer brings its texts and `queue/` runs) / "Play in a new window", smaller than other banners (`faststream-offer`, `faststream-offer-cancel`), the click answered as `faststream-choice` (no click: queue where its banner shows, else none); loads and pauses nothing (the extension loads); marker `user-data/faststream/offer` |
 | `queue/` | what waits behind what plays (`main.lua`): FastStream's "Add to queue" (`add-stream`) and Explorer's (`add-files`), right behind the current entry, put back after a `loadfile replace`; a countdown before each (FastStream's autoplay seconds; Space stops it); the "Up next" panel bottom right under the volume slider (`panel.lua`: a peek when something comes, with the UI, the list on hover: click plays, x removes, Clear, drag reorders); `user-data/queue`, `user-data/faststream/queue` |
 | `faststream-quality.lua` | the one Quality button and menu (uosc's own `stream-quality` is not in the bar): the page's files (`fs-quality=` fragment item, FastStream host 12+; loadfile from the same second, http(s) only), else the stream's own variants - mpv makes an HLS master's and YouTube's (ytdl_hook `all_formats`) editions, switched in place as a file-local `edition` (uosc's Editions button hides meanwhile), DASH's tracks (file-local `vid`); one row per height |
 | `source-info.lua` | the source button: stream URL, original URL, site page; copy/open |
@@ -165,7 +165,7 @@ playlist.
 | `subtitle-sync.lua` | `t`: the sync timeline (audio loudness + subtitle lines, drag to shift) |
 | `subtitle-toggle.lua`, `title-bar.lua` | `c` smart subtitles; black Windows title bar (DWM) |
 | `subtitle-cleanup.lua` | at each start, deletes the subtitles uosc downloaded for a stream (`~~/subtitles`, which mpv never loads again) once they are older than a week |
-| `single-instance.lua` | takes mpv-single.exe's hand-off (`open replace\|append`); while a file plays, a replace waits: banners "Play here" / "Add to queue" (with `queue/`) / "Play in a new window" (15 s; the window waits paused and minimized: launcher `--new-window --paused`; no click = nothing) |
+| `single-instance.lua` | takes mpv-single.exe's hand-off (`open replace\|append`); while a file plays, a replace waits: banners "Play here" / "Add to queue" (with `queue/`) / "Play in a new window" (15 s; the window waits paused and minimized: launcher `--new-window --paused`; no click = into the queue where its banner shows, else nothing) |
 | `uosc/`, `thumbfast.lua`, `autoload.lua` | vendored (uosc 5.13.0, current) |
 
 **uosc local changes**, marked `Local change` in its code, re-applied after every uosc
@@ -259,6 +259,9 @@ at startup was rejected as a visible race.
   what plays in the mpv window used last that plays a local file or nothing; a stream's
   window (FastStream, any URL) is never taken over. The second window is the banner's click
   or Ctrl - no ask-every-time dialog.
+- **An offer left alone goes to the queue** (the owner, 2026-11-25), FastStream's and Explorer's
+  alike, wherever the "Add to queue" banner shows: what comes while he watches waits behind it,
+  and its x in the Up next panel takes an accidental one out. Without the queue: nothing, as before.
 - **mpv's own keys are off** (`input-default-bindings=no`, the owner, 2026-10-22: only his
   keys, so he knows what each does): input.conf binds every key that works, the basics too
   (`CLOSE_WIN` = the window's X and Alt+F4, Ctrl+w / Ctrl+c, Ctrl+q quits and saves, f/Esc,
@@ -350,5 +353,5 @@ runs both on every push and pull request (lls pinned with its SHA-256 in lint-lu
 
 ## Open items
 
-None: the items the review of 2026-10-22 left are done (doc/history). A new open item or hand
-test starts a new `TODO.md`; finished work goes to doc/history.
+`TODO.md`: the Up next card's look (the owner's pick of a variant) and a "what's next" card for
+local files. A new open item or hand test goes there; finished work goes to doc/history.

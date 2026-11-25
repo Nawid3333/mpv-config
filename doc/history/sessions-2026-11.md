@@ -109,6 +109,31 @@ engineering log; `AGENTS.md` holds the current state and is read first).
   one guard for every script's banners; reviews by glm, Codex and the Claude API reviewer are
   in the pull requests.
 
+## 2026-11-25: "Add to queue" (#60)
+
+- The owner's wish: a stream FastStream sends while a window plays can wait behind what plays, as a playlist; the
+  same for files opened from Explorer. His decisions: the queue goes before FastStream's autoplay (no autoplay while
+  anything is queued; the queue's last item's end goes on with its tab's next episode); the same countdown as autoplay
+  before each item, Space stops it; private windows too; the panel shows only queued items (never autoload's folder
+  playlist: uosc's playlist button has those) and exists only while something is queued; click to play, x, Clear and
+  drag to reorder; an offer left alone goes to the queue.
+- Built as `Scripts/queue/` (main.lua the queue, panel.lua the Up next panel), a third offer banner in
+  faststream-offer.lua and single-instance.lua, compact offer banners (notify.lua, 0.85), and FastStream helper 33
+  (FastStream #846: the stream and its per-file options go to `script-message-to queue add-stream`).
+- Found on the way, each shown red first: a `loadfile` with `options = {}` fails (mpv's Lua takes an empty table for
+  an array: every Explorer file was refused); the x's hit box lay under its row's (hit_at looks from the last box
+  back); the queue put the global keep-open back over FastStream's file-local one; a click right after a move was
+  resolved where the mouse-pos observer last said (CI log: the click meant for one row removed another); a seek in
+  the test came while the next file loaded and was dropped. glm's review found three ways the queue stalled at an
+  end (only the eof-reached edge started the countdown: queued at an end, the first moved, the counted one removed;
+  `follow_end` now follows every change) and, in FastStream, autoplay never came back when the queue was emptied at
+  an end it held (`resumeHeldEnd`). Its two other findings (press and release swapped in
+  `set_key_bindings`, `choices.queue` a table) did not hold against mpv's code and CI.
+- notify-render failed once at its first check (`osd-dimensions` 0x0 under vo=sixel, read without a wait) and passed
+  in the next run: not changed here, not established as a race.
+- Open: the Up next card's look (four variants offered, his pick pending) and a "what's next" card for local files
+  (cover or frame): TODO.md.
+
 ## 2026-11-21/22: install.bat on its own
 
 - A review of the installer scripts (glm-5.3-flash) found, and a run confirmed: `install.bat`
