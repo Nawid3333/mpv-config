@@ -405,6 +405,32 @@ H.run(function()
 	cancel('q2')
 	H.check('... cancelled', H.wait_until(gone, 3))
 
+	-- left alone while the queue banner shows: the answer is queue (the owner, 2026-11-25: what comes while he watches
+	-- waits in the queue, and its x there takes it out again); without the queue banner it stays none (above)
+	answers = {}
+	mp.commandv(
+		'script-message',
+		'faststream-offer',
+		'q3',
+		'2',
+		'Play here',
+		'Episode 3, in place of Episode 1',
+		'Play in a new window',
+		'Episode 1 plays on',
+		'Add to queue',
+		'plays after Episode 1'
+	)
+	H.check(
+		'an offer with the queue, left alone',
+		H.wait_until(function()
+			local q = shown().queue
+			return q ~= nil and q.box ~= nil
+		end, 5)
+	)
+	H.expect('... answers queue once its time is up', heard, 'q3 queue', nil, 5)
+	H.check('... and its banners go', H.wait_until(gone, 3))
+	plays_on('... and nothing is loaded here')
+
 	-- what plays comes to its end while the banners ask: nothing to lose any more, so the answer is here
 	answers = {}
 	mp.commandv('seek', tostring(mp.get_property_number('duration') - 1.5), 'absolute', 'exact')

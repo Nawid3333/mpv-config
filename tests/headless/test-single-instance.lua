@@ -236,7 +236,11 @@ H.run(function()
 	H.check('... a click right after it takes nothing', offer() ~= nil and path() == norm(clip), path())
 	plays_on('... and the old file plays on', clip)
 
-	-- left alone, the offer goes with its banners, and nothing changes; the pointer rests on a banner meanwhile
+	-- left alone, the offer goes with its banners and the file goes to the queue (the owner, 2026-11-25: its x in the
+	-- queue takes it out again); what plays plays on. The pointer rests on a banner meanwhile.
+	local function queue_count()
+		return (mp.get_property_native('user-data/queue') or {}).count
+	end
 	open('replace', new)
 	H.check('a new offer', H.wait_until(drawn, 5))
 	local hx, hy = middle('here')
@@ -247,10 +251,13 @@ H.run(function()
 			return offer() == nil and banner('here') == nil and banner('window') == nil
 		end, 8)
 	)
+	H.expect('... and the file left alone is queued', queue_count, 1)
 	click_at(hx, hy)
 	H.eq("... and a click where it was is the video's again", mp.get_property_native('pause'), true)
 	mp.set_property_native('pause', false)
 	plays_on('... and the old file plays on', clip)
+	mp.commandv('script-message-to', 'queue', 'clear')
+	H.expect('... (the queue cleared again)', queue_count, 0)
 
 	-- nothing to lose: the file that plays opened again, a file at its end
 	open('replace', clip)
