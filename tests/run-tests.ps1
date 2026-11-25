@@ -72,6 +72,23 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# GitHub's workflow commands (::error): a message's %, CR and LF escaped, a title's : and , too.
+function ConvertTo-WorkflowText([string]$Text, [switch]$Title) {
+    $out = $Text.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+    if ($Title) { $out = $out.Replace(':', '%3A').Replace(',', '%2C') }
+    $out
+}
+
+# On CI a run the runner itself stops (an error of this script, not a failed check) says why on the pull request's
+# page, not only deep in its log; the error still ends the run.
+trap {
+    if ($env:GITHUB_ACTIONS) {
+        $where = $_.InvocationInfo ? " (line $($_.InvocationInfo.ScriptLineNumber))" : ''
+        Write-Host ('::error title=run-tests.ps1 stopped::' + (ConvertTo-WorkflowText "$_$where"))
+    }
+    break
+}
+
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $Cfg = $ConfigDir ? (Resolve-Path $ConfigDir).Path : (Join-Path $RepoRoot 'portable_config')
 $TestsDir = $PSScriptRoot
@@ -3025,5 +3042,22 @@ if ($fail.Count) {
     Write-Host 'Failed:' -ForegroundColor Red
     $fail | ForEach-Object { Write-Host "  [$($_.Test)] $($_.Check)  ::  $($_.Detail)" -ForegroundColor Red }
     Write-Host "Logs: $(Join-Path $WorkDir 'logs')" -ForegroundColor DarkGray
+    if ($env:GITHUB_ACTIONS) {
+        # Each failed check on the pull request's page (GitHub shows the first ten of a step), and all of them in the
+        # run's summary: what failed and what it got, without opening the log.
+        $fail | Select-Object -First 10 | ForEach-Object {
+            Write-Host ('::error title={0}::{1}' -f (ConvertTo-WorkflowText "[$($_.Test)] $($_.Check)" -Title),
+                (ConvertTo-WorkflowText ($_.Detail ? $_.Detail : 'failed')))
+        }
+        if ($env:GITHUB_STEP_SUMMARY) {
+            $lines = @("### $($fail.Count) failed ($($Shard ? "$Tier, shard $Shard" : $Tier))", '')
+            $lines += $fail | ForEach-Object {
+                $detail = ($_.Detail -replace '[\r\n]+', ' ' -replace '`', "'")
+                $tick = [char]96
+                '- **[{0}]** {1}{2}' -f $_.Test, $_.Check, ($detail ? "  $tick$detail$tick" : '')
+            }
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value $lines -Encoding utf8
+        }
+    }
 }
 exit ($fail.Count ? 1 : 0)

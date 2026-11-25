@@ -353,4 +353,30 @@ H.run(function()
 		type(saved) == 'table' and saved.quality == 'auto' and saved.screen == 'auto',
 		tostring(saved)
 	)
+
+	-- Another mpv window saves meanwhile (each window reads upscale.json at its start): a choice made here writes only
+	-- that choice, not this window's older copy of the rest - the other window's screen and measurement stay.
+	local other = saved_state() or {}
+	other.screen = '3840x2160'
+	other.costs = type(other.costs) == 'table' and other.costs or {}
+	other.costs['movie-high|3840x2160|1080p'] = 7
+	local out = assert(io.open(mp.command_native({ 'expand-path', '~~state/upscale.json' }), 'w'))
+	out:write(utils.format_json(other))
+	out:close()
+	send('set-quality', 'fast')
+	H.expect('a quality chosen here is saved', function()
+		return (saved_state() or {}).quality
+	end, 'fast')
+	local merged = saved_state() or {}
+	H.eq("... another window's screen saved meanwhile stays", merged.screen, '3840x2160')
+	H.eq('... and its measurement', (merged.costs or {})['movie-high|3840x2160|1080p'], 7)
+	-- "forget what was measured on this PC": every measurement, also those this window never knew
+	send('forget-measurements')
+	H.expect("Forget measurements clears them all, other windows' too", function()
+		local left = 0
+		for _ in pairs((saved_state() or {}).costs or {}) do
+			left = left + 1
+		end
+		return left
+	end, 0)
 end)
