@@ -287,6 +287,17 @@ H.run(function()
 	end, false)
 	H.eq('... what plays plays on', mp.get_property('path'), A)
 
+	-- the keep-open the queue replaced comes back, not the global one: FastStream's helper holds a stream at its end
+	-- for autoplay with a file-local keep-open of its own
+	mp.set_property('file-local-options/keep-open', 'no')
+	mp.commandv('script-message-to', 'queue', 'add-files', C)
+	H.expect('a file queued again', count, 1)
+	H.eq('... mpv stops at the end, for the countdown', mp.get_property('keep-open'), 'always')
+	mp.commandv('script-message-to', 'queue', 'clear')
+	H.expect('... and cleared', count, 0)
+	H.eq('... the keep-open it replaced is back', mp.get_property('keep-open'), 'no')
+	mp.set_property('file-local-options/keep-open', 'yes')
+
 	-- a click where the panel was is the video's again (pause)
 	local pause = mp.get_property_native('pause')
 	H.click(sx, sy)
