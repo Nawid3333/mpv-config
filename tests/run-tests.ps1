@@ -2611,6 +2611,8 @@ $HeadlessTests = @(
     @{ Name = 'faststream-offer'; Phases = @(@{ Script = 'headless/test-faststream-offer.lua'; File = 'long/long.mkv'; Args = $RealOsd + @('--vf=fps=2') }) }
     # the queue behind what plays and its panel bottom right, on the same surface (the panel's boxes are the targets)
     @{ Name = 'queue'; Phases = @(@{ Script = 'headless/test-queue.lua'; File = $RealOsdClip; Args = $RealOsd + @('--vf=fps=2') }) }
+    # the Up next card for the playlist's next local file: its picture comes from a hidden mpv (queue/picture.lua)
+    @{ Name = 'up-next'; Phases = @(@{ Script = 'headless/test-up-next.lua'; File = 'autoload/episode1.mkv'; Args = $RealOsd + @('--vf=fps=2') }) }
     @{ Name = 'bottom-bar'; Phases = @(@{ Script = 'headless/test-bottom-bar.lua'; File = 'subs/movie.mkv' }) }
     @{ Name = 'video-info'; Phases = @(@{ Script = 'headless/test-video-info.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'source-info'; Phases = @(@{ Script = 'headless/test-source-info.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=source_info-launch=no') }) }
