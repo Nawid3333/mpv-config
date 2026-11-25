@@ -387,7 +387,19 @@ return function(actions)
 		draw()
 	end
 
+	local on_mouse -- (below)
+
+	--- A click can come before the mouse-pos observer heard of the move that led to it (a move and a press in the
+	--- same instant): the pointer catches up first, so the hover, the boxes and the click agree.
+	local function catch_up()
+		local pos = mp.get_property_native('mouse-pos')
+		if pos and (not pointer or pos.x ~= pointer.x or pos.y ~= pointer.y) then
+			on_mouse(nil, pos)
+		end
+	end
+
 	local function on_down()
+		catch_up()
 		local hit = hit_at(pointer)
 		if hit and hit.what == 'row' then
 			pressed = { id = hit.id, y = pointer.y }
@@ -397,6 +409,7 @@ return function(actions)
 	end
 
 	local function on_up()
+		catch_up()
 		local was, drag = pressed, dragging
 		pressed, dragging = nil, nil
 		if drag then
@@ -460,7 +473,7 @@ return function(actions)
 		},
 	}, 'queue-panel', 'force')
 
-	local function on_mouse(_, pos)
+	on_mouse = function(_, pos)
 		pointer = pos
 		if #items == 0 or shown_fade() <= 0 then
 			if over then
