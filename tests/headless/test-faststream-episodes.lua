@@ -75,7 +75,7 @@ H.run(function()
 	-- (the playlist), and when there is none they say so, with the autoplay switch's icon
 	-- as FastStream's own notices; autoplay is FastStream's alone
 	local why = ' / only for videos FastStream sends to mpv / playlist_play'
-	local last = 'Next episode / this is the last file of its folder / playlist_play'
+	local last = 'Next / this is the last file of its folder / playlist_play'
 	H.key('NEXT')
 	H.expect('media Next, a local file, the last of its folder: says so', fs_card, last)
 	mp.commandv('script-message-to', 'notify', 'hide', 'faststream')
@@ -211,7 +211,7 @@ H.run(function()
 	-- a video FastStream sent: not "only for videos FastStream sends", but that it is gone
 	local gone = ' / FastStream is not connected to this window / playlist_play'
 	H.key('NEXT')
-	H.expect('media Next to a helper that stopped beating: says why', fs_card, 'Next episode' .. gone)
+	H.expect('media Next to a helper that stopped beating: says why', fs_card, 'Next' .. gone)
 	mp.commandv('script-message-to', 'notify', 'hide', 'faststream')
 	H.key('Ctrl+a')
 	H.expect('Ctrl+a, the same', fs_card, 'Autoplay' .. gone)
@@ -225,9 +225,68 @@ H.run(function()
 		mp.set_property_native('user-data/faststream/heartbeat', 3000 + beats)
 	end)
 
+	-- the media key Next plays what comes next (the owner, 2026-11-26): what waits in the queue before FastStream's
+	-- next episode, and that one only while autoplay is on; the bar's Next episode button is the next episode always
+	local function heard_now()
+		return table.concat(heard, ' ')
+	end
+	-- mpv gives a local path with Windows' backslashes
+	local function slashed(path)
+		return ((path or ''):gsub('\\', '/'))
+	end
+	local function playing()
+		return slashed(mp.get_property('path'))
+	end
+	local function waiting()
+		return mp.get_property_number('user-data/queue/count')
+	end
+	local queued = slashed(H.media_path('second/clip2.mkv'))
+	mp.set_property_native('user-data/faststream/autoplay', true)
+	mp.commandv('script-message-to', 'queue', 'add-files', queued)
+	H.expect('a file queued behind the FastStream stream', waiting, 1)
+	heard = {}
+	H.key('NEXT')
+	H.expect('media Next with something queued: the queued file plays', playing, queued)
+	H.eq('... not the next episode', heard_now(), '')
+	H.expect('... and it left the queue', waiting, 0)
+	H.check('the FastStream clip again', H.load(H.media_path(FS_MOVIE)))
+	H.key('NEXT')
+	H.expect('nothing queued, autoplay on: the next episode', heard_now, 'next')
+	H.sleep(0.3)
+	H.eq('... which the helper opens and tells: no banner here', fs_card(), 'none')
+	heard = {}
+	mp.set_property_native('user-data/faststream/autoplay', false)
+	H.key('NEXT')
+	H.expect(
+		'nothing queued, autoplay off: nothing comes next, and it says so',
+		fs_card,
+		'Next / nothing queued, and autoplay is off / playlist_play'
+	)
+	H.eq('... no next episode', heard_now(), '')
+	mp.commandv('script-message-to', 'notify', 'hide', 'faststream')
+	mp.commandv('script-message-to', 'queue', 'add-files', queued)
+	H.expect('a file queued again', waiting, 1)
+	mp.command_native((buttons().episode_next or {}).command or { 'ignore' })
+	H.expect("the bar's Next episode button: the next episode, autoplay off and a queue or not", heard_now, 'next')
+	H.sleep(0.3)
+	H.eq('... the queued file waits on', waiting(), 1)
+	H.eq('... what plays plays on', playing(), slashed(H.media_path(FS_MOVIE)))
+	mp.commandv('script-message-to', 'queue', 'clear')
+	H.expect('(queue cleared)', waiting, 0)
+	heard = {}
+
 	-- other files while connected
 	H.check('a local file loads', H.load(H.media_path('plain/clip.mkv')))
 	H.expect('connected, a local file after the stream: hidden', visibility, 'hidden')
+	-- the playlist's next file comes before the next episode too, as at the end
+	mp.set_property_native('user-data/faststream/autoplay', true)
+	mp.commandv('loadfile', queued, 'append')
+	H.key('NEXT')
+	H.expect('media Next, a next file in the playlist: it plays, not the next episode', function()
+		return mp.get_property_number('playlist-pos')
+	end, 1)
+	H.eq('... no next episode', heard_now(), '')
+	mp.set_property_native('user-data/faststream/autoplay', false)
 	H.check('the FastStream clip loads again', H.load(H.media_path(FS_MOVIE)))
 	H.expect('... and the stream again: shown', visibility, 'shown')
 	H.check(

@@ -292,7 +292,7 @@ that needs a login session will not play in mpv.
 | `s` / `d` | Speed -0.1 / +0.1 |
 | `←` `→` / `j` `k` / `z` `x` | Seek 5 s / 10 s / 60 s |
 | `0`-`9` | Jump to 0 %-90 % |
-| Media keys (next / previous track) | Next / previous episode: of a FastStream series (the page goes on, this window plays it), or the next / previous file of a local file's folder. No letter key: without media keys, use the bar's buttons or the menu, or bind your own (`script-message faststream-next` / `faststream-previous`) |
+| Media keys (next / previous track) | Next: what comes next - what waits in the queue, else the playlist's next file (a local file's folder), else a FastStream series' next episode, only while its autoplay is on. Previous: the previous episode of a FastStream series (the page goes on, this window plays it), or the previous file of a local file's folder. No letter key: without media keys, use the bar's buttons (Next episode opens it whatever waits) or the menu, or bind your own (`script-message-to faststream_episodes next`, `script-message faststream-next` / `faststream-previous`) |
 | `Ctrl+a` | FastStream's autoplay of the next episode on/off |
 | `↑` `↓`, wheel, `m` | Volume ±10, ±2, mute |
 | `i`, `I` | Stats |

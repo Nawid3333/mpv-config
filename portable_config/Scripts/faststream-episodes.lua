@@ -161,11 +161,35 @@ local PLAYLIST_STEP = {
 	['faststream-previous'] = 'playlist-prev',
 }
 
+-- read now, not state.connected: that one follows a stopped heartbeat only at the next once-a-second look
+local function helper_here()
+	return truthy(mp.get_property_native('user-data/faststream/connected')) and helper_alive()
+end
+
+local function say(title, detail)
+	mp.commandv('script-message-to', 'notify', 'show', 'faststream', title, detail, '4')
+end
+
+--- Why there was no file to step to, without a helper.
+---@param path string|nil
+---@param step string|nil the playlist command that found none
+---@return string
+local function no_step(path, step)
+	if is_faststream(path) then
+		-- FastStream sent it, but no helper of its answers here (its tab or Firefox closed, a relay never started)
+		return 'FastStream is not connected to this window'
+	elseif step and path and not path:find('^%a[%w+.-]*://') then
+		return step == 'playlist-next' and 'this is the last file of its folder'
+			or 'this is the first file of its folder'
+	elseif step then
+		return step == 'playlist-next' and 'nothing after it in the playlist' or 'nothing before it in the playlist'
+	end
+	return 'only for videos FastStream sends to mpv'
+end
+
 for name, title in pairs(KEY_TITLES) do
 	mp.register_script_message(name, function()
-		-- read now, not state.connected: that one follows a stopped heartbeat only
-		-- at the next once-a-second look
-		if truthy(mp.get_property_native('user-data/faststream/connected')) and helper_alive() then
+		if helper_here() then
 			return
 		end
 		local path = mp.get_property('path')
@@ -174,17 +198,30 @@ for name, title in pairs(KEY_TITLES) do
 		if step and mp.commandv(step) then
 			return
 		end
-		local detail = 'only for videos FastStream sends to mpv'
-		if is_faststream(path) then
-			-- FastStream sent it, but no helper of its answers here (its tab or Firefox closed, a relay never started)
-			detail = 'FastStream is not connected to this window'
-		elseif step and path and not path:find('^%a[%w+.-]*://') then
-			detail = step == 'playlist-next' and 'this is the last file of its folder'
-				or 'this is the first file of its folder'
-		elseif step then
-			detail = step == 'playlist-next' and 'nothing after it in the playlist'
-				or 'nothing before it in the playlist'
-		end
-		mp.commandv('script-message-to', 'notify', 'show', 'faststream', title, detail, '4')
+		say(title, no_step(path, step or nil))
 	end)
 end
+
+-- The media key Next: what comes next, in the order the end of what plays brings it (the owner, 2026-11-26: what
+-- waits in the queue before the next episode, and the next episode only while autoplay is on). The queue's first
+-- item (queue/), else the playlist's next entry (a folder's next file, a pasted link), else FastStream's next
+-- episode. The bar's Next episode button and the menu keep faststream-next: the next episode, whatever waits.
+mp.register_script_message('next', function()
+	if (mp.get_property_number('user-data/queue/count') or 0) > 0 then
+		mp.commandv('script-message-to', 'queue', 'play-next')
+		return
+	end
+	-- one entry only: with loop-playlist, mpv's "next" would be the same file again
+	if mp.get_property_number('playlist-count', 0) > 1 and mp.commandv('playlist-next') then
+		return
+	end
+	if helper_here() then
+		if truthy(mp.get_property_native('user-data/faststream/autoplay')) then
+			mp.commandv('script-message', 'faststream-next')
+		else
+			say('Next', 'nothing queued, and autoplay is off')
+		end
+		return
+	end
+	say('Next', no_step(mp.get_property('path'), 'playlist-next'))
+end)

@@ -112,7 +112,11 @@ H.run(function()
 
 	-- the episode keys: the messages the FastStream helper hears for the next and the
 	-- previous episode (faststream-episodes.lua plays the playlist's neighbour without
-	-- one). A script message goes to every client, this script too.
+	-- one). Next is the media key's "what comes next": with a helper following, its
+	-- autoplay on and nothing queued, the next episode (test-faststream-episodes.lua has
+	-- the rest). A script message goes to every client, this script too.
+	mp.set_property_native('user-data/faststream/connected', true)
+	mp.set_property_native('user-data/faststream/autoplay', true)
 	local heard = {}
 	mp.register_script_message('faststream-next', function()
 		heard[#heard + 1] = 'next'
@@ -124,9 +128,17 @@ H.run(function()
 		H.key(key)
 	end
 	-- No letter key: n, Shift+N and Shift+P send nothing (the owner uses the media keys).
+	-- Next comes through faststream-episodes.lua, one message later than Previous: sorted.
 	H.expect('only the media keys send faststream-next and -previous, no letter key', function()
-		return table.concat(heard, ' ')
+		local sorted = {}
+		for i, name in ipairs(heard) do
+			sorted[i] = name
+		end
+		table.sort(sorted)
+		return table.concat(sorted, ' ')
 	end, 'next previous')
+	mp.set_property_native('user-data/faststream/connected', false)
+	mp.set_property_native('user-data/faststream/autoplay', false)
 
 	-- The basic keys input.conf binds itself, mpv's own being off. (The quit keys and the
 	-- window's close button would end this test: the static tier checks their lines.)
