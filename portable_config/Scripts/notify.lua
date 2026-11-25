@@ -59,7 +59,23 @@ local ICONS = {
 	-- a stream FastStream sends while a window plays (faststream-offer.lua): the same two choices
 	['faststream-here'] = 'play_arrow',
 	['faststream-window'] = 'open_in_new',
+	-- the third choice of both (queue/main.lua): behind what plays
+	['single-instance-queue'] = 'playlist_add',
+	['faststream-queue'] = 'playlist_add',
+	-- the queue's countdown and notices (queue/main.lua)
+	['queue'] = 'playlist_play',
 }
+
+-- The offer banners come three at a time: smaller, so they stay clear of uosc's volume slider below them.
+local COMPACT = {
+	['single-instance'] = true,
+	['single-instance-window'] = true,
+	['single-instance-queue'] = true,
+	['faststream-here'] = true,
+	['faststream-window'] = true,
+	['faststream-queue'] = true,
+}
+local COMPACT_SCALE = 0.85
 
 -- The user's size knob: 1 = the original design, 1.35 = noticeably bigger.
 -- Read from script-opts/notify_size.conf ("size=1.35") or
@@ -105,6 +121,14 @@ end
 ---@return number
 local function px(v)
 	return math.floor(v * scale * user_size + 0.5)
+end
+
+--- A card's own size: the offer banners' smaller one (COMPACT).
+---@param card table
+---@param v number
+---@return number
+local function cpx(card, v)
+	return px(card.compact and v * COMPACT_SCALE or v)
 end
 
 -- Bound up front: the ui-scale observer below calls draw(), which is defined further down.
@@ -214,7 +238,7 @@ local function icon_width(card)
 	if not card.icon then
 		return 0
 	end
-	return px(card.detail ~= '' and ICON_SIZE_TALL or ICON_SIZE) + px(ICON_GAP)
+	return cpx(card, card.detail ~= '' and ICON_SIZE_TALL or ICON_SIZE) + cpx(card, ICON_GAP)
 end
 
 ---@param str string
@@ -268,23 +292,27 @@ end
 ---@param limit number the widest it may be, real pixels: MAX_WIDTH, or less in a narrow window
 ---@return number width, number height real pixels
 local function card_size(card, limit)
-	local height = card.progress and px(HEIGHT_PROGRESS) or card.detail ~= '' and px(HEIGHT_DETAIL) or px(HEIGHT_TITLE)
+	local height = card.progress and cpx(card, HEIGHT_PROGRESS)
+		or card.detail ~= '' and cpx(card, HEIGHT_DETAIL)
+		or cpx(card, HEIGHT_TITLE)
+	limit = math.min(limit, cpx(card, MAX_WIDTH))
 	if card.progress then
 		card.lines = { card.detail }
-		return math.min(px(PROGRESS_WIDTH), limit), height
+		return math.min(cpx(card, PROGRESS_WIDTH), limit), height
 	end
 	if not card.width or card.width_scale ~= scale or card.width_limit ~= limit then
-		local detail_size = px(DETAIL_SIZE * FONT_SCALE)
+		local detail_size = cpx(card, DETAIL_SIZE * FONT_SCALE)
 		-- a few words wide at least, however narrow the window
-		card.lines = wrap(card.detail, detail_size, math.max(limit - icon_width(card) - 2 * px(PAD_X), px(60)))
-		local text = text_width(card.title, px(TITLE_SIZE * FONT_SCALE))
+		card.lines =
+			wrap(card.detail, detail_size, math.max(limit - icon_width(card) - 2 * cpx(card, PAD_X), cpx(card, 60)))
+		local text = text_width(card.title, cpx(card, TITLE_SIZE * FONT_SCALE))
 		for _, line in ipairs(card.lines) do
 			text = math.max(text, text_width(line, detail_size))
 		end
-		card.width = math.min(limit, math.ceil(text) + icon_width(card) + 2 * px(PAD_X))
+		card.width = math.min(limit, math.ceil(text) + icon_width(card) + 2 * cpx(card, PAD_X))
 		card.width_scale, card.width_limit = scale, limit
 	end
-	return card.width, height + (#card.lines - 1) * px(DETAIL_LINE)
+	return card.width, height + (#card.lines - 1) * cpx(card, DETAIL_LINE)
 end
 
 local native_offset = 0
@@ -328,16 +356,17 @@ draw = function()
 	local known = w and h and w > 0 and h > 0
 	-- The canvas is the display's own size: real-pixel drawing, like uosc's.
 	canvas.res_x, canvas.res_y = known and w or 1280, known and h or 720
-	local top, right, left, gap, pad_x = px(TOP), px(RIGHT), px(LEFT), px(GAP), px(PAD_X)
+	local top, right, left, gap = px(TOP), px(RIGHT), px(LEFT), px(GAP)
 	-- A window narrower than a card: the card fits the window, its detail wrapped narrower, a long title cut.
 	local limit = px(MAX_WIDTH)
 	if known then
-		limit = math.max(math.min(limit, w - left - right), 4 * pad_x)
+		limit = math.max(math.min(limit, w - left - right), 4 * px(PAD_X))
 	end
 	local events = {}
 	local y_right, y_left = top, top
 	for _, card in ipairs(cards) do
 		local bw, bh = card_size(card, limit)
+		local pad_x = cpx(card, PAD_X)
 		local x0 = card.left and left or w - right - bw
 		local y = card.left and y_left or y_right
 		local icon_w = icon_width(card)
@@ -347,19 +376,26 @@ draw = function()
 		card.box = { x = x0, y = y, w = bw, h = bh }
 		events[#events + 1] = rect_event(x0, y, bw, bh, BOX, BOX_ALPHA, px(RADIUS), true)
 		if card.icon then
-			local size = px(card.detail ~= '' and ICON_SIZE_TALL or ICON_SIZE)
+			local size = cpx(card, card.detail ~= '' and ICON_SIZE_TALL or ICON_SIZE)
 			-- centred on the text: the whole card, except a progress card's bar strip
-			local text_h = card.progress and (card.detail ~= '' and px(HEIGHT_DETAIL) or px(HEIGHT_TITLE)) or bh
+			local text_h = card.progress and (card.detail ~= '' and cpx(card, HEIGHT_DETAIL) or cpx(card, HEIGHT_TITLE))
+				or bh
 			events[#events + 1] = icon_event(x0 + pad_x + size / 2, y + text_h / 2, size, card.icon)
 		end
-		events[#events + 1] =
-			text_event(text_x, y + px(TITLE_Y), px(TITLE_SIZE * FONT_SCALE), TITLE_COLOR, card.title, clip)
+		events[#events + 1] = text_event(
+			text_x,
+			y + cpx(card, TITLE_Y),
+			cpx(card, TITLE_SIZE * FONT_SCALE),
+			TITLE_COLOR,
+			card.title,
+			clip
+		)
 		if card.detail ~= '' then
 			for i, line in ipairs(card.lines or { card.detail }) do
 				events[#events + 1] = text_event(
 					text_x,
-					y + px(DETAIL_Y) + (i - 1) * px(DETAIL_LINE),
-					px(DETAIL_SIZE * FONT_SCALE),
+					y + cpx(card, DETAIL_Y) + (i - 1) * cpx(card, DETAIL_LINE),
+					cpx(card, DETAIL_SIZE * FONT_SCALE),
 					DETAIL_COLOR,
 					line,
 					clip
@@ -369,8 +405,8 @@ draw = function()
 		if card.progress then
 			-- a rounded bar under the text, across the whole card
 			local track = bw - 2 * pad_x
-			local bar_h = math.max(2, px(PROGRESS_HEIGHT))
-			local bar_y = y + bh - px(6) - math.floor(bar_h / 2)
+			local bar_h = math.max(2, cpx(card, PROGRESS_HEIGHT))
+			local bar_y = y + bh - cpx(card, 6) - math.floor(bar_h / 2)
 			local fill = math.floor(track * math.max(0, math.min(1, card.progress)))
 			events[#events + 1] = rect_event(x0 + pad_x, bar_y, track, bar_h, 'FFFFFF', 'D0', bar_h / 2)
 			if fill > 0 then
@@ -439,6 +475,7 @@ local function show(id, title, detail, seconds, progress, side, icon)
 		card.width = nil
 	end
 	card.title, card.detail = title, detail
+	card.compact = COMPACT[id]
 	-- a progress bar's card has a fixed width and its detail on one line (card_size):
 	-- without the bar again, it is measured and wrapped anew
 	if (card.progress == nil) ~= (tonumber(progress) == nil) then
