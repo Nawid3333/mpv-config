@@ -36,7 +36,7 @@ local MAX_COUNTDOWN = 60
 ---@type QueueItem[]
 local items = {} -- in their order, which is also their order in the playlist (pin)
 local last_ids, last_current = {}, nil -- the playlist as seen last time: entry ids, the current entry's id
-local base_keep_open = mp.get_property('keep-open') or 'yes'
+local held_keep_open -- the keep-open the queue replaced with 'always' for the file that plays
 local countdown -- {timer, total, left, item}
 local stopped_at -- the playlist-pos whose end the user stopped the countdown at
 local panel -- (below) panel.lua's handle
@@ -111,11 +111,21 @@ local function index_of(list, id)
 end
 
 --- A queued entry is played through mpv's playlist: before the next one mpv must stop at the end, so the countdown
---- can run (keep-open=always holds even before another entry); without a queue the user's own keep-open again.
+--- can run (keep-open=always holds even before another entry). Without a queue, the value it replaced comes back, not
+--- the global one: FastStream's helper sets a file-local keep-open of its own for autoplay. mpv puts the global value
+--- back itself when the file goes.
 local function update_keep_open()
-	local want = #items > 0 and 'always' or base_keep_open
-	if mp.get_property('keep-open') ~= want then
-		mp.set_property('file-local-options/keep-open', want)
+	local now = mp.get_property('keep-open')
+	if #items > 0 then
+		if now ~= 'always' then
+			held_keep_open = now
+			mp.set_property('file-local-options/keep-open', 'always')
+		end
+	elseif held_keep_open ~= nil then
+		if now == 'always' then
+			mp.set_property('file-local-options/keep-open', held_keep_open)
+		end
+		held_keep_open = nil
 	end
 end
 
