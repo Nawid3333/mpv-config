@@ -302,4 +302,32 @@ H.run(function()
 	local pause = mp.get_property_native('pause')
 	H.click(sx, sy)
 	H.eq("a click where the panel was is the video's", mp.get_property_native('pause'), not pause)
+
+	-- the countdown follows the queue while mpv stands at the end: the first one queued at an end mpv already stands at
+	-- (held there by FastStream's helper, say), the first one moved, the one counted down to removed
+	mp.set_property_native('pause', false)
+	mp.set_property('file-local-options/keep-open', 'always')
+	mp.set_property_native('user-data/faststream/countdown', 5)
+	mp.commandv('seek', '29', 'absolute')
+	H.expect('mpv stands at the end, nothing queued', function()
+		return mp.get_property_native('eof-reached')
+	end, true, nil, 6)
+	H.eq('... no countdown', queue().countdown, nil)
+	mp.commandv('script-message-to', 'queue', 'add-files', B, C)
+	H.expect('two queued at that end', count, 2)
+	local b_id, c_id = id_of(title_of(B)), id_of(title_of(C))
+	H.expect('... the countdown starts, for the first', function()
+		return (queue().countdown or {}).id
+	end, b_id, nil, 3)
+	mp.commandv('script-message-to', 'queue', 'move', tostring(c_id), '1')
+	H.expect('the other moved first: the countdown goes on for it', function()
+		return (queue().countdown or {}).id
+	end, c_id, nil, 3)
+	mp.commandv('script-message-to', 'queue', 'remove', tostring(c_id))
+	H.expect('it removed: the countdown goes on for the next', function()
+		return (queue().countdown or {}).id
+	end, b_id, nil, 3)
+	H.expect('... which then plays', function()
+		return mp.get_property('path')
+	end, B, nil, 8)
 end)

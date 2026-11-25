@@ -50,7 +50,7 @@ local function publish()
 	mp.set_property_native(STATE, {
 		count = #items,
 		items = list,
-		countdown = countdown and { seconds = countdown.total, left = countdown.left } or nil,
+		countdown = countdown and { seconds = countdown.total, left = countdown.left, id = countdown.item.id } or nil,
 		added = last_added and last_added.id or nil,
 	})
 	mp.set_property_native(FASTSTREAM_STATE, { count = #items })
