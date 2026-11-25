@@ -1346,6 +1346,12 @@ function Invoke-StaticCheck {
         @{ Name = "mpv.conf's OSD font size"; Files = @(& $file 'portable_config/mpv.conf' "@@`n-osd-font-size=30`n+osd-font-size=32"); Want = '' }
         @{ Name = 'a script that sets target-peak'; Files = @(& $file 'portable_config/Scripts/settings.lua' "@@`n+`tmp.set_property('target-peak', peak)"); Want = '[GPU: scripts]' }
         @{ Name = 'hwdec in a Lua comment'; Files = @(& $file 'portable_config/Scripts/settings.lua' "@@`n+`t-- set 'hwdec' elsewhere"); Want = '' }
+        @{ Name = "queue/probe.lua's vf (a hidden mpv in encoding mode)"; Files = @(& $file 'portable_config/Scripts/queue/probe.lua' "@@`n+`tmp.set_property('vf', x)"); Want = '' }
+        @{ Name = "the same vf in the queue's player script"; Files = @(& $file 'portable_config/Scripts/queue/panel.lua' "@@`n+`tmp.set_property('vf', x)"); Want = '[GPU: scripts]' }
+        @{ Name = 'a script renamed to probe.lua'; Files = @([pscustomobject]@{ filename = 'portable_config/Scripts/queue/probe.lua'
+                    previous_filename = 'portable_config/Scripts/settings.lua'; status = 'renamed'; patch = "@@`n+`tmp.set_property('vf', x)"
+                }); Want = '[GPU: scripts]'
+        }
         @{ Name = 'docs'; Files = @(& $file 'README.md' "@@`n+hwdec=auto"); Want = '' }
         @{ Name = 'the 20261020 build'; Files = @(& $file 'mpv-build.json' ''); Old = $old; New = $new
             Mpv = @('player/lua.c', 'video/out/hwdec/hwdec_vulkan.c', 'video/out/vulkan/context.c'); Ffmpeg = @('libavformat/hls.c')
@@ -2611,6 +2617,8 @@ $HeadlessTests = @(
     @{ Name = 'faststream-offer'; Phases = @(@{ Script = 'headless/test-faststream-offer.lua'; File = 'long/long.mkv'; Args = $RealOsd + @('--vf=fps=2') }) }
     # the queue behind what plays and its panel bottom right, on the same surface (the panel's boxes are the targets)
     @{ Name = 'queue'; Phases = @(@{ Script = 'headless/test-queue.lua'; File = $RealOsdClip; Args = $RealOsd + @('--vf=fps=2') }) }
+    # the Up next card for the playlist's next local file: its picture comes from a hidden mpv (queue/picture.lua)
+    @{ Name = 'up-next'; Phases = @(@{ Script = 'headless/test-up-next.lua'; File = 'autoload/episode1.mkv'; Args = $RealOsd + @('--vf=fps=2') }) }
     @{ Name = 'bottom-bar'; Phases = @(@{ Script = 'headless/test-bottom-bar.lua'; File = 'subs/movie.mkv' }) }
     @{ Name = 'video-info'; Phases = @(@{ Script = 'headless/test-video-info.lua'; File = 'plain/clip.mkv' }) }
     @{ Name = 'source-info'; Phases = @(@{ Script = 'headless/test-source-info.lua'; File = 'plain/clip.mkv'; Args = @('--script-opts-append=source_info-launch=no') }) }

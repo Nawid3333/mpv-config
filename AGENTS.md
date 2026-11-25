@@ -156,12 +156,12 @@ playlist.
 | `faststream-private.lua` | removes a private window's temp files (helper 29+: `faststream-mpv-hls-p-*`, `faststream-mpv-subs-p-*`) once mpv moved on from the stream, idles or closes; a queued one's (helper 33 marks it `queued-<pid>`) once it left the playlist unplayed |
 | `faststream-episodes.lua` | previous/next episode and autoplay buttons while the helper follows the window |
 | `faststream-offer.lua` | FastStream's offer while a window plays: banners "Play here" / "Add to queue" (when the offer brings its texts and `queue/` runs) / "Play in a new window", smaller than other banners (`faststream-offer`, `faststream-offer-cancel`), the click answered as `faststream-choice` (no click: queue where its banner shows, else none); loads and pauses nothing (the extension loads); marker `user-data/faststream/offer` |
-| `queue/` | what waits behind what plays (`main.lua`): FastStream's "Add to queue" (`add-stream`) and Explorer's (`add-files`), right behind the current entry, put back after a `loadfile replace`; a countdown before each (FastStream's autoplay seconds; Space stops it); the "Up next" panel bottom right under the volume slider (`panel.lua`: a peek when something comes, with the UI, the list on hover: click plays, x removes, Clear, drag reorders); `user-data/queue`, `user-data/faststream/queue` |
+| `queue/` | what waits behind what plays (`main.lua`): FastStream's "Add to queue" (`add-stream`) and Explorer's (`add-files`), right behind the current entry, put back after a `loadfile replace`; a countdown before each (FastStream's autoplay seconds; Space stops it); the "Up next" card bottom right under the volume slider (`panel.lua`: the queue's first item, else the playlist's next local file; with the UI, in the last 5 s, a peek when something is queued; a frame or cover from a hidden mpv, `picture.lua`; a song's card in music-info's panel; the list on hover: click plays, x removes, Clear, drag reorders); `user-data/queue`, `user-data/faststream/queue` |
 | `faststream-quality.lua` | the one Quality button and menu (uosc's own `stream-quality` is not in the bar): the page's files (`fs-quality=` fragment item, FastStream host 12+; loadfile from the same second, http(s) only), else the stream's own variants - mpv makes an HLS master's and YouTube's (ytdl_hook `all_formats`) editions, switched in place as a file-local `edition` (uosc's Editions button hides meanwhile), DASH's tracks (file-local `vid`); one row per height |
 | `source-info.lua` | the source button: stream URL, original URL, site page; copy/open |
 | `notify.lua` | the only drawer of messages: banners top right (speed: top left) |
 | `bottom-bar.lua` | the control bar's scrim; lifts subtitles above it |
-| `video-info.lua`, `music-info.lua` | resolution banner; song title and details panel |
+| `video-info.lua`, `music-info.lua` | resolution banner; song title and details panel (with a place for the queue's Up next card) |
 | `subtitle-sync.lua` | `t`: the sync timeline (audio loudness + subtitle lines, drag to shift) |
 | `subtitle-toggle.lua`, `title-bar.lua` | `c` smart subtitles; black Windows title bar (DWM) |
 | `subtitle-cleanup.lua` | at each start, deletes the subtitles uosc downloaded for a stream (`~~/subtitles`, which mpv never loads again) once they are older than a week |
@@ -353,5 +353,5 @@ runs both on every push and pull request (lls pinned with its SHA-256 in lint-lu
 
 ## Open items
 
-`TODO.md`: the Up next card's look (the owner's pick of a variant) and a "what's next" card for
-local files. A new open item or hand test goes there; finished work goes to doc/history.
+None: the Up next card's look and the card for local files are done (doc/history). A new open
+item or hand test starts a new `TODO.md`; finished work goes to doc/history.

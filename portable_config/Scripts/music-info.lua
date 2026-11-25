@@ -1,5 +1,7 @@
 -- music-info.lua - who and what is playing: "Artist – Title (feat. X)" in the
--- window title, and a black panel with every detail above uosc's bottom bar.
+-- window title, and a black panel with every detail above uosc's bottom bar. Its
+-- right column keeps a place (slot) for the queue's Up next card, which
+-- queue/panel.lua draws there; without that card, a line names what plays next.
 
 local mp = require('mp')
 local utils = require('mp.utils')
@@ -307,6 +309,9 @@ meter.compute_bounds = true
 
 local bottom = nil -- user-data/uosc/bottom-ui
 local shown = 0
+local card = nil -- user-data/queue-panel/card: the Up next card's size {w, h}, when there is one
+local slot = nil -- where the panel keeps the card's place: {x, y, w, h}
+local column = nil -- the right column's lines as drawn last
 
 -- A backslash gets a zero-width no-break space after it (as mpv's osc.lua
 -- does), braces are escaped: a title can never start an override tag.
@@ -366,6 +371,8 @@ local function publish()
 		format = s.audio and audio_format() or nil,
 		next = s.audio and (playlist_info()) or nil,
 		visibility = shown,
+		slot = slot,
+		column = column,
 	})
 end
 
@@ -376,9 +383,10 @@ local function draw()
 		visibility = s.cover and (bottom and bottom.visibility or 0) or 1
 	end
 	shown = visibility
-	publish()
 	local w, h = mp.get_osd_size()
 	if not s or visibility <= 0 or not w or w <= 0 or h <= 0 then
+		slot, column = nil, nil
+		publish()
 		panel:remove()
 		return
 	end
@@ -398,11 +406,17 @@ local function draw()
 	local controls_top = bottom and math.ceil(bottom.controls_top * to_draw) or timeline_top
 	local alpha = string.format('%02X', math.floor((1 - visibility) * 255 + 0.5))
 
-	-- right column: format, what plays next, playlist position
+	-- right column: format, what plays next (the queue's card under the lines, else a line), playlist position
 	local next_title, position = playlist_info()
-	local right =
-		present(audio_format(), next_title and ('Up next: ' .. next_title), position and ('Playlist ' .. position))
-	local right_w = 0
+	local card_w = card and math.min(math.floor(tonumber(card.w) or 0), math.floor(w * 0.45)) or 0
+	local card_h = card and math.floor(tonumber(card.h) or 0) or 0
+	local with_card = card_w > 0 and card_h > 0
+	local right = present(
+		audio_format(),
+		not with_card and next_title and ('Up next: ' .. next_title) or nil,
+		position and ('Playlist ' .. position)
+	)
+	local right_w = with_card and card_w or 0
 	for _, line in ipairs(right) do
 		right_w = math.max(right_w, text_width(line, px(DETAIL_SIZE), w, h))
 	end
@@ -414,6 +428,10 @@ local function draw()
 		+ (s.details and px(17) or 0)
 		+ (s.credits and px(17) or 0)
 		+ px(8)
+	local lines_h = px(14) + #right * px(17)
+	if with_card then
+		rows = math.max(rows, lines_h + px(6) + card_h + px(8))
+	end
 	local top = controls_top - rows
 	local left_edge = w - pad - math.ceil(right_w) - (right_w > 0 and px(GAP) or 0)
 	local clip = string.format('\\clip(%d,%d,%d,%d)', pad, top, left_edge, controls_top)
@@ -453,6 +471,9 @@ local function draw()
 			text(w - pad, top + px(14) + (i - 1) * px(17), 9, px(DETAIL_SIZE), GREY, alpha, ass_escape(line))
 	end
 
+	slot = with_card and { x = w - pad - card_w, y = top + lines_h + px(6), w = card_w, h = card_h } or nil
+	column = right
+	publish()
 	panel.res_x, panel.res_y = w, h
 	panel.data = table.concat(events, '\n')
 	panel:update()
@@ -487,6 +508,16 @@ end
 mp.observe_property('user-data/uosc/bottom-ui', 'native', function(_, value)
 	bottom = type(value) == 'table' and value or nil
 	if song then
+		draw()
+	end
+end)
+-- The queue's card: the panel redraws on every music-info change, so only a new size may redraw here (no loop). The
+-- whole table is observed: a card gone is a key gone from it, and that must reach here too.
+mp.observe_property('user-data/queue-panel', 'native', function(_, value)
+	local new = type(value) == 'table' and type(value.card) == 'table' and value.card or nil
+	local same = (new and new.w) == (card and card.w) and (new and new.h) == (card and card.h)
+	card = new
+	if not same and song then
 		draw()
 	end
 end)

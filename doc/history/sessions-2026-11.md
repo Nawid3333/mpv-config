@@ -134,6 +134,29 @@ engineering log; `AGENTS.md` holds the current state and is read first).
 - Open: the Up next card's look (four variants offered, his pick pending) and a "what's next" card for local files
   (cover or frame): TODO.md.
 
+## 2026-11-25: the Up next card (#61)
+
+- TODO.md's two items, done as the owner picked them: the card's look A (compact: picture, three lines, +N, the
+  countdown's line) of four drawn variants; the card for local files too - without a queue it shows the playlist's
+  next local file, with uosc's UI and in a file's last 5 s (he changed 10 to 5, for the queue's card as well); a
+  queued stream keeps the queue's icon (his call: a second mpv for a stream's frame is too much, a frame is for local
+  files); a song's card sits inside music-info's panel, in its right column, and that panel's "Up next:" line goes.
+- The picture comes from a short hidden mpv in encoding mode (no window, no GPU), one raw BGRA frame, shown with
+  `overlay-add` as thumbfast does. Measured before it was wired in: with the scale filter set at `file-loaded`, 3 of
+  3 runs wrote the source's own size and format (the decoder was made first); set at `on_preloaded`, 5 of 5 were the
+  card's size, the seek a third in took effect (the frame differs from a run without it), a cover came square and a
+  song without one wrote its tags only. `--aid=no` had hidden the audio track from `current-tracks` (every song read
+  as no song): `track-list` is read instead.
+- On CI the frame came (`ready`) but was never counted as shown: overlay-add has no result, so `mp.command_native`
+  gives nil on success too and only an error means failure (glm's review named it as well, with what it would have
+  done: a hidden card leaving its frame on screen). glm also had music-info observe the card's own key, which a
+  publish without it may not reach (not established either way; the whole table is observed now). Its third
+  finding (`playlist()` never returning the current entry) did not hold.
+- The GPU flag named probe.lua's `vf`: it runs only in the hidden encode-mode mpv, never in the player. The owner
+  chose to exempt that file (`$NoGpuScript` in gpu-flag.ps1, three static cases: that file, the same line in a
+  player script, a file renamed onto it).
+- TODO.md is gone; AGENTS.md's open items are none again.
+
 ## 2026-11-21/22: install.bat on its own
 
 - A review of the installer scripts (glm-5.3-flash) found, and a run confirmed: `install.bat`
