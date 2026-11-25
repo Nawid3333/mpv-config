@@ -182,7 +182,14 @@ H.run(function()
 		end, 2)
 	)
 
-	-- Space (and a click on the video) send faststream-pause with the pause: the countdown stops, nothing plays on
+	-- Space (and a click on the video) send faststream-pause with the pause: the countdown stops, nothing plays on.
+	-- A seek while the file still loads is lost: it plays first.
+	H.check(
+		'... and plays',
+		H.wait_until(function()
+			return mp.get_property_native('playback-time') ~= nil and mp.get_property_native('seeking') == false
+		end, 5)
+	)
 	mp.commandv('seek', '29', 'absolute')
 	H.check(
 		'at the next end the countdown starts again',
