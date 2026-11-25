@@ -10,7 +10,9 @@ local fragment = dofile(mp.command_native({ 'expand-path', '~~/script-modules/fa
 
 local PACKAGE_FOLDER = '^faststream%-mpv%-hls%-p%-%w%w%w%w%w%w$'
 local SUBTITLE_FOLDER = '^faststream%-mpv%-subs%-p%-%w%w%w%w%w%w$'
-local PACKAGE_FILES = { '^master%.m3u8$', '^%d%d?%.m3u8$', '^target%.txt$' }
+-- queued-<pid>: the helper's mark on a queued stream's folder (queue/main.lua), which keeps it while that mpv runs
+local PACKAGE_FILES = { '^master%.m3u8$', '^%d%d?%.m3u8$', '^target%.txt$', '^queued%-%d+$' }
+local MARKER = '^queued%-%d+$'
 local SUBTITLE_FILE = '^%d+[^/]*%.srt$'
 
 ---@param path string
@@ -61,6 +63,7 @@ local function subtitle_files()
 end
 
 local folders, files = {}, {} -- what the files loaded so far left: [folder] / [file] = true
+local waiting = {} -- [folder] = true: packages of playlist entries not loaded yet (a queued stream)
 local passes = 0
 
 local function remove_package(dir)
@@ -89,6 +92,13 @@ local function remove_all_but(keep_folder, keep_files)
 		if not keep_files[file] then
 			os.remove(file)
 			files[file] = nil
+			-- a queued stream's subtitle folder: its mark goes with its last file
+			local dir = split(file)
+			for _, name in ipairs(dir and utils.readdir(dir, 'files') or {}) do
+				if name:match(MARKER) then
+					os.remove(dir .. '/' .. name)
+				end
+			end
 		end
 	end
 	passes = passes + 1
@@ -114,6 +124,41 @@ mp.register_event('file-loaded', function()
 	end
 end)
 
+--- The private packages the playlist names now.
+---@param list table[]|nil
+---@return table<string, boolean>
+local function listed_packages(list)
+	local now = {}
+	for _, entry in ipairs(list or {}) do
+		local dir = package_folder(entry.filename)
+		if dir then
+			now[dir] = true
+		end
+	end
+	return now
+end
+
+-- A queued stream's package waits in the playlist; one that leaves it without being loaded (removed from the queue)
+-- goes. Not at once: a replace of what plays empties the playlist before queue/main.lua puts the queue back behind it.
+-- One that is loaded is the others' business above.
+local LEFT_SECONDS = 2
+mp.observe_property('playlist', 'native', function(_, list)
+	local now = listed_packages(list)
+	for dir in pairs(waiting) do
+		if not now[dir] and not folders[dir] then
+			mp.add_timeout(LEFT_SECONDS, function()
+				if not listed_packages(mp.get_property_native('playlist'))[dir] and not folders[dir] then
+					remove_package(dir)
+					waiting[dir] = nil
+				end
+			end)
+		end
+	end
+	for dir in pairs(now) do
+		waiting[dir] = true
+	end
+end)
+
 -- Nothing plays any more (the playlist ended, mpv idles) or mpv closes: all of it goes. Asked again, as the
 -- notification may come after the next load has started.
 mp.observe_property('idle-active', 'bool', function(_, idle)
@@ -122,5 +167,8 @@ mp.observe_property('idle-active', 'bool', function(_, idle)
 	end
 end)
 mp.register_event('shutdown', function()
+	for dir in pairs(waiting) do
+		folders[dir] = true
+	end
 	remove_all_but(nil, {})
 end)
