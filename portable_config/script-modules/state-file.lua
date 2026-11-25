@@ -97,4 +97,86 @@ function M.read_json(path, name)
 	return nil, true
 end
 
+--- A copy of plain data (tables of strings, numbers and booleans).
+function M.copy(value)
+	if type(value) ~= 'table' then
+		return value
+	end
+	local out = {}
+	for k, v in pairs(value) do
+		out[k] = M.copy(v)
+	end
+	return out
+end
+
+local function same(a, b)
+	if type(a) ~= 'table' or type(b) ~= 'table' then
+		return a == b
+	end
+	for k, v in pairs(a) do
+		if not same(v, b[k]) then
+			return false
+		end
+	end
+	for k in pairs(b) do
+		if a[k] == nil then
+			return false
+		end
+	end
+	return true
+end
+
+--- Saves `now` as JSON over what the file holds at this moment, writing only what differs from `base` (what this
+--- process read or last wrote), one level down in tables (each screen, each measured cost). Several mpv windows share
+--- a state file and each reads it at its start: an older window's whole copy written back undid what another window
+--- had saved since. Without a base, or without a readable file, `now` is written whole; a damaged file that cannot be
+--- moved aside is not saved over.
+---@param path string
+---@param now table
+---@param base table|nil
+---@param name string what a warning calls the file
+---@return boolean ok
+---@return string|nil err
+function M.write_changes(path, now, base, name)
+	local out = now
+	if base then
+		local file, stuck = M.read_json(path, name)
+		if stuck then
+			return false, name .. ' could not be read: not saving over it'
+		end
+		if file then
+			out = file
+			for key, value in pairs(now) do
+				local old = base[key]
+				if type(value) == 'table' and type(old) == 'table' then
+					local into = type(out[key]) == 'table' and out[key] or {}
+					for sub in pairs(old) do
+						if value[sub] == nil then
+							into[sub] = nil
+						end
+					end
+					for sub, v in pairs(value) do
+						if not same(v, old[sub]) then
+							into[sub] = M.copy(v)
+						end
+					end
+					out[key] = into
+				elseif not same(value, old) then
+					out[key] = M.copy(value)
+				end
+			end
+			for key in pairs(base) do
+				if now[key] == nil then
+					out[key] = nil
+				end
+			end
+		end
+	end
+	local json = utils.format_json(out)
+	if not json then
+		return false, 'cannot serialize ' .. name
+	end
+	return M.write(path, json)
+end
+
 return M

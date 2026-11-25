@@ -225,16 +225,19 @@ do
 	end
 end
 
+-- What this mpv read from settings.json or last wrote there (nil: the file is written whole). Every mpv window reads
+-- the file at its start; a save writes only what changed here since, over what the file holds now, so a choice made
+-- in another window meanwhile stays: an older window's whole copy written back undid it.
+local written = (from_file and not migrated) and statefile.copy(settings) or nil
+
 local function save()
 	if not opts.write or file_stuck then
 		return
 	end
-	local json = utils.format_json(settings)
-	local ok, err = false, 'cannot serialize the settings'
-	if json then
-		ok, err = statefile.write(FILE, json)
-	end
-	if not ok then
+	local ok, err = statefile.write_changes(FILE, settings, written, 'settings.json')
+	if ok then
+		written = statefile.copy(settings)
+	else
 		msg.warn(err)
 	end
 end

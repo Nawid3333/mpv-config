@@ -228,7 +228,8 @@ local function read_song()
 		if icy then
 			artist, title = from_name(icy)
 		elseif audio then
-			artist, title = file_artist, file_title
+			-- the file name's title; its artist only where no ARTIST tag names one
+			artist, title = artist or file_artist, file_title
 		end
 	elseif not artist and file_artist and file_title:lower():find(title:lower(), 1, true) then
 		artist = file_artist -- file name's title part matches the tag: trust its artist part
