@@ -22,8 +22,10 @@
          latest release and checked against GitHub's SHA-256 digest;
       4. the FastStream helper, if the one-click install set it up for this
          mpv: brought to FastStream's newest release (the add-on updates
-         itself in Firefox, and the two must match). A helper someone
-         installed by hand (a FastStream developer's) is never touched.
+         itself in Firefox, and the two must match). One installed by hand
+         for this mpv (from a FastStream checkout) too, when it is older than
+         the release's, on its own Node.js; as new or newer, or for another
+         mpv, it stays as it is.
 
     mpv's own files and yt-dlp.exe are not in git, so nothing here leaves
     anything to commit. Works in Windows PowerShell 5.1 and PowerShell 7.
@@ -143,9 +145,10 @@ catch {
     $failed++
 }
 
-# -- 4. the FastStream helper the one-click install set up -------------------------
+# -- 4. the FastStream helper: the one-click install's, or one installed by hand for this mpv -----
 $marker = Join-Path $env:LOCALAPPDATA 'FastStreamMpvHost\installed-by-mpv-config.json'
-if (-not $NoFastStream -and (Test-Path -LiteralPath $marker)) {
+$handHelper = Join-Path $env:LOCALAPPDATA 'FastStreamMpvHost\config.json'
+if (-not $NoFastStream -and ((Test-Path -LiteralPath $marker) -or (Test-Path -LiteralPath $handHelper))) {
     Write-Host '== FastStream helper' -ForegroundColor Cyan
     & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'install-faststream.ps1') -MpvExe (Join-Path $Root 'mpv.exe') -HelperOnly -Yes
     if ($LASTEXITCODE -ne 0) { $failed++ }

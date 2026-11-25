@@ -95,7 +95,8 @@ shader, comments included: libplacebo ends the block there.
 shinchiro's builds (url, sha256, every file's SHA-256); `installer/install-mpv.ps1`
 makes a folder match it; `updater.bat` (= `installer/update.ps1`) does `git pull`
 (or `sync-config.ps1` for a one-click install), install-mpv, `yt-dlp -U`, and
-refreshes a FastStream helper the one-click install set up.
+refreshes a FastStream helper the one-click install set up, and one installed by hand for this
+mpv when it is older than FastStream's release (on its own Node.js; never a downgrade).
 `.github/workflows/mpv-auto-update.yml` offers each new build that passes the suite
 as ONE rolling pull request (`mpv-update`); CI has no GPU, so the owner merges it.
 Closed unmerged, that build is never offered again (the closed pull request is the
