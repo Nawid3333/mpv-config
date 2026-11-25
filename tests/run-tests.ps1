@@ -453,7 +453,8 @@ Set-Content (Join-Path $InstallDir "com.faststream.mpv.json") "{}"
         # marker; one as new or newer (a developer's own) stays
         $hsv = Join-Path $ob 'helper-src-33'
         Write-TestTree $hsv @{ 'faststream-mpv-host.mjs' = 'export const HostVersion = 33;'; 'install.ps1' = (Read-Text (Join-Path $hs 'install.ps1')) }
-        foreach ($c in @(@{ Have = 32; Want = 33 }, @{ Have = 33; Want = 33 }, @{ Have = 34; Want = 34 })) {
+        # 4: older though "4" sorts after "33" as text - the compare must be by number
+        foreach ($c in @(@{ Have = 32; Want = 33 }, @{ Have = 4; Want = 33 }, @{ Have = 33; Want = 33 }, @{ Have = 34; Want = 34 })) {
             $hand = Join-Path $ob "hand-helper-$($c.Have)"
             Write-TestTree $hand @{
                 'config.json'             = (@{ mpvPath = $mpvStandIn } | ConvertTo-Json)
@@ -474,6 +475,23 @@ Set-Content (Join-Path $InstallDir "com.faststream.mpv.json") "{}"
                     $r.Code -eq 0 -and $now -eq "$($c.Have)" -and -not $handCfg.PSObject.Properties['node'] -and $kept -and $r.Out -match 'up to date') $r.Out
             }
         }
+        # a bare mpvPath means the mpv on PATH, not this one - also when the updater runs in this
+        # mpv's folder (updater.bat's cd), where a relative path would resolve to it
+        $bare = Join-Path $ob 'hand-helper-bare'
+        Write-TestTree $bare @{
+            'config.json'             = '{"mpvPath":"mpv.exe"}'
+            'faststream-mpv-host.mjs' = 'export const HostVersion = 32;'
+            'com.faststream.mpv.bat'  = "@echo off`r`n`"$nodeExe`" `"$bare\faststream-mpv-host.mjs`" %*"
+        }
+        Push-Location (Split-Path $mpvStandIn)
+        try {
+            $r = Invoke-Script install-faststream.ps1 @('-MpvExe', $mpvStandIn, '-HelperDir', $bare, '-HelperOnly', '-Yes', '-NoRegister',
+                '-NoFirefox', '-UpdatesJson', $updatesJson, '-HelperSource', $hsv, '-NodeDist', $dist)
+        }
+        finally { Pop-Location }
+        Test-Check $t '... one installed by hand for the mpv on PATH (a bare mpvPath) stays as it is, run from this mpv''s folder too' (
+            $r.Code -eq 0 -and ((Read-Text (Join-Path $bare 'faststream-mpv-host.mjs')) -replace '\D', '') -eq '32' -and
+            (Read-Text (Join-Path $bare 'config.json')) -match '"mpv\.exe"') $r.Out
         Set-Content (Join-Path $dist "$nv/SHASUMS256.txt") "$('0' * 64)  $nn.zip"
         $hd2 = Join-Path $ob 'helper2'
         $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd2) + $common)

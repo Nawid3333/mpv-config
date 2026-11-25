@@ -172,7 +172,10 @@ function Get-WrapperNode([string]$Dir) {
     return $null
 }
 
+# Full paths only: a bare mpvPath (mpv, mpv.exe) means the mpv on PATH, which FastStream's install.ps1
+# keeps for its lookup, never this folder's - and a relative one would match whatever folder this runs in.
 function Test-SamePath([string]$A, [string]$B) {
+    if (-not [IO.Path]::IsPathRooted($A) -or -not [IO.Path]::IsPathRooted($B)) { return $false }
     try { return [IO.Path]::GetFullPath($A) -eq [IO.Path]::GetFullPath($B) } catch { return $false }
 }
 
@@ -409,12 +412,18 @@ try {
             if ($byHand) {
                 $have = Get-HostVersion (Join-Path $HelperDir 'faststream-mpv-host.mjs')
                 $want = Get-HostVersion (Join-Path $hs 'faststream-mpv-host.mjs')
+                $node = Get-WrapperNode $HelperDir
+                # a private Node.js this script gave it earlier (its own did not run) is kept current,
+                # as the setup's is: a Node.js security release does not wait for the next helper
+                $privateNode = Join-Path (Join-Path $HelperDir 'node') 'node.exe'
+                if ($node -and (Test-SamePath $node $privateNode)) {
+                    $node = Install-PrivateNode (Split-Path $privateNode) $work $NodeDist
+                }
                 if ($null -eq $want -or ($null -ne $have -and $have -ge $want)) {
                     Write-Host "The FastStream helper installed by hand is up to date (helper $have): left as it is." -ForegroundColor Green
                     $doHelper = $false
                 }
                 else {
-                    $node = Get-WrapperNode $HelperDir
                     if (-not $node -or (Get-NodeMajor $node) -lt $NodeMinMajor) {
                         Write-Host "Its Node.js ($node) does not run, or is older than $NodeMinMajor`: the helper gets a private one." -ForegroundColor Yellow
                         $node = Install-PrivateNode (Join-Path $HelperDir 'node') $work $NodeDist

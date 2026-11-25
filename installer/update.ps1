@@ -147,8 +147,16 @@ catch {
 
 # -- 4. the FastStream helper: the one-click install's, or one installed by hand for this mpv -----
 $marker = Join-Path $env:LOCALAPPDATA 'FastStreamMpvHost\installed-by-mpv-config.json'
-$handHelper = Join-Path $env:LOCALAPPDATA 'FastStreamMpvHost\config.json'
-if (-not $NoFastStream -and ((Test-Path -LiteralPath $marker) -or (Test-Path -LiteralPath $handHelper))) {
+# one installed by hand counts only when it starts this mpv (a full path): for another mpv, or the
+# one on PATH, the step stays skipped as before - no GitHub request, no failure counted for it
+$handFor = $null
+try {
+    $handCfg = Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $env:LOCALAPPDATA 'FastStreamMpvHost\config.json') -ErrorAction Stop | ConvertFrom-Json
+    if ($handCfg.mpvPath -and [IO.Path]::IsPathRooted("$($handCfg.mpvPath)")) { $handFor = [IO.Path]::GetFullPath("$($handCfg.mpvPath)") }
+}
+catch { $handFor = $null }
+$thisMpv = [IO.Path]::GetFullPath((Join-Path $Root 'mpv.exe'))
+if (-not $NoFastStream -and ((Test-Path -LiteralPath $marker) -or $handFor -eq $thisMpv)) {
     Write-Host '== FastStream helper' -ForegroundColor Cyan
     & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'install-faststream.ps1') -MpvExe (Join-Path $Root 'mpv.exe') -HelperOnly -Yes
     if ($LASTEXITCODE -ne 0) { $failed++ }
