@@ -448,6 +448,50 @@ Set-Content (Join-Path $InstallDir "com.faststream.mpv.json") "{}"
                 $r.Code -eq 0 -and (Read-Text (Join-Path $dev 'config.json')) -match 'C:\\\\dev' -and
                 -not (Test-Path (Join-Path $dev 'node'))) $r.Out
         }
+        # one installed by hand for THIS mpv (from a FastStream checkout): the updater (-HelperOnly)
+        # brings an older one to the release's helper, on its own Node.js and without the setup's
+        # marker; one as new or newer (a developer's own) stays
+        $hsv = Join-Path $ob 'helper-src-33'
+        Write-TestTree $hsv @{ 'faststream-mpv-host.mjs' = 'export const HostVersion = 33;'; 'install.ps1' = (Read-Text (Join-Path $hs 'install.ps1')) }
+        # 4: older though "4" sorts after "33" as text - the compare must be by number
+        foreach ($c in @(@{ Have = 32; Want = 33 }, @{ Have = 4; Want = 33 }, @{ Have = 33; Want = 33 }, @{ Have = 34; Want = 34 })) {
+            $hand = Join-Path $ob "hand-helper-$($c.Have)"
+            Write-TestTree $hand @{
+                'config.json'             = (@{ mpvPath = $mpvStandIn } | ConvertTo-Json)
+                'faststream-mpv-host.mjs' = "export const HostVersion = $($c.Have);"
+                'com.faststream.mpv.bat'  = "@echo off`r`n`"$nodeExe`" `"$hand\faststream-mpv-host.mjs`" %*"
+            }
+            $r = Invoke-Script install-faststream.ps1 @('-MpvExe', $mpvStandIn, '-HelperDir', $hand, '-HelperOnly', '-Yes', '-NoRegister',
+                '-NoFirefox', '-UpdatesJson', $updatesJson, '-HelperSource', $hsv, '-NodeDist', $dist)
+            $handCfg = Get-Content -Raw (Join-Path $hand 'config.json') | ConvertFrom-Json
+            $now = (Read-Text (Join-Path $hand 'faststream-mpv-host.mjs')) -replace '\D', ''
+            $kept = -not (Test-Path (Join-Path $hand 'installed-by-mpv-config.json')) -and -not (Test-Path (Join-Path $hand 'node'))
+            if ($c.Have -lt $c.Want) {
+                Test-Check $t "... one installed by hand for this mpv, older (helper $($c.Have)): the updater brings it to the release's, on its own Node.js" (
+                    $r.Code -eq 0 -and $now -eq "$($c.Want)" -and $handCfg.node -eq $nodeExe -and $handCfg.mpvPath -eq $mpvStandIn -and $kept) $r.Out
+            }
+            else {
+                Test-Check $t "... one installed by hand for this mpv, as new or newer (helper $($c.Have)): left as it is" (
+                    $r.Code -eq 0 -and $now -eq "$($c.Have)" -and -not $handCfg.PSObject.Properties['node'] -and $kept -and $r.Out -match 'up to date') $r.Out
+            }
+        }
+        # a bare mpvPath means the mpv on PATH, not this one - also when the updater runs in this
+        # mpv's folder (updater.bat's cd), where a relative path would resolve to it
+        $bare = Join-Path $ob 'hand-helper-bare'
+        Write-TestTree $bare @{
+            'config.json'             = '{"mpvPath":"mpv.exe"}'
+            'faststream-mpv-host.mjs' = 'export const HostVersion = 32;'
+            'com.faststream.mpv.bat'  = "@echo off`r`n`"$nodeExe`" `"$bare\faststream-mpv-host.mjs`" %*"
+        }
+        Push-Location (Split-Path $mpvStandIn)
+        try {
+            $r = Invoke-Script install-faststream.ps1 @('-MpvExe', $mpvStandIn, '-HelperDir', $bare, '-HelperOnly', '-Yes', '-NoRegister',
+                '-NoFirefox', '-UpdatesJson', $updatesJson, '-HelperSource', $hsv, '-NodeDist', $dist)
+        }
+        finally { Pop-Location }
+        Test-Check $t '... one installed by hand for the mpv on PATH (a bare mpvPath) stays as it is, run from this mpv''s folder too' (
+            $r.Code -eq 0 -and ((Read-Text (Join-Path $bare 'faststream-mpv-host.mjs')) -replace '\D', '') -eq '32' -and
+            (Read-Text (Join-Path $bare 'config.json')) -match '"mpv\.exe"') $r.Out
         Set-Content (Join-Path $dist "$nv/SHASUMS256.txt") "$('0' * 64)  $nn.zip"
         $hd2 = Join-Path $ob 'helper2'
         $r = Invoke-Script install-faststream.ps1 (@('-MpvExe', $mpvStandIn, '-HelperDir', $hd2) + $common)

@@ -134,6 +134,16 @@ engineering log; `AGENTS.md` holds the current state and is read first).
 - Open: the Up next card's look (four variants offered, his pick pending) and a "what's next" card for local files
   (cover or frame): TODO.md.
 
+## 2026-11-25: updater.bat updates a helper installed by hand
+
+- After FastStream #846 (helper 33) the owner ran updater.bat and Firefox updated the add-on, and FastStream said
+  the helper was out of date: his was installed by hand from a FastStream checkout (system Node.js, no setup
+  marker), and update.ps1 left every such helper alone, to keep a developer's own. He asked why updater.bat cannot
+  do it. Now install-faststream.ps1 -HelperOnly (update.ps1's step 4) also takes one installed by hand that starts
+  this mpv, when its HostVersion is older than the release's: the release's files (checked against
+  native-host.sha256), its own Node.js kept (a private one only when it does not run), no marker. One as new or
+  newer, or for another mpv, stays. Shown red first: the older helper stayed at 32 on main's installer.
+
 ## 2026-11-25: the Up next card (#61)
 
 - TODO.md's two items, done as the owner picked them: the card's look A (compact: picture, three lines, +N, the

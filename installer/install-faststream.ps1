@@ -155,6 +155,30 @@ function Read-Json([string]$PathOrUrl) {
     }
 }
 
+# The helper version a faststream-mpv-host.mjs declares (its HostVersion), $null when none.
+function Get-HostVersion([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
+    $text = Get-Content -Raw -Encoding UTF8 -LiteralPath $Path
+    if ("$text" -match '(?m)^export const HostVersion = (\d+);') { return [int]$Matches[1] }
+    return $null
+}
+
+# The node.exe a helper's wrapper (com.faststream.mpv.bat) runs, $null when it names none.
+function Get-WrapperNode([string]$Dir) {
+    $bat = Join-Path $Dir 'com.faststream.mpv.bat'
+    if (-not (Test-Path -LiteralPath $bat -PathType Leaf)) { return $null }
+    $text = Get-Content -Raw -Encoding UTF8 -LiteralPath $bat
+    if ("$text" -match '"([^"]*node(\.exe)?)"\s+"') { return $Matches[1] }
+    return $null
+}
+
+# Full paths only: a bare mpvPath (mpv, mpv.exe) means the mpv on PATH, which FastStream's install.ps1
+# keeps for its lookup, never this folder's - and a relative one would match whatever folder this runs in.
+function Test-SamePath([string]$A, [string]$B) {
+    if (-not [IO.Path]::IsPathRooted($A) -or -not [IO.Path]::IsPathRooted($B)) { return $false }
+    try { return [IO.Path]::GetFullPath($A) -eq [IO.Path]::GetFullPath($B) } catch { return $false }
+}
+
 function Get-NodeMajor([string]$Exe) {
     if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) { return 0 }
     $ErrorActionPreference = 'Continue'
@@ -306,10 +330,18 @@ try {
         $existing = Test-Path -LiteralPath (Join-Path $HelperDir 'config.json')
         $ours = Test-Path -LiteralPath $marker
         $doHelper = $true
+        $byHand = $false
         if ($existing -and -not $ours) {
             $cfg = try { Get-Content -Raw -Encoding UTF8 -LiteralPath (Join-Path $HelperDir 'config.json') | ConvertFrom-Json } catch { $null }
             $points = if ($cfg -and $cfg.mpvPath) { " (it starts $($cfg.mpvPath))" } else { '' }
             if ($Replace) { Write-Host "Replacing the FastStream helper that was already installed$points." }
+            elseif ($HelperOnly -and $cfg -and $cfg.mpvPath -and (Test-SamePath "$($cfg.mpvPath)" $MpvExe)) {
+                # Installed by hand (from a FastStream checkout) for this mpv: the updater keeps it at
+                # least at the release's helper - the add-on updates itself in Firefox and gets no
+                # stream through an older one - on its own Node.js. One as new or newer (a developer's
+                # own) stays: decided below, from the release's files.
+                $byHand = $true
+            }
             elseif ($HelperOnly) { $doHelper = $false }
             elseif (Read-YesNo "A FastStream helper is already installed$points. Replace it, so FastStream opens THIS mpv?" $Yes) { }
             else {
@@ -351,7 +383,7 @@ try {
         }
         if ($doHelper) {
             if (-not (Test-Path -LiteralPath $MpvExe)) { throw "no mpv.exe at $MpvExe - install mpv first" }
-            $node = Install-PrivateNode (Join-Path $HelperDir 'node') $work $NodeDist
+            $node = if ($byHand) { $null } else { Install-PrivateNode (Join-Path $HelperDir 'node') $work $NodeDist }
             $hs = Join-Path $work 'native-host'
             $null = New-Item -ItemType Directory -Path $hs
             # The helper's files run as this user's program: only as the release lists them with
@@ -377,6 +409,30 @@ try {
                     if ($got -ne $sums[$f]) { throw "the helper's $f is not the one FastStream $version released (sha256 $got, expected $($sums[$f]))" }
                 }
             }
+            if ($byHand) {
+                $have = Get-HostVersion (Join-Path $HelperDir 'faststream-mpv-host.mjs')
+                $want = Get-HostVersion (Join-Path $hs 'faststream-mpv-host.mjs')
+                $node = Get-WrapperNode $HelperDir
+                # a private Node.js this script gave it earlier (its own did not run) is kept current,
+                # as the setup's is: a Node.js security release does not wait for the next helper
+                $privateNode = Join-Path (Join-Path $HelperDir 'node') 'node.exe'
+                if ($node -and (Test-SamePath $node $privateNode)) {
+                    $node = Install-PrivateNode (Split-Path $privateNode) $work $NodeDist
+                }
+                if ($null -eq $want -or ($null -ne $have -and $have -ge $want)) {
+                    Write-Host "The FastStream helper installed by hand is up to date (helper $have): left as it is." -ForegroundColor Green
+                    $doHelper = $false
+                }
+                else {
+                    if (-not $node -or (Get-NodeMajor $node) -lt $NodeMinMajor) {
+                        Write-Host "Its Node.js ($node) does not run, or is older than $NodeMinMajor`: the helper gets a private one." -ForegroundColor Yellow
+                        $node = Install-PrivateNode (Join-Path $HelperDir 'node') $work $NodeDist
+                    }
+                    Write-Host "Updating the FastStream helper installed by hand: helper $have -> $want."
+                }
+            }
+        }
+        if ($doHelper) {
             # the fork's own installer, as its documentation runs it (Windows PowerShell 5.1)
             $ps = Get-Command powershell.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object Source
             if (-not $ps) { $ps = (Get-Process -Id $PID).Path }
@@ -385,9 +441,15 @@ try {
             if ($NoRegister) { $hostArgs += '-NoRegister' }
             $r = Invoke-Native $ps $hostArgs
             if ($r.Code -ne 0) { throw "the helper's install.ps1 failed (exit $($r.Code)): $($r.Out -join ' ')" }
-            $info = [ordered]@{ version = $version; mpv = $MpvExe; node = $node; installed = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
-            [IO.File]::WriteAllText($marker, ($info | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
-            Write-Host "FastStream helper $version installed: it starts $MpvExe." -ForegroundColor Green
+            if ($byHand) {
+                # it stays one installed by hand: no marker, so the setup still asks before replacing it
+                Write-Host "FastStream helper $version installed, on the same Node.js ($node): it starts $MpvExe." -ForegroundColor Green
+            }
+            else {
+                $info = [ordered]@{ version = $version; mpv = $MpvExe; node = $node; installed = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
+                [IO.File]::WriteAllText($marker, ($info | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
+                Write-Host "FastStream helper $version installed: it starts $MpvExe." -ForegroundColor Green
+            }
         }
 
         # -- the add-on ---------------------------------------------------------------------------
