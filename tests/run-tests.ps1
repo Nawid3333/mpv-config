@@ -2364,6 +2364,8 @@ function Initialize-Media([string]$Exe, [bool]$Gpu) {
         @{ Path = 'music-numbered/07 - Quiet Harbor.flac'; Codec = 'flac' }
         @{ Path = 'music-band-number/311 - Amber.flac'; Codec = 'flac' }
         @{ Path = 'music-feat/harbor-lights.mp3'; Codec = 'libmp3lame'; Meta = 'title=Harbor Lights (feat. Juno Vale) [Live],artist=Nova Lane;Echo Harbor' }
+        # an ARTIST tag without a TITLE tag
+        @{ Path = 'music-artist-only/track05.mp3'; Codec = 'libmp3lame'; Meta = 'artist=Nova Lane' }
     )
     foreach ($s in $songs) {
         $file = Join-Path $m $s.Path
