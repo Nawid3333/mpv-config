@@ -97,9 +97,10 @@ local function on_offer(id, seconds, here_title, here_detail, window_title, wind
 		end
 	end
 	local current = { id = id, seconds = seconds_of(seconds), choices = choices }
+	-- left alone: into the queue where it is offered (the owner, 2026-11-25; its x in the panel takes it out again)
 	current.timer = mp.add_timeout(current.seconds, function()
 		if offer == current then
-			answer(current.id, 'none')
+			answer(current.id, current.choices.queue and 'queue' or 'none')
 			close()
 		end
 	end)

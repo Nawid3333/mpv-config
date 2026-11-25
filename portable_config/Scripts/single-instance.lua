@@ -7,7 +7,7 @@ local mp = require('mp')
 local clicks = dofile(mp.command_native({ 'expand-path', '~~/script-modules/banner-click.lua' }))
 
 local o = {
-	banner_seconds = 15, -- how long the choice is offered; no click, and nothing changes
+	banner_seconds = 15, -- how long the choice is offered; no click: into the queue if there is one, else nothing
 }
 require('mp.options').read_options(o, 'single_instance')
 
@@ -119,6 +119,7 @@ local function show_banners(current)
 end
 
 local on_ended -- (below) what plays came to its end while the banners ask
+local choose -- (below) a banner's choice
 
 local function set_offer(new)
 	if expiry then
@@ -142,8 +143,15 @@ local function set_offer(new)
 	offer = new
 	if new then
 		show_banners(new)
+		-- left alone: into the queue where it is offered (the owner, 2026-11-25; its x in the panel takes it out
+		-- again), else nothing changes
 		expiry = mp.add_timeout(o.banner_seconds, function()
-			set_offer(nil)
+			expiry = nil
+			if queued() then
+				choose('queue')
+			else
+				set_offer(nil)
+			end
 		end)
 	end
 	publish()
@@ -259,7 +267,7 @@ end
 -- here: the offered files in place of what plays; queue: behind it, in the queue;
 -- window: the launcher starts a new mpv for them, paused and minimized
 -- (mpv-single.exe --paused)
-local function choose(choice)
+choose = function(choice)
 	local taken = offer
 	if not taken or not BANNERS[choice] or (choice == 'queue' and not queued()) then
 		return
