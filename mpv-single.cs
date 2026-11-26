@@ -366,11 +366,16 @@ static class MpvSingle
         return front ?? minimized ?? elsewhere ?? windowless;
     }
 
-    // A URL is a stream (HLS, YouTube, av://, ...); a path, file:// or nothing
-    // (idle) is local.
+    // A URL is a stream (HLS, YouTube, av://, ...), and so is a FastStream stream mpv plays
+    // from the files its helper wrote (<temp>\faststream-mpv-hls-*\master.m3u8 or <n>.m3u8:
+    // a local path, AGENTS.md); another path, file:// or nothing (idle) is local.
     static bool IsStream(string path)
     {
-        return path != null && Regex.IsMatch(path, @"^[A-Za-z][A-Za-z0-9+.\-]*://") &&
+        if (path == null)
+            return false;
+        if (Regex.IsMatch(path, @"[\\/]faststream-mpv-hls-[^\\/]*[\\/][^\\/]*\.m3u8$", RegexOptions.IgnoreCase))
+            return true;
+        return Regex.IsMatch(path, @"^[A-Za-z][A-Za-z0-9+.\-]*://") &&
             !path.StartsWith("file://", StringComparison.OrdinalIgnoreCase);
     }
 

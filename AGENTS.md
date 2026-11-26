@@ -133,7 +133,7 @@ per-user command over them, the old one kept in `mpv-single-was` for the unregis
 `mpv-register.bat`/`mpv-install.bat` write mpv.exe back, so run it again after them (the
 one-click setup runs it). A local file goes to the front-most mpv window (not a minimized one) that plays a local
 file or nothing - each mpv the launcher starts has its own pipe `mpv-single-<id>` - never to
-a stream's window; `single-instance.lua` takes it and asks with its banners. Ctrl held, or
+a stream's window (a FastStream stream from its helper's `faststream-mpv-hls-*` files too); `single-instance.lua` takes it and asks with its banners. Ctrl held, or
 `--new-window`: a new mpv (`--paused`: it waits paused and minimized, not raised); files opened together: one
 playlist.
 
