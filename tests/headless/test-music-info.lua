@@ -66,6 +66,11 @@ H.run(function()
 	H.eq('... featured', info('featured')(), 'Juno Vale')
 	H.eq('several artists joined', info('artist')(), 'Nova Lane, Echo Harbor')
 
+	-- an ARTIST tag but no TITLE tag: the tagged artist stays, the title comes from the file name
+	H.load(H.media_path('music-artist-only/track05.mp3'))
+	H.expect('artist tag, no title tag: the title from the file name', info('title'), 'track05')
+	H.eq('... and the tagged artist', tostring(info('artist')()), 'Nova Lane')
+
 	-- a video without an artist tag: untouched
 	H.load(H.media_path('plain/clip.mkv'))
 	H.expect("a plain video keeps mpv's own title", function()
