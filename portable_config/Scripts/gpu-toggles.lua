@@ -227,17 +227,24 @@ local costs = saved.costs
 -- Anime lines: 'crisp' runs Anime4K's Restore step (crisper, thinner lines), 'drawn' leaves it out.
 local anime_lines = saved.anime_lines or 'crisp'
 
+local function upscale_state()
+	return { quality = chosen_quality, screen = screen, costs = costs, anime_lines = anime_lines }
+end
+
+-- What this mpv read from upscale.json or last wrote there. Every mpv window reads the file at its start; a save writes
+-- only what changed here since, over what the file holds now (state-file.lua), so a choice or a measurement another
+-- window saved meanwhile stays: each measurement saves, and an older window's whole copy undid them.
+local upscale_written = statefile.copy(upscale_state())
+
 local function save_upscale_state()
 	if not opts.remember then
 		return
 	end
-	local json =
-		utils.format_json({ quality = chosen_quality, screen = screen, costs = costs, anime_lines = anime_lines })
-	local ok, err = false, 'cannot serialize the upscale state'
-	if json then
-		ok, err = statefile.write(UPSCALE_FILE, json)
-	end
-	if not ok then
+	local now = upscale_state()
+	local ok, err = statefile.write_changes(UPSCALE_FILE, now, upscale_written, 'upscale.json')
+	if ok then
+		upscale_written = statefile.copy(now)
+	else
 		msg.warn(err)
 	end
 end
@@ -1244,6 +1251,8 @@ end
 local function forget_measurements()
 	costs = {}
 	told = {}
+	-- every measurement on this PC goes, other windows' too: the costs are written whole, not only the ones known here
+	upscale_written.costs = nil
 	save_upscale_state()
 	-- also when Auto has it off right now: a choice made here may turn it back on
 	if upscale_mode ~= 0 then
