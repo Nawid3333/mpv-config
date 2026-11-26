@@ -2011,6 +2011,7 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
         $pkgPath = & $ask $pkgPipe 'path'
         Test-Check $t "... and with only FastStream's stream from the helper's files playing too" (
             $count -eq 1 -and $pkgPath -like '*faststream-mpv-hls-tst201*0.m3u8') "$count mpv players, the stream mpv plays $pkgPath"
+        $package | Stop-Process -Force -ErrorAction SilentlyContinue
 
         # an mpv without single-instance.lua, on the pipe name older launchers gave every mpv
         & $players | Stop-Process -Force -ErrorAction SilentlyContinue
