@@ -145,7 +145,9 @@ function M.write_changes(path, now, base, name)
 			return false, name .. ' could not be read: not saving over it'
 		end
 		if file then
-			out = file
+			-- plain tables: mpv's JSON reader marks a table read from [] as an array, and string keys put into it
+			-- were dropped when it was written again (an empty "screens" took no screen)
+			out = M.copy(file)
 			for key, value in pairs(now) do
 				local old = base[key]
 				if type(value) == 'table' and type(old) == 'table' then
