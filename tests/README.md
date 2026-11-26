@@ -21,6 +21,11 @@ each test took on CI (`$ShardSeconds`, a new test counts 5 s until it is added),
 first into the lighter shard, so a new test is always in exactly one; the static check `shards`
 proves it for 1-4 shards and that no weight names a test that is gone. Each shard runs one mpv
 at a time, as one job did. The gpu tier is local only.
+On CI a failed check is an error annotation on the pull request's page (`[test] check`, and what it
+got; the first ten of a job) and a line in the run's summary, and an error of the runner itself is
+annotated too: why a run is red shows without opening its log. A new test is shown red without its
+fix in a run started by hand on the branch (`gh workflow run regression-tests.yml --ref <branch>`),
+not on the pull request, which gets the fix with it.
 
 ## Rules the suite follows (keep them when adding tests)
 

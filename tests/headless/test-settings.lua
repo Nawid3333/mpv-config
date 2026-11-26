@@ -239,6 +239,21 @@ H.run(function()
 		H.eq('... and the wait (5 s)', mp.get_property('options/cache-pause-wait'), '5.000000')
 		H.load(H.media_path('hdr/pq.mkv'))
 		H.expect('... and the HDR brightness (350 for the HDR clip)', peak, '350')
+		-- Another mpv window saves meanwhile (each window reads settings.json at its start): a choice made here writes
+		-- only that choice, not this window's older copy of the rest - the other window's choices stay.
+		local other = saved() or {}
+		other.alang = 'fr,en'
+		other.screens = { ['1280x720@60'] = { label = '1280x720 60 Hz', seen = '2026-11-26', hdr_peak = 600 } }
+		local out = assert(io.open(mp.command_native({ 'expand-path', '~~state/settings.json' }), 'w'))
+		out:write(utils.format_json(other))
+		out:close()
+		set('slang', 'en')
+		H.expect('a choice made here is saved', function()
+			return (saved() or {}).slang
+		end, 'en')
+		local merged = saved() or {}
+		H.eq("... another window's choice saved meanwhile stays", merged.alang, 'fr,en')
+		H.eq('... and the screen it saw', ((merged.screens or {})['1280x720@60'] or {}).hdr_peak, 600)
 	elseif PHASE == 'legacy' then
 		H.eq('a PC that ran this config before keeps slang=de,en', mp.get_property('slang'), 'de,en')
 		H.eq('... alang=de,en', mp.get_property('alang'), 'de,en')
