@@ -134,7 +134,7 @@ per-user command over them, the old one kept in `mpv-single-was` for the unregis
 `mpv-register.bat`/`mpv-install.bat` write mpv.exe back, so run it again after them (the
 one-click setup runs it). A local file goes to the front-most mpv window (not a minimized one) that plays a local
 file or nothing - each mpv the launcher starts has its own pipe `mpv-single-<id>` - never to
-a stream's window; `single-instance.lua` takes it and asks with its banners. Ctrl held, or
+a stream's window (a FastStream stream from its helper's `faststream-mpv-hls-*` files too); `single-instance.lua` takes it and asks with its banners. Ctrl held, or
 `--new-window`: a new mpv (`--paused`: it waits paused and minimized, not raised); files opened together: one
 playlist.
 
@@ -355,5 +355,5 @@ runs both on every push and pull request (lls pinned with its SHA-256 in lint-lu
 
 ## Open items
 
-None: the Up next card's look and the card for local files are done (doc/history). A new open
-item or hand test starts a new `TODO.md`; finished work goes to doc/history.
+`TODO.md`: leads from the review of 2026-11-26, not reproduced yet. A new open item or hand
+test goes there; finished work goes to doc/history.

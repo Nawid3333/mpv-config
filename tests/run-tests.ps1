@@ -1390,6 +1390,27 @@ function Invoke-StaticCheck {
     $refused = try { $null = ConvertTo-7ZipNotice 'no such row' '99.01' $newSha; $false } catch { $true }
     Test-Check $t 'upstream-watch.ps1 moves the 7zr.exe row to a new release, and refuses a text without it' `
         ($sevenZrRow.Success -and $moved -ceq $expected -and $moved -cne $noticeText -and $refused)
+    # Its one issue closes only when every upstream was read and nothing is behind: an
+    # upstream it could not read keeps an open issue open (closed, the issue would say all is
+    # at its newest, and the next run would leave the same report closed for good).
+    $openIssue = [pscustomobject]@{ state = 'OPEN'; body = "report`r`n" }
+    $closedIssue = [pscustomobject]@{ state = 'CLOSED'; body = "report`r`n" }
+    $issueCases = @(
+        @('nothing behind, every upstream read, the issue open', 0, 0, $openIssue, 'report', 'close'),
+        @('nothing behind, an upstream not read, the issue open', 0, 1, $openIssue, 'report', 'none'),
+        @('nothing behind, no issue', 0, 0, $null, 'report', 'none'),
+        @('behind, no issue', 1, 0, $null, 'report', 'create'),
+        @('behind, closed with this report', 1, 0, $closedIssue, 'report', 'left-closed'),
+        @('behind, closed with another report', 1, 1, $closedIssue, 'news', 'reopen'),
+        @('behind, open with this report', 1, 0, $openIssue, 'report', 'none'),
+        @('behind, open with another report', 1, 1, $openIssue, 'news', 'edit')
+    )
+    $issueBad = @($issueCases | ForEach-Object {
+            $got = Get-IssueAction $_[1] $_[2] $_[3] $_[4]
+            if ($got -ne $_[5]) { "$($_[0]): $got, want $($_[5])" }
+        })
+    Test-Check $t "upstream-watch.ps1 closes its issue only when every upstream was read and nothing is behind ($($issueCases.Count) cases)" `
+        ($issueBad.Count -eq 0) ($issueBad -join '; ')
 
     # -- what a pull request changes that CI cannot test on a GPU (gpu-flag.ps1) ----------
     # Its title gets "[GPU: <areas>]" and its check "GPU tier (local)" waits for the gpu
@@ -1404,6 +1425,7 @@ function Invoke-StaticCheck {
         @{ Name = 'a shader'; Files = @(& $file 'portable_config/shaders/Anime4K_Clamp_Highlights.glsl' ''); Want = '[GPU: shaders]' }
         @{ Name = 'gpu-toggles.lua, once'; Files = @(& $file 'portable_config/Scripts/gpu-toggles.lua' "@@`n+mp.set_property('glsl-shaders', x)"); Want = '[GPU: gpu-toggles]' }
         @{ Name = "mpv.conf's hwdec"; Files = @(& $file 'portable_config/mpv.conf' "@@`n-hwdec=d3d11va-copy,no`n+hwdec=auto"); Want = '[GPU: mpv.conf]' }
+        @{ Name = "mpv.conf's inverse-tone-mapping"; Files = @(& $file 'portable_config/mpv.conf' "@@`n+inverse-tone-mapping=yes"); Want = '[GPU: mpv.conf]' }
         @{ Name = "mpv.conf's OSD font size"; Files = @(& $file 'portable_config/mpv.conf' "@@`n-osd-font-size=30`n+osd-font-size=32"); Want = '' }
         @{ Name = 'a script that sets target-peak'; Files = @(& $file 'portable_config/Scripts/settings.lua' "@@`n+`tmp.set_property('target-peak', peak)"); Want = '[GPU: scripts]' }
         @{ Name = 'hwdec in a Lua comment'; Files = @(& $file 'portable_config/Scripts/settings.lua' "@@`n+`t-- set 'hwdec' elsewhere"); Want = '' }
@@ -1485,6 +1507,10 @@ function Invoke-StaticCheck {
             if ($got -ne $c.Want) { "$($c.Name): got '$got', want '$($c.Want)'" }
         })
     Test-Check $t "gpu-flag.ps1 flags what CI cannot test on a GPU, and nothing else ($($flagCases.Count) cases)" ($flagBad.Count -eq 0) ($flagBad -join '; ')
+    # A file only renamed is told by its "changes" (0): GitHub sends it only when the file list asks for it, and
+    # without it every rename of a script read as a diff too large to show ([GPU: unknown]).
+    $flagFields = [regex]::Match((Get-Content -LiteralPath (Join-Path $RepoRoot '.github/scripts/gpu-flag.ps1') -Raw), 'pulls/\$Pr/files[^\r\n]*\{([^}]*)\}').Groups[1].Value
+    Test-Check $t "gpu-flag.ps1 asks GitHub for each file's changes (a rename only is no GPU work)" ($flagFields -match '\bchanges\b') "it asks for {$flagFields}"
 
     # -- what mpv's own CI said of a build's commit (upstream-ci.ps1, mpv-auto-update.yml) -
     # A build of a commit mpv's CI failed is not offered; mpv's macOS jobs do not count, and a
@@ -1641,6 +1667,14 @@ function Invoke-StaticCheck {
             Test-Check $t "commit guard: an added line with $($kv.Key) is refused" (
                 $r.Code -ne 0 -and $r.Out -match 'user folder path or a private claude') $r.Out
         }
+        # a line that starts with "++ " reads "+++ ..." in the diff, like a file's header line
+        Write-GuardFile 'notes.md' ('++ C:' + '\Users\' + 'someone\Videos')
+        $null = Invoke-Git add notes.md
+        $r = Invoke-Git commit -q -m 'leak'
+        Test-Check $t '... also on an added line that starts with "++ " (in the diff "+++ ", as a header)' (
+            $r.Code -ne 0 -and $r.Out -match 'user folder path or a private claude') "exit $($r.Code) $($r.Out)"
+        # one let through stays out of the history the push guard's cases below send
+        if ($r.Code -eq 0) { $null = Invoke-Git reset -q --soft HEAD~1 }
         Write-GuardFile 'notes.md' 'see C:\Users\<name>\Videos'
         $null = Invoke-Git add notes.md
         $r = Invoke-Git commit -q -m 'placeholder'
@@ -1708,6 +1742,7 @@ function Invoke-StaticCheck {
             'a user folder path in a commit message'      = { Invoke-Git commit -q --no-verify --allow-empty -m ('see C:' + '\Users\' + 'someone\Videos') }
             'an e-mail address in a commit message'       = { Invoke-Git commit -q --no-verify --allow-empty -m ('from jane' + '@example.net') }
             'an added line with a private word'           = { Write-GuardFile 'notes.md' 'written by jane example'; Invoke-Git commit -q --no-verify -am 'notes' }
+            'a private word on a line that starts with ++' = { Write-GuardFile 'notes.md' '++ written by jane example'; Invoke-Git commit -q --no-verify -am 'notes' }
             'an added line with an e-mail address'        = { Write-GuardFile 'notes.md' ('mail jane' + '@example.net'); Invoke-Git commit -q --no-verify -am 'notes' }
             'a word one commit adds and the next removes' = {
                 Write-GuardFile 'notes.md' 'written by jane example'; Invoke-Git commit -q --no-verify -am 'notes'
@@ -1726,6 +1761,8 @@ function Invoke-StaticCheck {
                 $r.Code -ne 0 -and $r.Out -match 'Push refused' -and (& git -C $bare rev-parse main) -eq $published -and
                 $r.Out -notmatch 'jane|someone') $r.Out
             $null = Invoke-Git reset -q --hard $published
+            # a leak let through moved the remote: put it back, or every later case fails as non-fast-forward
+            $null = & git -C $bare update-ref refs/heads/main $published
         }
         # what the remote gets besides commits: the branch name (a word a name can hold: a
         # PC name), an annotated tag
@@ -1854,7 +1891,7 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
     Set-Content -LiteralPath (Join-Path $dir 'portable_config/mpv.conf') (
         "vo=null`nao=null`nkeep-open=no`nidle=no`nload-scripts=no`nscript=~~/single-instance.lua`nscript=~~/auto-start.lua`n" +
         "script-opts=single_instance-banner_seconds=60`nloop-file=inf")
-    foreach ($n in 'a', 'b', 'c', 'd', 'e', 'f', 'g') { Copy-Item -LiteralPath (Join-Path $Media 'plain/clip.mkv') (Join-Path $dir "media/$n.mkv") }
+    foreach ($n in 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h') { Copy-Item -LiteralPath (Join-Path $Media 'plain/clip.mkv') (Join-Path $dir "media/$n.mkv") }
     $launcher = Join-Path $dir 'mpv-single.exe'
     $open = { param([string]$Name) Start-Process -FilePath $launcher -ArgumentList ('"' + (Join-Path $dir "media/$Name.mkv") + '"') }
     $players = { @(Get-Process mpv -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq (Join-Path $dir 'mpv.exe') }) }
@@ -1906,7 +1943,7 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
         }
     }
     $prefix = 'mpv-regression-single'
-    $stream = $other = $bare = $null
+    $stream = $other = $bare = $package = $null
     try {
         $env:MPV_SINGLE_PIPE_PREFIX = $prefix
         foreach ($n in 'a', 'b', 'c') { & $open $n }
@@ -2003,6 +2040,28 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
         Test-Check $t 'with only a stream playing, a local file gets its own mpv' (
             $count -eq 1 -and $streamPath -like 'av://*') "$count mpv players, the stream mpv plays $streamPath"
 
+        # FastStream's helper wrote the stream to files (<temp>\faststream-mpv-hls-*\0.m3u8): mpv plays a local
+        # path, and it is a stream all the same - the only other mpv on a launcher pipe, it does not get the file
+        & $players | Stop-Process -Force -ErrorAction SilentlyContinue
+        & $waitFor { @(& $players).Count -eq 0 }
+        $pkgDir = Join-Path $dir 'faststream-mpv-hls-tst201'
+        $null = New-Item -ItemType Directory -Force $pkgDir
+        Copy-Item -LiteralPath (Join-Path $Media 'hls-long/long.ts') $pkgDir
+        [IO.File]::WriteAllText((Join-Path $pkgDir '0.m3u8'), ("#EXTM3U`n#EXT-X-VERSION:3`n#EXT-X-TARGETDURATION:180`n" +
+                "#EXT-X-PLAYLIST-TYPE:VOD`n#EXTINF:180.0,`nlong.ts`n#EXT-X-ENDLIST`n"))
+        $pkgPipe = "$prefix-package"
+        $package = Start-Process -FilePath (Join-Path $dir 'other/mpv.exe') -PassThru -WindowStyle Hidden -ArgumentList '--no-config',
+        '--idle=yes', '--vo=null', '--ao=null', "--input-ipc-server=\\.\pipe\$pkgPipe", ('"' + (Join-Path $pkgDir '0.m3u8') + '"')
+        & $waitFor { (& $ask $pkgPipe 'path') -like '*0.m3u8' } 10000
+        & $open 'h'
+        & $launchersDone
+        & $waitFor { @(& $players).Count -eq 1 }
+        $count = @(& $players).Count
+        $pkgPath = & $ask $pkgPipe 'path'
+        Test-Check $t "... and with only FastStream's stream from the helper's files playing too" (
+            $count -eq 1 -and $pkgPath -like '*faststream-mpv-hls-tst201*0.m3u8') "$count mpv players, the stream mpv plays $pkgPath"
+        $package | Stop-Process -Force -ErrorAction SilentlyContinue
+
         # an mpv without single-instance.lua, on the pipe name older launchers gave every mpv
         & $players | Stop-Process -Force -ErrorAction SilentlyContinue
         $stream | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -2020,7 +2079,7 @@ function Invoke-LauncherCheck([string]$Exe, [string]$Media) {
     }
     finally {
         Remove-Item Env:MPV_SINGLE_PIPE_PREFIX -ErrorAction SilentlyContinue
-        foreach ($p in $stream, $other, $bare) { if ($p) { $p | Stop-Process -Force -ErrorAction SilentlyContinue } }
+        foreach ($p in $stream, $other, $bare, $package) { if ($p) { $p | Stop-Process -Force -ErrorAction SilentlyContinue } }
         & $players | Stop-Process -Force -ErrorAction SilentlyContinue
         Get-Process mpv-single -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $launcher } | Stop-Process -Force -ErrorAction SilentlyContinue
     }

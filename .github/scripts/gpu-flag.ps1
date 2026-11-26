@@ -20,7 +20,7 @@ $GpuStatus = 'GPU tier (local)'
 $GpuOption = '^(vo|gpu-.*|vulkan-.*|d3d11-.*|spirv-.*|hwdec.*|vd-lavc-film-grain|profile|' +
 'scale.*|cscale.*|dscale.*|tscale.*|correct-downscaling|linear-.*|sigmoid-.*|glsl-.*|' +
 'deband.*|dither.*|temporal-dither.*|error-diffusion|interpolation.*|video-sync.*|' +
-'display-fps.*|swapchain-depth|target-.*|tone-mapping.*|hdr-.*|gamut-.*|icc-.*|' +
+'display-fps.*|swapchain-depth|target-.*|tone-mapping.*|inverse-tone-mapping|hdr-.*|gamut-.*|icc-.*|' +
 'video-output-levels|fbo-format|libplacebo-.*|blend-subtitles|opengl-.*|deinterlace.*|vf)$'
 
 # Files of this repository that are GPU work as a whole, by area.
@@ -194,7 +194,7 @@ function Get-ChangedFile([string]$Upstream, [string]$From, [string]$To) {
 
 $pull = Invoke-Gh @('api', "repos/$Repo/pulls/$Pr") | ConvertFrom-Json
 $sha = $pull.head.sha
-$files = @(Invoke-Gh @('api', '--paginate', "repos/$Repo/pulls/$Pr/files", '--jq', '.[] | {filename, patch, status, previous_filename}') |
+$files = @(Invoke-Gh @('api', '--paginate', "repos/$Repo/pulls/$Pr/files", '--jq', '.[] | {filename, patch, status, previous_filename, changes}') |
         ForEach-Object { $_ | ConvertFrom-Json })
 $unread = @()
 # GitHub lists at most 3000 files of a pull request

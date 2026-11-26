@@ -61,10 +61,10 @@ check_commit() {
 	# a merge: what it adds to its first parent (the other side's commits are checked too)
 	names=$(git diff-tree -r -m --first-parent --root --no-commit-id --name-only --no-renames --diff-filter=AMT "$1")
 	lines=$(git diff-tree -p -m --first-parent --root --no-commit-id --no-color --no-ext-diff -U0 "$1" |
-		sed -n '/^+++ /d; s/^+//p')
+		added_lines)
 	# the same without mpv's manual (privacy.sh)
 	checked=$(git diff-tree -p -m --first-parent --root --no-commit-id --no-color --no-ext-diff -U0 "$1" -- . "$private_path_skip" |
-		sed -n '/^+++ /d; s/^+//p')
+		added_lines)
 	if printf '%s\n' "$checked" | grep -q -i -E "$private_path_re"; then
 		note 'an added line holds a user folder path or a private claude.ai link'
 	fi
