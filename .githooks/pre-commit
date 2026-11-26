@@ -84,10 +84,10 @@ if [ -n "$ignored" ]; then
 fi
 
 # -- 2c ------------------------------------------------------------------------
-lines=$(git diff --cached --no-color --no-ext-diff -U0 "$against" | sed -n '/^+++ /d; s/^+//p')
+lines=$(git diff --cached --no-color --no-ext-diff -U0 "$against" | added_lines)
 # the same without mpv's manual (privacy.sh)
 checked=$(git diff --cached --no-color --no-ext-diff -U0 "$against" -- . "$private_path_skip" |
-	sed -n '/^+++ /d; s/^+//p')
+	added_lines)
 # -i: Windows paths are written in any case (c:\users\... too)
 hits=$(printf '%s\n' "$checked" | grep -n -i -E "$private_path_re" | head -5)
 if [ -n "$hits" ]; then

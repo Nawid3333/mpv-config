@@ -1390,6 +1390,27 @@ function Invoke-StaticCheck {
     $refused = try { $null = ConvertTo-7ZipNotice 'no such row' '99.01' $newSha; $false } catch { $true }
     Test-Check $t 'upstream-watch.ps1 moves the 7zr.exe row to a new release, and refuses a text without it' `
         ($sevenZrRow.Success -and $moved -ceq $expected -and $moved -cne $noticeText -and $refused)
+    # Its one issue closes only when every upstream was read and nothing is behind: an
+    # upstream it could not read keeps an open issue open (closed, the issue would say all is
+    # at its newest, and the next run would leave the same report closed for good).
+    $openIssue = [pscustomobject]@{ state = 'OPEN'; body = "report`r`n" }
+    $closedIssue = [pscustomobject]@{ state = 'CLOSED'; body = "report`r`n" }
+    $issueCases = @(
+        @('nothing behind, every upstream read, the issue open', 0, 0, $openIssue, 'report', 'close'),
+        @('nothing behind, an upstream not read, the issue open', 0, 1, $openIssue, 'report', 'none'),
+        @('nothing behind, no issue', 0, 0, $null, 'report', 'none'),
+        @('behind, no issue', 1, 0, $null, 'report', 'create'),
+        @('behind, closed with this report', 1, 0, $closedIssue, 'report', 'left-closed'),
+        @('behind, closed with another report', 1, 1, $closedIssue, 'news', 'reopen'),
+        @('behind, open with this report', 1, 0, $openIssue, 'report', 'none'),
+        @('behind, open with another report', 1, 1, $openIssue, 'news', 'edit')
+    )
+    $issueBad = @($issueCases | ForEach-Object {
+            $got = Get-IssueAction $_[1] $_[2] $_[3] $_[4]
+            if ($got -ne $_[5]) { "$($_[0]): $got, want $($_[5])" }
+        })
+    Test-Check $t "upstream-watch.ps1 closes its issue only when every upstream was read and nothing is behind ($($issueCases.Count) cases)" `
+        ($issueBad.Count -eq 0) ($issueBad -join '; ')
 
     # -- what a pull request changes that CI cannot test on a GPU (gpu-flag.ps1) ----------
     # Its title gets "[GPU: <areas>]" and its check "GPU tier (local)" waits for the gpu
@@ -1646,6 +1667,14 @@ function Invoke-StaticCheck {
             Test-Check $t "commit guard: an added line with $($kv.Key) is refused" (
                 $r.Code -ne 0 -and $r.Out -match 'user folder path or a private claude') $r.Out
         }
+        # a line that starts with "++ " reads "+++ ..." in the diff, like a file's header line
+        Write-GuardFile 'notes.md' ('++ C:' + '\Users\' + 'someone\Videos')
+        $null = Invoke-Git add notes.md
+        $r = Invoke-Git commit -q -m 'leak'
+        Test-Check $t '... also on an added line that starts with "++ " (in the diff "+++ ", as a header)' (
+            $r.Code -ne 0 -and $r.Out -match 'user folder path or a private claude') "exit $($r.Code) $($r.Out)"
+        # one let through stays out of the history the push guard's cases below send
+        if ($r.Code -eq 0) { $null = Invoke-Git reset -q --soft HEAD~1 }
         Write-GuardFile 'notes.md' 'see C:\Users\<name>\Videos'
         $null = Invoke-Git add notes.md
         $r = Invoke-Git commit -q -m 'placeholder'
@@ -1713,6 +1742,7 @@ function Invoke-StaticCheck {
             'a user folder path in a commit message'      = { Invoke-Git commit -q --no-verify --allow-empty -m ('see C:' + '\Users\' + 'someone\Videos') }
             'an e-mail address in a commit message'       = { Invoke-Git commit -q --no-verify --allow-empty -m ('from jane' + '@example.net') }
             'an added line with a private word'           = { Write-GuardFile 'notes.md' 'written by jane example'; Invoke-Git commit -q --no-verify -am 'notes' }
+            'a private word on a line that starts with ++' = { Write-GuardFile 'notes.md' '++ written by jane example'; Invoke-Git commit -q --no-verify -am 'notes' }
             'an added line with an e-mail address'        = { Write-GuardFile 'notes.md' ('mail jane' + '@example.net'); Invoke-Git commit -q --no-verify -am 'notes' }
             'a word one commit adds and the next removes' = {
                 Write-GuardFile 'notes.md' 'written by jane example'; Invoke-Git commit -q --no-verify -am 'notes'
@@ -1731,6 +1761,8 @@ function Invoke-StaticCheck {
                 $r.Code -ne 0 -and $r.Out -match 'Push refused' -and (& git -C $bare rev-parse main) -eq $published -and
                 $r.Out -notmatch 'jane|someone') $r.Out
             $null = Invoke-Git reset -q --hard $published
+            # a leak let through moved the remote: put it back, or every later case fails as non-fast-forward
+            $null = & git -C $bare update-ref refs/heads/main $published
         }
         # what the remote gets besides commits: the branch name (a word a name can hold: a
         # PC name), an annotated tag

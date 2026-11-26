@@ -13,6 +13,13 @@ email_re='[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
 # (support@github.com: Dependabot signs its commits with it)
 noreply_re='(noreply@anthropic\.com|noreply@github\.com|support@github\.com|@users\.noreply\.github\.com|@example\.(com|org))$'
 
+# The lines a diff (git diff, git diff-tree -p) adds, without their "+". A file's header
+# ("+++ b/<path>") sits between its "diff --" line and its first hunk; an added line that
+# itself starts with "++ " reads "+++ ..." as well, and was taken for a header unchecked.
+added_lines() {
+	awk '/^diff --/ { header = 1; next } /^@@/ { header = 0; next } !header && /^\+/ { print substr($0, 2) }'
+}
+
 # Succeeds when stdin holds an e-mail address that is not a noreply one
 private_email() {
 	grep -o -E "$email_re" | grep -q -v -i -E "$noreply_re"

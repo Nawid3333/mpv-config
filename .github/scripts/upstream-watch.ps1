@@ -313,6 +313,21 @@ function Get-7ZipOffer($Row, [string]$Root) {
     }
 }
 
+# What the run does with the one issue: close, create, reopen (and rewrite), edit, left-closed
+# or none. An upstream that could not be read says nothing about whether it is still behind:
+# an open issue stays open then. Closed for it, the issue said everything was at its newest,
+# and the next run, finding it closed with the same report, took that close for the owner's
+# and left it closed while the item was still behind.
+function Get-IssueAction([int]$Behind, [int]$Failed, $Issue, [string]$Body) {
+    if ($Behind -eq 0) {
+        return ($Issue -and $Issue.state -eq 'OPEN' -and $Failed -eq 0) ? 'close' : 'none'
+    }
+    if (-not $Issue) { return 'create' }
+    $same = ("$($Issue.body)" -replace "`r", '').Trim() -eq $Body.Trim()
+    if ($Issue.state -ne 'OPEN') { return $same ? 'left-closed' : 'reopen' }
+    return $same ? 'none' : 'edit'
+}
+
 if (-not $Run) { return }
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -351,32 +366,27 @@ if ($DryRun) { return }
 $failed = @($rows | Where-Object Failed)
 $issue = Get-First (Invoke-GhJson @('issue', 'list', '--repo', $Repo, '--state', 'all', '--search', "in:title `"$IssueTitle`"", '--json', 'number,title,state,body') |
         Where-Object title -EQ $IssueTitle | Sort-Object { $_.state -ne 'OPEN' }, { -$_.number })
-if ($behind.Count -eq 0) {
-    if ($issue -and $issue.state -eq 'OPEN') {
+$body = @(
+    "@$Owner Something this repository pins or copies is behind its upstream. This issue is kept up to date once a week (upstream-watch.yml) and closes when nothing is behind."
+    ''
+    $report
+    ''
+    'Dependabot (GitHub Actions), mpv-auto-update.yml (the mpv build) and stylua-update.yml (stylua) keep their own pull requests; yt-dlp, Node.js and the FastStream helper come new with each install and update.'
+) -join "`n"
+$bodyFile = Join-Path ([System.IO.Path]::GetTempPath()) 'upstream-issue.md'
+[System.IO.File]::WriteAllText($bodyFile, $body)
+switch (Get-IssueAction $behind.Count $failed.Count $issue $body) {
+    'close' {
         & gh issue close $issue.number --repo $Repo --comment 'Everything this issue watched is at its upstream''s newest now.' | Out-Null
         if ($LASTEXITCODE) { throw "could not close issue #$($issue.number)" }
     }
-}
-else {
-    $body = @(
-        "@$Owner Something this repository pins or copies is behind its upstream. This issue is kept up to date once a week (upstream-watch.yml) and closes when nothing is behind."
-        ''
-        $report
-        ''
-        'Dependabot (GitHub Actions), mpv-auto-update.yml (the mpv build) and stylua-update.yml (stylua) keep their own pull requests; yt-dlp, Node.js and the FastStream helper come new with each install and update.'
-    ) -join "`n"
-    $bodyFile = Join-Path ([System.IO.Path]::GetTempPath()) 'upstream-issue.md'
-    [System.IO.File]::WriteAllText($bodyFile, $body)
-    $same = $issue -and ($issue.body -replace "`r", '').Trim() -eq $body.Trim()
-    if (-not $issue) {
+    'create' {
         & gh issue create --repo $Repo --title $IssueTitle --body-file $bodyFile --assignee $Owner | Out-Null
         if ($LASTEXITCODE) { throw 'could not open the issue' }
     }
-    elseif ($issue.state -ne 'OPEN' -and $same) {
-        Write-Output "Issue #$($issue.number) was closed with this same report: left closed."
-    }
-    elseif (-not $same) {
-        if ($issue.state -ne 'OPEN') {
+    'left-closed' { Write-Output "Issue #$($issue.number) was closed with this same report: left closed." }
+    { $_ -in 'reopen', 'edit' } {
+        if ($_ -eq 'reopen') {
             & gh issue reopen $issue.number --repo $Repo | Out-Null
             if ($LASTEXITCODE) { throw "could not reopen issue #$($issue.number)" }
         }

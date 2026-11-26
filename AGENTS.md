@@ -355,5 +355,5 @@ runs both on every push and pull request (lls pinned with its SHA-256 in lint-lu
 
 ## Open items
 
-None: the Up next card's look and the card for local files are done (doc/history). A new open
-item or hand test starts a new `TODO.md`; finished work goes to doc/history.
+`TODO.md`: leads from the review of 2026-11-26, not reproduced yet. A new open item or hand
+test goes there; finished work goes to doc/history.
