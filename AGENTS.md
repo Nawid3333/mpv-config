@@ -83,7 +83,7 @@ mpv-build.json), make it again (RECREATE.md section 5).
 menu from trailing menu comments - uosc reads them), `Scripts/*.lua`,
 `script-modules/` (code the scripts load with `dofile`, not scripts themselves: mpv
 runs every file and folder in `Scripts/`; `state-file.lua` writes every state file
-whole or not at all and keeps a damaged one aside, and a file several windows share (settings.json)
+whole or not at all and keeps a damaged one aside, and a file several windows share (settings.json, upscale.json)
 with only what this window changed (`write_changes`); `banner-click.lua` takes a click on
 notify.lua's banners only where they are), `script-opts/*.conf`, `shaders/` (only the files the presets use, committed as
 their sources published them, except the locally modified `adaptive-sharpen.glsl`).
