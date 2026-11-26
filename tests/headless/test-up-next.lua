@@ -75,15 +75,17 @@ H.run(function()
 	H.eq('... no queued item', upcoming().queued, nil)
 	H.eq('... with the file to take its picture from', ends_with(upcoming().path, 'autoload/episode2.mkv'), true)
 
-	-- uosc's bar hidden, 9 s left: no card (only the last 5 s show it). Both are waited for together, and a failure
-	-- names both: uosc shows its bar a moment after the pointer comes (proximity_in) and hides it once the pointer
-	-- rests, and one CI run (2026-11-26) read the bar hidden and found the card up 0.5 s later - what the bar did in
-	-- between is not established.
+	-- uosc's bar hidden, 9 s left: no card (only the last 5 s show it). The pointer leaves the window, which hides the
+	-- bar at once (test-ui-hover.lua): resting in it, the bar was still up on CI after 6 s (2026-11-26, 'bar 1.00'),
+	-- and an earlier run read it hidden before uosc had shown it. Both are waited for together; a failure names both.
 	seek_to(1)
 	bar(false)
+	mp.commandv('keypress', 'MOUSE_LEAVE')
 	H.expect('no card while the bar is hidden and more than 5 s are left', function()
 		return string.format('bar %.2f, card %s', visibility(), tostring(shown() == true))
 	end, 'bar 0.00, card false', nil, 6)
+	-- back at the same pixel: no move, the bar stays hidden (uosc/lib/cursor.lua)
+	mp.commandv('keypress', 'MOUSE_ENTER')
 
 	-- the bar shows: the card, with the next episode's frame
 	bar(true)
