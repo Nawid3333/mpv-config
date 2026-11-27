@@ -331,7 +331,7 @@ AGENTS.md; this file does not repeat them.
   | an HLS stream over a 40 Mbit/s line: the first hover | 1160 ms | 102 ms |
 
   Each alone: every thread 349 -> 190 ms (1080p) and 693 -> 326 ms (4K), 4 threads only 5 %; the GPU 188 and 313 ms, and twice the pictures in the 4K sweep; the shorter wait 50 ms where the keyframe's picture is quick (1080p), nothing on 4K without the GPU; `spawn_first` only the first hover (local files 69 -> 35 ms). On the stream the network decides every later hover (230-240 ms with any of them). What it costs: the thumbnailer is up from the start, not from the first hover, and holds about 100 MB of RAM for the 1080p file (71 MB with 2 threads and no GPU) and 260 MB for the 4K one (the same as before). The thumbnailer still has 128 KiB of demuxer cache and `--vd-lavc-skiploopfilter=all`, as upstream: what a picture costs is the decode from its keyframe.
-- **A quick move from one place to another** (local change, 2026-11-28; the owner: does it lag, get slower, or show the wrong frame, with streams too?). Upstream sent the keyframe seek and the exact one on a 50 ms timer whatever the thumbnailer was doing, and drew every picture that came at the pointer, also the last one at once on a move: after a move the last place's picture showed at the new one, until the new place's came. Now:
+- **A quick move from one place to another** (local change, 2026-11-27, after the one above; the owner: does it lag, get slower, or show the wrong frame, with streams too?). Upstream sent the keyframe seek and the exact one on a 50 ms timer whatever the thumbnailer was doing, and drew every picture that came at the pointer, also the last one at once on a move: after a move the last place's picture showed at the new one, until the new place's came. Now:
   - One seek at a time: the pointer's keyframe, and as soon as its picture came the exact frame. No timer: nothing waits for a period.
   - A new place stops an exact seek still running elsewhere: mpv drops the rest of its decode (1080p: the new place's first picture after 24 ms instead of 57). A keyframe seek is never stopped: mpv ends one it began anyway, and its picture came after the stop and was taken for the new place's (a stream: 21 of 36 moves).
   - A picture is drawn only at its own place, within 30 px of it on the timeline (the window's width stands for the timeline's), or during the same movement (a step over 30 px between two hovers starts a new one): a sweep's pictures, a little behind the pointer, still show; after a jump the thumbnail stays empty until the new place's picture comes. Without the movement rule a fast 4K sweep showed its thumbnail 69-79 % of the time.
@@ -354,6 +354,21 @@ AGENTS.md; this file does not repeat them.
   | the same: the new place's picture within 1.5 s, and when | 15 of 36, 812 ms | 14 of 36, 1126 ms | 33 of 36, 629 ms (713) |
 
   The script itself, with only a log added, in the same bench (3 runs each): 1080p 27 / 132 ms, 4K 66 / 265 ms, the 40 Mbit/s stream 198 / 689 ms; one wrong picture in 108 moves, for 1 ms; no seek given up. The 4K one above: the exact seek stopped was 0.1 s after its keyframe, nearly done, and its picture still came 27 ms after the stop; drawing no first picture after a stop (to be sure) cost every other move its keyframe picture (4K: 180 ms instead of 65), so it is not done.
+
+  On the real renderer (the same day, afterwards): the main player fullscreen and playing on the full config (gpu-next, its hwdec, a copy of the shader cache), the same moves and sweep, this script against main's (upstream's scheduling), interleaved, 3 runs each:
+
+  | | Main | Now |
+  |---|---|---|
+  | 1080p: first picture / exact frame | 64 / 435 ms | 25 / 125 ms |
+  | 1080p: a wrong picture | 36 of 36, 2.1 s in all | 2 of 36, 3 ms in all |
+  | 4K: first picture / exact frame | 135 / 671 ms | 44 / 221 ms |
+  | 4K: a wrong picture | 36 of 36, 4.6 s | 2 of 36, 80 ms |
+  | the 40 Mbit/s stream: first picture / exact frame | 199 / 690 ms | 186 / 669 ms |
+  | the same: a wrong picture | 33 of 36, 6 s | none |
+  | the sweep: the exact frame after it (1080p / 4K / stream) | 600 / 840 / 1020 ms | 200 / 210 / 970 ms |
+  | the main player: dropped / delayed frames | 0 / 0 | 0 / 0 |
+
+  One 4K move a run counted as "no exact frame" was the bench's: the frame at 64.4 s and the keyframe at 65 s look alike, and the GPU-decoded thumbnail was nearer the keyframe's reference (3.2) than its own (3.6). It came 0.37 s after the move.
 - For the tests: `user-data/thumbfast/stream-options` lists the names of the options the last stream thumbnailer got, never their values.
 
 ## Script modules
