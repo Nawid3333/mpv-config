@@ -197,7 +197,7 @@ engineering log; `AGENTS.md` holds the current state and is read first).
 - Not measured: the real renderer (gpu-next with the upscale chain) while the thumbnailer decodes; the bench had
   no window. The gpu tier runs before a merge.
 
-## 2026-11-28: a quick move on the timeline
+## 2026-11-27: a quick move on the timeline
 
 - The owner: when the pointer rests on one place and quickly goes to another, does it stay fast, lag, or show the
   wrong frame, with streams too? Measured with the same bench, now with what reached the screen: the log has each
@@ -218,3 +218,6 @@ engineering log; `AGENTS.md` holds the current state and is read first).
   there (298 vs 189 ms for the first); 2 threads alone changed nothing (293 ms), so a stream decodes as upstream.
 - Left: on 4K one move in 36 showed a stopped exact seek's picture for 67 ms (it was nearly done); and a slow
   line's picture still takes as long as its download (thumbnailer cache 128 KiB, as upstream).
+- The same bench on the real renderer afterwards (the main player fullscreen and playing on the full config; the
+  pull request's gpu tier 1851/1851): no dropped or delayed frame of the main player in 18 runs, this script and
+  main's alike; the numbers are in doc/scripts.md.
