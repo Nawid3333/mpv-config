@@ -1085,10 +1085,19 @@ function Invoke-StaticCheck {
         $thumbfastLua.Contains('show_or_hide(time, script)') -and
         $thumbfastLua -notmatch 'seek_timer' -and
         $thumbfastLua.Contains("pipe:write('{`"command`":[`"disable_event`",`"all`"]}\n')")) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
+    # A stream's buffered part was fetched from the network a second time, 125-600 ms a picture; each picture waited
+    # up to 1/60 s more for the look that finds it (doc/scripts.md).
+    Test-Check $t 'thumbfast local change present: a stream''s buffered part from this mpv''s cache, a picture looked for every 2 ms' (
+        $thumbfastLua.Contains("mp.command_native_async({ 'dump-cache', from + 0.05, stop, path }") -and
+        $thumbfastLua.Contains('local function mkv_keyframes(path)') -and
+        $thumbfastLua.Contains('local function source_load(time, exact)') -and
+        $thumbfastLua.Contains("mp.register_event('end-file', end_chunks)") -and
+        $thumbfastLua.Contains('local file_check_period = 0.002')) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
     $thumbfastConf = Get-Content -Raw (Join-Path $Cfg 'script-opts/thumbfast.conf')
     Test-Check $t 'thumbfast.conf: thumbnails for streams (network=yes)' ($thumbfastConf -match '(?m)^network=yes\r?$')
     Test-Check $t 'thumbfast.conf: the thumbnailer starts with the file and decodes as this mpv does (spawn_first=yes, hwdec=yes)' (
         $thumbfastConf -match '(?m)^spawn_first=yes\r?$' -and $thumbfastConf -match '(?m)^hwdec=yes\r?$')
+    Test-Check $t 'thumbfast.conf: a stream''s buffered part from this mpv''s cache (stream_cache=yes)' ($thumbfastConf -match '(?m)^stream_cache=yes\r?$')
     $uoscIntl = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/lib/intl.lua')
     Test-Check $t 'uosc local change present: intl.lua reads the subtitle languages from settings.json (settings.lua)' (
         $uoscIntl.Contains("'~~state/settings.json'") -and $uoscIntl.Contains('settings_slang() or')) 're-apply it after a uosc update (AGENTS.md)'

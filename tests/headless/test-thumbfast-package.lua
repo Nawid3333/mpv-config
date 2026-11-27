@@ -3,7 +3,8 @@
 -- path is local, its media comes from the network. The thumbnailer starts idle and gets the stream over its pipe,
 -- with this mpv's per-file options (the helper's headers and demuxer options) and the lowest HLS bitrate; a local
 -- file stays on its command line, as upstream has it. A thumbnail file proves the thumbnailer opened what it got.
--- A private window's stream gets none.
+-- A private window's stream gets none. Once this mpv has cached the stream, its pictures come from that cache, written
+-- out in chunks beside the thumbnail file, not from the stream a second time (stream_cache); the chunks go with the file.
 -- The thumbnailer is the runner's mpv.exe (thumbfast-mpv_path, run-tests.ps1).
 local H = dofile(debug.getinfo(1, 'S').source:match('^@(.*[/\\])[^/\\]+[/\\][^/\\]+$') .. 'lib/harness.lua')
 local utils = require('mp.utils')
@@ -26,14 +27,14 @@ local function options_sent()
 	return names and table.concat(names, ',') or 'none'
 end
 
--- Hovers the timeline at 5 s, as uosc does, and waits for the thumbnail.
-local function thumbnail(name)
+-- Hovers the timeline (at 5 s), as uosc does, and waits for the thumbnail.
+local function thumbnail(name, time)
 	if not last then
 		return H.fail(name, 'no thumbfast-info')
 	end
 	local made = last.thumbnail .. '.bgra'
 	os.remove(made)
-	mp.commandv('script-message-to', 'thumbfast', 'thumb', '5', '40', '40')
+	mp.commandv('script-message-to', 'thumbfast', 'thumb', time or '5', '40', '40')
 	H.check(
 		name,
 		H.wait_until(function()
@@ -47,6 +48,21 @@ H.run(function()
 	H.expect('a helper playlist: thumbnails', state, 'on', nil, 5)
 	thumbnail('... the thumbnailer opens it from its pipe')
 	H.eq('... its own HLS variant, the lowest, at the time hovered', options_sent(), 'hls-bitrate,start,vid')
+	H.expect('... cached whole', function()
+		return (mp.get_property_native('demuxer-cache-state') or {})['eof-cached'] and 'yes' or 'no'
+	end, 'yes', nil, 10)
+	local chunk = (last and last.thumbnail or 'no thumbfast-info') .. '-c1.mkv'
+	H.check(
+		'... written out in chunks',
+		H.wait_until(function()
+			return utils.file_info(chunk) ~= nil
+		end, 10),
+		'no ' .. chunk
+	)
+	thumbnail('... a hover further on', '100')
+	H.expect('... takes its picture from them', function()
+		return mp.get_property_native('user-data/thumbfast/source') or 'none'
+	end, 'cache', nil, 10)
 
 	mp.del_property('user-data/thumbfast/stream-options')
 	last = nil
@@ -54,6 +70,9 @@ H.run(function()
 	H.expect('a local file: thumbnails', state, 'on', nil, 5)
 	thumbnail('... the thumbnailer opens it from its command line')
 	H.eq('... nothing over the pipe', options_sent(), 'none')
+	H.expect('... the chunks of the stream before it are gone', function()
+		return utils.file_info(chunk) and 'there' or 'gone'
+	end, 'gone', nil, 5)
 
 	-- A private window's stream leaves no files behind (faststream-private.lua): no thumbnails. Its fs-private tag
 	-- on a copy of the local file, the way FastStream tags a stream's address.

@@ -309,8 +309,9 @@ mp.utils = {}
 
 ---Returns an array of file/directory names in path.
 ---@param path string
+---@param filter? "files"|"dirs"|"normal"|"all"
 ---@return string[]|nil
-function mp.utils.readdir(path) end
+function mp.utils.readdir(path, filter) end
 
 ---Returns file info: stat {size, atime, mtime, ctime} or mode ("file"/"dir").
 ---@param path string
