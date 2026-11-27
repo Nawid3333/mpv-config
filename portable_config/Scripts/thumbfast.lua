@@ -606,8 +606,10 @@ local function spawn(time)
 		'--vd-lavc-skiploopfilter=all',
 		'--vd-lavc-software-fallback=1',
 		'--vd-lavc-fast',
-		'--vd-lavc-threads=2',
-		'--hwdec=' .. (options.hwdec and 'auto' or 'no'),
+		-- Local change: every CPU thread, and with hwdec=yes this mpv's own hwdec list (mpv.conf's, never one it does
+		-- not use), not 2 threads and auto: the exact frame of a long-GOP file comes in half the time (doc/scripts.md).
+		'--vd-lavc-threads=0',
+		'--hwdec=' .. (options.hwdec and mp.get_property('hwdec', 'no') or 'no'),
 		'--vf=' .. vf_string(filters_all, true),
 		'--sws-scaler=fast-bilinear',
 		'--video-rotate=' .. last_rotate,
@@ -954,7 +956,8 @@ seek_timer = mp.add_periodic_timer(seek_period, function()
 		seek(allow_fast_seek)
 		seek_period_counter = 1
 	else
-		if seek_period_counter == 2 then
+		-- Local change: the exact frame one period (50 ms) after the pointer stopped, not two.
+		if seek_period_counter == 1 then
 			if allow_fast_seek then
 				seek_timer:kill()
 				seek()

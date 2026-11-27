@@ -1069,8 +1069,15 @@ function Invoke-StaticCheck {
         $thumbfastLua -match 'if not load then\s+table\.insert\(args, ''--''\)') 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
     Test-Check $t 'thumbfast local change present: no thumbnails for a private window''s stream (faststream-private.lua)' (
         $thumbfastLua.Contains("or fragment.value(properties['path'], 'fs-private=') == '1'")) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
+    # The exact frame in half the time (doc/scripts.md); the hwdec list is mpv.conf's, which refuses Vulkan decoding.
+    Test-Check $t 'thumbfast local change present: every CPU thread, this mpv''s own hwdec list, the exact frame one period after the pointer stops' (
+        $thumbfastLua.Contains("'--vd-lavc-threads=0',") -and
+        $thumbfastLua.Contains("'--hwdec=' .. (options.hwdec and mp.get_property('hwdec', 'no') or 'no'),") -and
+        $thumbfastLua.Contains('if seek_period_counter == 1 then')) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
     $thumbfastConf = Get-Content -Raw (Join-Path $Cfg 'script-opts/thumbfast.conf')
     Test-Check $t 'thumbfast.conf: thumbnails for streams (network=yes)' ($thumbfastConf -match '(?m)^network=yes\r?$')
+    Test-Check $t 'thumbfast.conf: the thumbnailer starts with the file and decodes as this mpv does (spawn_first=yes, hwdec=yes)' (
+        $thumbfastConf -match '(?m)^spawn_first=yes\r?$' -and $thumbfastConf -match '(?m)^hwdec=yes\r?$')
     $uoscIntl = Get-Content -Raw (Join-Path $Cfg 'Scripts/uosc/lib/intl.lua')
     Test-Check $t 'uosc local change present: intl.lua reads the subtitle languages from settings.json (settings.lua)' (
         $uoscIntl.Contains("'~~state/settings.json'") -and $uoscIntl.Contains('settings_slang() or')) 're-apply it after a uosc update (AGENTS.md)'

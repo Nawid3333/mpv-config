@@ -176,3 +176,23 @@ engineering log; `AGENTS.md` holds the current state and is read first).
   setup to a folder of its own in `%TEMP%`, runs it with `-File` and removes the folder; the static
   tier runs it against a stand-in setup fetched from a `file:` URL. `setup.ps1 -Zip` checks for
   `sync-config.ps1` beside it, as a fetched setup now has a folder too.
+
+## 2026-11-27: the timeline thumbnails, twice as fast
+
+- The owner: the timeline preview is "pretty bad", it should be more responsive and fast. Measured first, with a
+  copy of mpv and of thumbfast without a window: an instrumented thumbfast logged each hover, seek and picture, and
+  each picture was compared with the exact frame (made beforehand with the thumbnailer's own options; the software
+  pictures matched byte for byte, the GPU's within a small difference, nearer the exact frame than the keyframe).
+  Two made-up clips (1080p HEVC with a keyframe every 10 s; 4K 10-bit HEVC, every 5 s) and an HLS stream with a
+  270p quality over a local 40 Mbit/s line with 30 ms per answer; 12 hovers, a 3-second sweep, 3 runs each.
+- What took the time: the exact frame is decoded from its keyframe, by 2 threads, 100 ms after the pointer stops;
+  on 4K up to a second. On a stream the first hover waited for the thumbnailer to start and open it (1.2 s).
+- Each option alone (the exact frame, 1080p / 4K): 2 threads 348 / 693 ms; 4 threads 326 / 675; every thread
+  190 / 326; the GPU (d3d11va-copy) 188 / 313, the 4K sweep 9 -> 20 pictures a second; one period's wait 300 / 684
+  (nothing on 4K while the keyframe's own picture takes 100 ms); `spawn_first` the first hover only (stream
+  1160 -> 102 ms). All four together: 349 -> 154 and 691 -> 252 ms; while the 4K file plays, hardware-decoded as
+  mpv.conf has it, 695 -> 273 ms and no frame dropped or late in 6 of 6 runs. Numbers in doc/scripts.md.
+- The GPU through mpv.conf's own `hwdec` list: thumbfast's `hwdec=yes` means `auto`, which may pick a decoder
+  mpv.conf refuses (Vulkan decoding lost the GPU device here).
+- Not measured: the real renderer (gpu-next with the upscale chain) while the thumbnailer decodes; the bench had
+  no window. The gpu tier runs before a merge.
