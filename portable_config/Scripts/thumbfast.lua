@@ -52,6 +52,9 @@ local options = {
 
 	-- Custom path to the mpv executable
 	mpv_path = 'mpv',
+
+	-- Local change (not upstream thumbfast), Windows only: a stream's buffered part from this mpv's own cache
+	stream_cache = false,
 }
 
 mp.utils = require('mp.utils')
@@ -200,7 +203,9 @@ local last_has_vid = 0
 local has_vid = 0
 
 local file_timer
-local file_check_period = 1 / 60
+-- Local change: 2 ms, not 1/60 s, while a picture is due (file_timer): upstream's period added 8 ms to each picture on
+-- average (doc/scripts.md).
+local file_check_period = 0.002
 
 local allow_fast_seek = true
 
@@ -556,6 +561,436 @@ local function stream_load(path, time)
 	return { command = { 'loadfile', path, 'replace', -1, opts } }
 end
 
+-- Local change (not upstream thumbfast): a stream's buffered part comes from this mpv's own cache, not from the network
+-- a second time (stream_cache). As the cache grows it is written out in chunks of whole GOPs with `dump-cache`, which
+-- holds this mpv's demuxer while it writes (about 0.4 ms a MB, so at most CHUNK_BYTES at a time); the thumbnailer loads
+-- the chunk that holds the time hovered and seeks in it as in a local file. dump-cache begins at the keyframe before
+-- the time it is given and makes the chunk's own times start at 0, so a chunk begins only where that keyframe's time is
+-- known: a cached range's start (seekable-ranges; mpv takes it from the audio where that starts before or after the
+-- video, so the frame is off by as much), or the last keyframe of the chunk before it, read from that chunk's cues. A
+-- chunk goes once this mpv's cache no longer holds its part, and all of them at the file's end; the lock file, open
+-- while this mpv runs, tells a later mpv that the chunks it finds of this one are left over (doc/scripts.md).
+local CHUNK_BYTES = 16 * 1024 * 1024
+local chunks = {}
+local chunk_count = 0
+local chunk_secs = 30
+local chunk_min = 4
+local chunk_failures = 0
+local chunk_lock = nil
+local leftovers = {}
+local swept = false
+local dumping = false
+local cache_timer = nil
+local file_serial = 0
+-- What the thumbnailer has loaded: a chunk, or false for the stream itself; nil for a local file.
+local source = nil
+local net_load = nil
+
+-- A Matroska file's keyframe times (its cues), in seconds as mpv plays it (from its first cluster); nil if it has none.
+local function mkv_keyframes(path)
+	local f = io.open(path, 'rb')
+	if not f then
+		return nil
+	end
+	-- The EBML element at p of s: its id, where its data starts and its size (nil: unknown).
+	local function element(s, p)
+		local function vint(q, keep_marker)
+			local b = s:byte(q)
+			if not b then
+				return nil
+			end
+			local len, mask = 1, 128
+			while len <= 8 and b < mask do
+				len, mask = len + 1, mask / 2
+			end
+			if len > 8 or q + len - 1 > #s then
+				return nil
+			end
+			local v = keep_marker and b or b - mask
+			local all_ones = v == mask - 1
+			for i = q + 1, q + len - 1 do
+				local c = s:byte(i)
+				v = v * 256 + c
+				all_ones = all_ones and c == 255
+			end
+			return v, len, all_ones
+		end
+		local id, id_len = vint(p, true)
+		if not id then
+			return nil
+		end
+		local size, size_len, unknown = vint(p + id_len)
+		if not size then
+			return nil
+		end
+		return id, p + id_len + size_len, (not unknown) and size or nil
+	end
+	local function uint(s, p, n)
+		local v = 0
+		for i = p, p + n - 1 do
+			v = v * 256 + s:byte(i)
+		end
+		return v
+	end
+	local head = f:read(65536) or ''
+	local id, data, size = element(head, 1)
+	if id ~= 0x1A45DFA3 or not size then
+		f:close()
+		return nil
+	end
+	id, data = element(head, data + size)
+	if id ~= 0x18538067 then
+		f:close()
+		return nil
+	end
+	-- The segment's head: TimestampScale in Info, the cues' place in SeekHead; it ends at the first cluster, whose
+	-- timestamp mpv takes for the file's start (its time 0).
+	local segment = data
+	local scale, cues_at, start = 1000000, nil, nil
+	local p = segment
+	while p < #head do
+		local eid, edata, esize = element(head, p)
+		if eid == 0x1F43B675 then
+			local q = edata
+			for _ = 1, 4 do
+				local tid, tdata, tsize = element(head, q)
+				if not tid or not tsize or tdata + tsize > #head + 1 then
+					break
+				end
+				if tid == 0xE7 then
+					start = uint(head, tdata, tsize)
+					break
+				end
+				q = tdata + tsize
+			end
+			break
+		end
+		if not eid or not esize then
+			break
+		end
+		local q = edata
+		while q < math.min(edata + esize, #head + 1) do
+			local cid, cdata, csize = element(head, q)
+			if not cid or not csize then
+				break
+			end
+			if eid == 0x1549A966 and cid == 0x2AD7B1 then
+				scale = uint(head, cdata, csize)
+			elseif eid == 0x114D9B74 and cid == 0x4DBB then
+				local seek_id, seek_pos
+				local r = cdata
+				while r < cdata + csize do
+					local gid, gdata, gsize = element(head, r)
+					if not gid or not gsize then
+						break
+					end
+					if gid == 0x53AB then
+						seek_id = uint(head, gdata, gsize)
+					elseif gid == 0x53AC then
+						seek_pos = uint(head, gdata, gsize)
+					end
+					r = gdata + gsize
+				end
+				if seek_id == 0x1C53BB6B and seek_pos then
+					cues_at = segment - 1 + seek_pos
+				end
+			end
+			q = cdata + csize
+		end
+		p = edata + esize
+	end
+	if not cues_at or not start then
+		f:close()
+		return nil
+	end
+	f:seek('set', cues_at)
+	local cues = f:read(16) or ''
+	local cid, cdata, csize = element(cues, 1)
+	if cid ~= 0x1C53BB6B or not csize or csize > 16777216 then
+		f:close()
+		return nil
+	end
+	f:seek('set', cues_at + cdata - 1)
+	cues = f:read(csize) or ''
+	f:close()
+	local times = {}
+	local q = 1
+	while q < #cues do
+		local pid, pdata, psize = element(cues, q)
+		if not pid or not psize then
+			break
+		end
+		if pid == 0xBB then
+			local r = pdata
+			while r < pdata + psize do
+				local tid, tdata, tsize = element(cues, r)
+				if not tid or not tsize then
+					break
+				end
+				if tid == 0xB3 then
+					times[#times + 1] = (uint(cues, tdata, tsize) - start) * scale / 1e9
+				end
+				r = tdata + tsize
+			end
+		end
+		q = pdata + psize
+	end
+	table.sort(times)
+	return #times > 0 and times or nil
+end
+
+-- The chunk that holds a time: the thumbnailer's own if it does (no load), else the first one.
+local function chunk_at(time)
+	if source and source.from <= time and time < source.to then
+		return source
+	end
+	for _, c in ipairs(chunks) do
+		if c.from <= time and time < c.to then
+			return c
+		end
+	end
+	return nil
+end
+
+-- The thumbnailer's load for a time: the chunk that holds it, else the stream. A chunk is decoded without the GPU (its
+-- decoder starts again with each chunk, which took 40 ms more with d3d11va-copy) and without a look for subtitles
+-- beside it (the 4000 files a TEMP folder may hold took 15 ms more).
+local function source_load(time, exact)
+	local c = chunk_at(time)
+	source = c or false
+	-- For the tests: where the thumbnailer's pictures come from.
+	mp.set_property('user-data/thumbfast/source', c and 'cache' or 'stream')
+	if c then
+		return {
+			command = {
+				'loadfile',
+				c.path,
+				'replace',
+				-1,
+				{
+					start = tostring(time - c.from + c.offset),
+					['hr-seek'] = exact and 'yes' or 'no',
+					vid = '1',
+					edition = 'auto',
+					['autoload-files'] = 'no',
+					['vd-lavc-threads'] = '0',
+					hwdec = 'no',
+				},
+			},
+		}
+	end
+	local per_file = net_load and net_load.command[5]
+	if per_file then
+		per_file.start = tostring(time)
+		per_file['hr-seek'] = exact and 'yes' or 'no'
+	end
+	return net_load
+end
+
+local function remove_file(path)
+	if not os.remove(path) and mp.utils.file_info(path) then
+		leftovers[#leftovers + 1] = path
+	end
+end
+
+local function remove_leftovers()
+	local left = leftovers
+	leftovers = {}
+	for _, path in ipairs(left) do
+		remove_file(path)
+	end
+end
+
+-- The lock: a file Windows deletes once this mpv's handle on it closes, also when mpv crashes
+-- (FILE_FLAG_DELETE_ON_CLOSE). Returns its release, or nil off Windows or without LuaJIT's ffi (then no chunks).
+local function take_lock()
+	local ok, ffi = pcall(require, 'ffi')
+	if not ok or os_name ~= 'windows' then
+		return nil
+	end
+	pcall(
+		ffi.cdef,
+		[[
+		void* __stdcall CreateFileW(const wchar_t *lpFileName, unsigned long dwDesiredAccess,
+			unsigned long dwShareMode, void *lpSecurityAttributes, unsigned long dwCreationDisposition,
+			unsigned long dwFlagsAndAttributes, void *hTemplateFile);
+		bool __stdcall CloseHandle(void *hObject);
+		int __stdcall MultiByteToWideChar(unsigned int CodePage, unsigned long dwFlags, const char *lpMultiByteStr,
+			int cbMultiByte, wchar_t *lpWideCharStr, int cchWideChar);
+	]]
+	)
+	local path = options.thumbnail .. '.lock'
+	local len = ffi.C.MultiByteToWideChar(65001, 0, path, -1, nil, 0)
+	if len <= 0 then
+		return nil
+	end
+	local wide = ffi.new('wchar_t[?]', len)
+	ffi.C.MultiByteToWideChar(65001, 0, path, -1, wide, len)
+	-- GENERIC_WRITE, shared for reading only, CREATE_ALWAYS, FILE_FLAG_DELETE_ON_CLOSE
+	local handle = ffi.C.CreateFileW(wide, 0x40000000, 1, nil, 2, 0x04000000, nil)
+	if handle == ffi.cast('void*', -1) then
+		return nil
+	end
+	return function()
+		ffi.C.CloseHandle(handle)
+	end
+end
+
+-- Chunks another mpv left behind: its lock is gone, so it runs no more (this mpv's own before its first chunk: an mpv
+-- with the same PID before it).
+local function sweep()
+	swept = true
+	local dir, own = options.thumbnail:match('^(.*)[/\\]([^/\\]+)$')
+	if not dir then
+		return
+	end
+	local prefix = own:gsub('%d+$', '')
+	local running = {}
+	for _, name in ipairs(mp.utils.readdir(dir, 'files') or {}) do
+		local pid = name:sub(1, #prefix) == prefix and name:sub(#prefix + 1):match('^(%d+)%-c%d+%.mkv$')
+		if pid then
+			if running[pid] == nil then
+				running[pid] = mp.utils.file_info(dir .. path_separator .. prefix .. pid .. '.lock') ~= nil
+			end
+			if not running[pid] then
+				os.remove(dir .. path_separator .. name)
+			end
+		end
+	end
+end
+
+local function remove_chunks()
+	for _, c in ipairs(chunks) do
+		remove_file(c.path)
+	end
+	chunks = {}
+	source = nil
+end
+
+-- A chunk's times are whole ms, so a chain of chunks would add up their rounding: on a video of one frame rate the next
+-- chunk's start goes on its frame grid, counted from the range's first keyframe (anchor).
+local function on_grid(time, anchor)
+	local fps = mp.get_property_number('container-fps', 0)
+	if fps <= 0 or fps > 1000 then
+		return time
+	end
+	local grid = anchor + math.floor((time - anchor) * fps + 0.5) / fps
+	return math.abs(grid - time) <= 0.002 and grid or time
+end
+
+local function dump(from, anchor, stop, tail, final)
+	if not swept then
+		sweep()
+	end
+	if not chunk_lock then
+		chunk_lock = take_lock()
+		if not chunk_lock then
+			chunk_failures = math.huge
+			return
+		end
+	end
+	chunk_count = chunk_count + 1
+	local path = options.thumbnail .. '-c' .. chunk_count .. '.mkv'
+	local serial = file_serial
+	dumping = true
+	-- 50 ms past the keyframe: dump-cache takes the keyframe before the time it gets.
+	mp.command_native_async({ 'dump-cache', from + 0.05, stop, path }, function(success)
+		dumping = false
+		if serial ~= file_serial then
+			remove_file(path)
+			return
+		end
+		local keyframes = success and mkv_keyframes(path)
+		local finfo = mp.utils.file_info(path)
+		if not keyframes or not finfo then
+			remove_file(path)
+			chunk_failures = chunk_failures + 1
+			return
+		end
+		if not tail and #keyframes < 2 then
+			-- One GOP longer than the chunk: no keyframe to go on from, so longer chunks.
+			remove_file(path)
+			chunk_min = chunk_min * 2
+			return
+		end
+		local c = { path = path, from = from, anchor = anchor, offset = keyframes[1], bytes = finfo.size }
+		c.next = final and math.huge or on_grid(from + keyframes[#keyframes] - keyframes[1], anchor)
+		c.to = final and math.huge or tail and stop or c.next
+		chunks[#chunks + 1] = c
+	end)
+end
+
+local function cache_tick()
+	remove_leftovers()
+	if not net_load then
+		return
+	end
+	local state = mp.get_property_native('demuxer-cache-state')
+	local ranges = state and state['seekable-ranges'] or {}
+	if #ranges == 0 then
+		return
+	end
+	table.sort(ranges, function(a, b)
+		return a.start < b.start
+	end)
+	-- A chunk goes once the cache holds none of its part, or a later one holds all of it (a tail grown since).
+	for i = #chunks, 1, -1 do
+		local c = chunks[i]
+		local held = false
+		for _, r in ipairs(ranges) do
+			held = held or (c.from < r['end'] and c.to > r.start)
+		end
+		for j = i + 1, #chunks do
+			held = held and not (chunks[j].from == c.from and chunks[j].to >= c.to)
+		end
+		if not held and c ~= source then
+			remove_file(c.path)
+			table.remove(chunks, i)
+		end
+	end
+	if dumping or not spawned or disabled or chunk_failures >= 3 then
+		return
+	end
+	local secs = 0
+	for _, r in ipairs(ranges) do
+		secs = secs + r['end'] - r.start
+	end
+	local bytes = state['total-bytes'] or 0
+	if secs > 1 and bytes > 0 then
+		chunk_secs = math.max(math.min(CHUNK_BYTES * secs / bytes, 120), chunk_min)
+	end
+	for i, r in ipairs(ranges) do
+		-- From the range's start on, past the chunks that hold it, to the next keyframe none holds.
+		local from, anchor = r.start, r.start
+		local moved = true
+		while moved do
+			moved = false
+			for _, c in ipairs(chunks) do
+				if c.from <= from + 0.01 and from < c.next then
+					from, anchor, moved = c.next, c.anchor, true
+				end
+			end
+		end
+		local final = i == #ranges and state['eof-cached']
+		local left = r['end'] - from
+		if left > 0.1 then
+			if left >= chunk_secs then
+				dump(from, anchor, from + chunk_secs, false, false)
+				return
+			end
+			-- The rest of a range that grows no more (the end of the file, or this mpv's cache is full).
+			local held = false
+			for _, c in ipairs(chunks) do
+				held = held or (c.from <= from + 0.01 and c.to >= r['end'] - 0.01)
+			end
+			if (final or state.idle) and not held then
+				dump(from, anchor, r['end'], true, final)
+				return
+			end
+		end
+	end
+end
+
 local function spawn(time)
 	if disabled then
 		return
@@ -680,8 +1115,14 @@ local function spawn(time)
 	-- pipe opens only then.
 	seek_running = { time = time, exact = not allow_fast_seek, at = mp.get_time(), lost_after = 10, spawn = true }
 	seek_shown = nil
+	-- Local change: the stream's load is kept for when the thumbnailer goes back to it from a chunk (source_load).
+	net_load = load
+	source = nil
 	if load then
-		send_when_open(load)
+		if options.stream_cache and not cache_timer then
+			cache_timer = mp.add_periodic_timer(0.5, cache_tick)
+		end
+		send_when_open(time)
 	end
 
 	subprocess(args, true, function(success, result)
@@ -839,9 +1280,10 @@ local function run(command)
 	end
 end
 
--- Local change: waits up to 10 s for the thumbnailer's pipe, then loads the stream at the time the pointer is on now.
+-- Local change: waits up to 10 s for the thumbnailer's pipe, then loads the stream (or the chunk of this mpv's cache
+-- that holds it, source_load) at the time the pointer is on now.
 local load_timer
-send_when_open = function(load)
+send_when_open = function(time)
 	if load_timer then
 		load_timer:kill()
 	end
@@ -865,7 +1307,7 @@ send_when_open = function(load)
 		end
 		load_timer:kill()
 		if last_seek_time then
-			load.command[5].start = tostring(last_seek_time)
+			time = last_seek_time
 			if seek_running and seek_running.spawn then
 				seek_running.time = last_seek_time
 			end
@@ -873,7 +1315,7 @@ send_when_open = function(load)
 		if seek_running and seek_running.spawn then
 			seek_running.at = mp.get_time()
 		end
-		run(mp.utils.format_json(load))
+		run(mp.utils.format_json(source_load(time, not allow_fast_seek)))
 	end)
 end
 
@@ -976,6 +1418,10 @@ local function check_new_thumb()
 	-- validity but before actually moving the file, so move to a temporary
 	-- location before validity check to make sure everything stays consistant
 	-- and valid thumbnails don't get overwritten by invalid ones
+	-- Local change: one look while nothing is there, not a remove, a rename and a look (it looks every 2 ms).
+	if not mp.utils.file_info(options.thumbnail) then
+		return false
+	end
 	local tmp = options.thumbnail .. '.tmp'
 	move_file(options.thumbnail, tmp)
 	local finfo = mp.utils.file_info(tmp)
@@ -1029,7 +1475,26 @@ local function seek(time, exact)
 		lost_after = (properties['demuxer-via-network'] or fragment.target(properties['path'])) and 10 or 2,
 		motion = motion,
 	}
-	run('async seek ' .. time .. (exact and ' absolute+exact' or ' absolute+keyframes'))
+	if not file_timer:is_enabled() then
+		file_timer:resume()
+	end
+	-- Local change: a stream's time from the chunk of this mpv's cache that holds it, else from the stream
+	-- (source_load).
+	local at = time
+	if options.stream_cache and net_load then
+		local c = chunk_at(time) or false
+		if c then
+			seek_running.lost_after = 2
+		end
+		if c ~= source then
+			run(mp.utils.format_json(source_load(time, exact)))
+			return
+		end
+		if c then
+			at = time - c.from + c.offset
+		end
+	end
+	run('async seek ' .. at .. (exact and ' absolute+exact' or ' absolute+keyframes'))
 end
 
 local function next_seek()
@@ -1116,6 +1581,10 @@ file_timer = mp.add_periodic_timer(file_check_period, function()
 		if seek_running then
 			seek_running.after = given_up
 		end
+	end
+	-- Local change: it looks only while a picture is due (seek).
+	if not seek_running then
+		file_timer:kill()
 	end
 end)
 file_timer:kill()
@@ -1311,13 +1780,26 @@ local function sync_changes(prop, val)
 		has_vid = 1
 	end
 
-	-- Local change: own_variant (stream_load).
-	if not spawned or (prop == 'vid' and own_variant) then
+	-- Local change: own_variant (stream_load); a chunk of this mpv's cache has only the track it plays (source_load).
+	if not spawned or (prop == 'vid' and own_variant) or source then
 		return
 	end
 
 	run('set ' .. prop .. ' ' .. val)
 	dirty = true
+end
+
+-- Local change: a file's chunks go with it (stream_cache); the thumbnailer, which had one open, ended with the file.
+local function end_chunks()
+	file_serial = file_serial + 1
+	if cache_timer then
+		cache_timer:kill()
+		cache_timer = nil
+	end
+	remove_chunks()
+	remove_leftovers()
+	net_load = nil
+	chunk_secs, chunk_min, chunk_failures = 30, 4, 0
 end
 
 local function file_load()
@@ -1332,6 +1814,7 @@ local function file_load()
 		info_timer:kill()
 		info_timer = nil
 	end
+	end_chunks()
 
 	calc_dimensions()
 	info(effective_w, effective_h)
@@ -1340,6 +1823,11 @@ end
 local function shutdown()
 	run('quit')
 	remove_thumbnail_files()
+	-- Local change: what the thumbnailer still holds open stays for the next mpv's sweep (stream_cache).
+	end_chunks()
+	if chunk_lock then
+		chunk_lock()
+	end
 	if os_name ~= 'windows' then
 		os.remove(options.socket)
 		os.remove(options.socket .. '.run')
@@ -1380,6 +1868,7 @@ mp.register_script_message('thumb', thumb)
 mp.register_script_message('clear', clear)
 
 mp.register_event('file-loaded', file_load)
+mp.register_event('end-file', end_chunks)
 mp.register_event('shutdown', shutdown)
 
 mp.register_idle(watch_changes)

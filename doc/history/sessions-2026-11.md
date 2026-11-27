@@ -221,3 +221,38 @@ engineering log; `AGENTS.md` holds the current state and is read first).
 - The same bench on the real renderer afterwards (the main player fullscreen and playing on the full config; the
   pull request's gpu tier 1851/1851): no dropped or delayed frame of the main player in 18 runs, this script and
   main's alike; the numbers are in doc/scripts.md.
+
+## 2026-11-27: a stream's buffered part from mpv's own cache
+
+- The owner: the timeline preview of a part already in memory should be nearly instant, as in FastStream's; a little
+  wait is fine where nothing is buffered. Measured with the same bench, each hover's time split by a timestamp in
+  each process (the same clock): uosc's message, the IPC write, the thumbnailer's seek and decode, the picture file,
+  the poll for it.
+- Found: a local file's keyframe picture took ~20 ms, of it ~8 ms the poll (every 1/60 s); its exact frame is the
+  decode from the keyframe (1080p with a keyframe every 10 s: ~100 ms; 4K: ~200 ms). A stream's took as long
+  buffered as not: the thumbnailer opened the stream itself and fetched each place again (HLS 128 ms /
+  518 ms, MP4 71 / 607 ms). uosc's message and the IPC took about 1 ms; uosc asks once a display frame.
+- Tried: the thumbnailer reading the chunks through an EDL (no faster: the decoder starts again at each part); the
+  GPU for a chunk (40 ms more a load); the chunk's folder listed by mpv (TEMP with 4000 files: 15 ms more). Kept:
+  chunks of whole GOPs written with `dump-cache` as the cache grows, loaded by the thumbnailer, decoded on the CPU,
+  and the poll every 2 ms while a picture is due. The numbers are in doc/scripts.md.
+- Checked: the exact frames from chunks against reference frames of the source and their neighbours: MP4 12 of 12
+  exact (after the first cluster's timestamp was taken off: before, each was the one before); HLS 3 of 12, the other
+  9 the next frame: the cached range starts with the audio, 21 ms before the video's keyframe, and a chunk's start
+  is taken from it (mpv gives scripts no keyframe times; left as it is, doc/scripts.md). The stream is
+  fetched once (the server's bytes alike with and without); the lock file cannot be deleted by another process and
+  goes when its mpv is killed.
+- A second opinion on the diff (DeepSeek V4.1 Flash), each point checked: fixed, chunks the cache no longer held
+  stayed once dumps had failed three times or while one ran; dumps went on with no thumbnailer; a tail chunk grown
+  since stayed while loaded; another mpv's chunks with this one's PID stayed. Not taken: `vid=1` (mpv counts tracks
+  per type), properties not passed on to a chunk (only `vid` and `edition` are, and a chunk has one of each), a
+  picture after a seek given up (one seek always follows while the pointer is on the timeline). Also: off Windows
+  no chunks (the lock is a Windows call), and a chain of chunks on its frame grid (cue times are whole ms).
+- What it costs (numbers in doc/scripts.md): no second download; the cache written once more to TEMP while it is
+  held; a chunk takes up to 25 ms of the core; this mpv's CPU 1-2 s more over 40 s of a stream coming in; the
+  thumbnailer ~60 MB more RAM on a chunk. The 2 ms poll looked with a remove, a rename and a lookup each time
+  (a drag: 4.4 -> 5.0 s of CPU); now one lookup while there is no picture (3.0 s, one run).
+- Not measured: the real renderer while chunks are written (the bench had no window); the gpu tier runs before a
+  merge. The headless thumbfast tests passed (and failed with `stream_cache=no`) before the last small changes (the
+  one-lookup poll, a nil guard, a declaration wrapped); an mpv of the owner's then ran, so only static checks
+  followed.
