@@ -1036,11 +1036,14 @@ local function next_seek()
 	if seek_running or not last_seek_time or not spawned then
 		return
 	end
-	local here = seek_shown ~= nil and seek_shown.time == last_seek_time
-	if here and seek_shown.exact then
+	if seek_shown and seek_shown.time == last_seek_time then
+		-- The keyframe's picture is here: its exact frame next.
+		if not seek_shown.exact then
+			seek(last_seek_time, true)
+		end
 		return
 	end
-	seek(last_seek_time, here or not allow_fast_seek)
+	seek(last_seek_time, not allow_fast_seek)
 end
 
 -- A sweep's pictures come a little behind the pointer; after a jump the last place's are of another place.
