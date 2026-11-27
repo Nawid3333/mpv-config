@@ -196,3 +196,25 @@ engineering log; `AGENTS.md` holds the current state and is read first).
   mpv.conf refuses (Vulkan decoding lost the GPU device here).
 - Not measured: the real renderer (gpu-next with the upscale chain) while the thumbnailer decodes; the bench had
   no window. The gpu tier runs before a merge.
+
+## 2026-11-28: a quick move on the timeline
+
+- The owner: when the pointer rests on one place and quickly goes to another, does it stay fast, lag, or show the
+  wrong frame, with streams too? Measured with the same bench, now with what reached the screen: the log has each
+  draw and each removal, so each moment's picture is known, and each picture was matched against the exact frames
+  and every keyframe of clips whose colours change over time (a keyframe of one place looked like another's in the
+  first clips). 12 moves a run, after 20, 60, 120, 250 or 1000 ms on the first place.
+- Found: after a move the last place's picture showed at the new one in every move (1080p 56 ms, 4K 125 ms, a
+  40 Mbit/s stream 180 ms, a 15 Mbit/s one over a second); the exact frame waited for a timer; and every ~90 seeks
+  the thumbnailer stopped reading commands, its pipe full of event lines nothing read.
+- Tried and measured, 3 runs each: one seek at a time without stopping any (no wrong picture, the new place's
+  first picture later: 57 ms on 1080p); stopping a running exact seek (24 ms); stopping a keyframe seek too (no
+  faster, and mpv ends a keyframe seek it began anyway: its picture was taken for the new place's, 21 of 36 moves
+  on a stream); drawing a picture during a pointer movement after a recent request (wrong pictures from a flick);
+  drawing no first picture after a stop (no wrong picture, the first picture as late as the exact frame);
+  only pictures within 30 px (a fast 4K sweep blinked, 69-79 % shown) and the same movement too (99 %). Kept:
+  one seek at a time, an exact seek stopped, pictures at their place, within 30 px or in the same movement.
+- The thumbnailer's decoding on a stream: the GPU and every thread (2026-11-27) made each picture 100-200 ms later
+  there (298 vs 189 ms for the first); 2 threads alone changed nothing (293 ms), so a stream decodes as upstream.
+- Left: on 4K one move in 36 showed a stopped exact seek's picture for 67 ms (it was nearly done); and a slow
+  line's picture still takes as long as its download (thumbnailer cache 128 KiB, as upstream).

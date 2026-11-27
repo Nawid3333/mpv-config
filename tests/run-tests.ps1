@@ -1065,15 +1065,26 @@ function Invoke-StaticCheck {
         $thumbfastLua.Contains('local function stream_load(path, time)') -and
         $thumbfastLua.Contains("opts.vid = 'auto'") -and $thumbfastLua.Contains("(prop == 'vid' and own_variant)") -and
         $thumbfastLua.Contains("table.insert(args, '--input-ipc-server=' .. pipe_name)") -and
-        $thumbfastLua.Contains("file = io.open('\\\\.\\pipe\\' .. pipe_name, 'r+b')") -and
+        $thumbfastLua.Contains("local pipe = io.open('\\\\.\\pipe\\' .. pipe_name, 'r+b')") -and
+        $thumbfastLua.Contains('file = open_pipe()') -and
         $thumbfastLua -match 'if not load then\s+table\.insert\(args, ''--''\)') 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
     Test-Check $t 'thumbfast local change present: no thumbnails for a private window''s stream (faststream-private.lua)' (
         $thumbfastLua.Contains("or fragment.value(properties['path'], 'fs-private=') == '1'")) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
     # The exact frame in half the time (doc/scripts.md); the hwdec list is mpv.conf's, which refuses Vulkan decoding.
-    Test-Check $t 'thumbfast local change present: every CPU thread, this mpv''s own hwdec list, the exact frame one period after its keyframe seek' (
-        $thumbfastLua.Contains("'--vd-lavc-threads=0',") -and
-        $thumbfastLua.Contains("'--hwdec=' .. (options.hwdec and mp.get_property('hwdec', 'no') or 'no'),") -and
-        $thumbfastLua.Contains('if seek_period_counter == 1 then')) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
+    # A stream's pictures came later with the GPU: 2 threads and no GPU there, as upstream.
+    Test-Check $t 'thumbfast local change present: for a file every CPU thread and this mpv''s own hwdec list, for a stream 2 threads' (
+        $thumbfastLua.Contains("local stream = properties['demuxer-via-network'] or fragment.target(path) ~= nil") -and
+        $thumbfastLua.Contains("'--vd-lavc-threads=' .. (stream and '2' or '0'),") -and
+        $thumbfastLua.Contains("'--hwdec=' .. ((options.hwdec and not stream) and mp.get_property('hwdec', 'no') or 'no'),")) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
+    # After a quick move the old place's picture showed at the new one, and a seek got no picture once the
+    # thumbnailer's unread events filled its pipe (doc/scripts.md).
+    Test-Check $t 'thumbfast local change present: one seek at a time, a picture only at its own place, no events from the thumbnailer' (
+        $thumbfastLua.Contains('local function request_seek(time)') -and
+        $thumbfastLua.Contains('local function got_picture()') -and
+        $thumbfastLua.Contains('if running and running.exact and not running.spawn and running.time ~= time then') -and
+        $thumbfastLua.Contains('show_or_hide(time, script)') -and
+        $thumbfastLua -notmatch 'seek_timer' -and
+        $thumbfastLua.Contains("pipe:write('{`"command`":[`"disable_event`",`"all`"]}\n')")) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
     $thumbfastConf = Get-Content -Raw (Join-Path $Cfg 'script-opts/thumbfast.conf')
     Test-Check $t 'thumbfast.conf: thumbnails for streams (network=yes)' ($thumbfastConf -match '(?m)^network=yes\r?$')
     Test-Check $t 'thumbfast.conf: the thumbnailer starts with the file and decodes as this mpv does (spawn_first=yes, hwdec=yes)' (
