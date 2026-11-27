@@ -330,7 +330,7 @@ AGENTS.md; this file does not repeat them.
   | the exact frame once the sweep stops (1080p / 4K) | 561 / 834 ms | 213 / 277 ms |
   | an HLS stream over a 40 Mbit/s line: the first hover | 1160 ms | 102 ms |
 
-  Each alone: every thread 349 -> 190 ms (1080p) and 693 -> 326 ms (4K), 4 threads only 5 %; the GPU 188 and 313 ms, and twice the pictures in the 4K sweep; the shorter wait 50 ms where the keyframe's picture is quick (1080p), nothing on 4K without the GPU; `spawn_first` only the first hover (local files 69 -> 35 ms). On the stream the network decides every later hover (230-240 ms with any of them). The thumbnailer still has 128 KiB of demuxer cache and `--vd-lavc-skiploopfilter=all`, as upstream: what a picture costs is the decode from its keyframe.
+  Each alone: every thread 349 -> 190 ms (1080p) and 693 -> 326 ms (4K), 4 threads only 5 %; the GPU 188 and 313 ms, and twice the pictures in the 4K sweep; the shorter wait 50 ms where the keyframe's picture is quick (1080p), nothing on 4K without the GPU; `spawn_first` only the first hover (local files 69 -> 35 ms). On the stream the network decides every later hover (230-240 ms with any of them). What it costs: the thumbnailer is up from the start, not from the first hover, and holds about 100 MB of RAM for the 1080p file (71 MB with 2 threads and no GPU) and 260 MB for the 4K one (the same as before). The thumbnailer still has 128 KiB of demuxer cache and `--vd-lavc-skiploopfilter=all`, as upstream: what a picture costs is the decode from its keyframe.
 - For the tests: `user-data/thumbfast/stream-options` lists the names of the options the last stream thumbnailer got, never their values.
 
 ## Script modules
