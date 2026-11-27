@@ -956,7 +956,7 @@ seek_timer = mp.add_periodic_timer(seek_period, function()
 		seek(allow_fast_seek)
 		seek_period_counter = 1
 	else
-		-- Local change: the exact frame one period (50 ms) after the pointer stopped, not two.
+		-- Local change: the exact frame one period (50 ms) after the keyframe seek, not two.
 		if seek_period_counter == 1 then
 			if allow_fast_seek then
 				seek_timer:kill()

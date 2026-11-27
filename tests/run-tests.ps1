@@ -1070,7 +1070,7 @@ function Invoke-StaticCheck {
     Test-Check $t 'thumbfast local change present: no thumbnails for a private window''s stream (faststream-private.lua)' (
         $thumbfastLua.Contains("or fragment.value(properties['path'], 'fs-private=') == '1'")) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
     # The exact frame in half the time (doc/scripts.md); the hwdec list is mpv.conf's, which refuses Vulkan decoding.
-    Test-Check $t 'thumbfast local change present: every CPU thread, this mpv''s own hwdec list, the exact frame one period after the pointer stops' (
+    Test-Check $t 'thumbfast local change present: every CPU thread, this mpv''s own hwdec list, the exact frame one period after its keyframe seek' (
         $thumbfastLua.Contains("'--vd-lavc-threads=0',") -and
         $thumbfastLua.Contains("'--hwdec=' .. (options.hwdec and mp.get_property('hwdec', 'no') or 'no'),") -and
         $thumbfastLua.Contains('if seek_period_counter == 1 then')) 're-apply it after a thumbfast update (THIRD-PARTY-NOTICES.md)'
