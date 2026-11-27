@@ -176,3 +176,45 @@ engineering log; `AGENTS.md` holds the current state and is read first).
   setup to a folder of its own in `%TEMP%`, runs it with `-File` and removes the folder; the static
   tier runs it against a stand-in setup fetched from a `file:` URL. `setup.ps1 -Zip` checks for
   `sync-config.ps1` beside it, as a fetched setup now has a folder too.
+
+## 2026-11-27: the timeline thumbnails, twice as fast
+
+- The owner: the timeline preview is "pretty bad", it should be more responsive and fast. Measured first, with a
+  copy of mpv and of thumbfast without a window: an instrumented thumbfast logged each hover, seek and picture, and
+  each picture was compared with the exact frame (made beforehand with the thumbnailer's own options; the software
+  pictures matched byte for byte, the GPU's within a small difference, nearer the exact frame than the keyframe).
+  Two made-up clips (1080p HEVC with a keyframe every 10 s; 4K 10-bit HEVC, every 5 s) and an HLS stream with a
+  270p quality over a local 40 Mbit/s line with 30 ms per answer; 12 hovers, a 3-second sweep, 3 runs each.
+- What took the time: the exact frame is decoded from its keyframe, by 2 threads, 100 ms after the pointer stops;
+  on 4K up to a second. On a stream the first hover waited for the thumbnailer to start and open it (1.2 s).
+- Each option alone (the exact frame, 1080p / 4K): 2 threads 348 / 693 ms; 4 threads 326 / 675; every thread
+  190 / 326; the GPU (d3d11va-copy) 188 / 313, the 4K sweep 9 -> 20 pictures a second; one period's wait 300 / 684
+  (nothing on 4K while the keyframe's own picture takes 100 ms); `spawn_first` the first hover only (stream
+  1160 -> 102 ms). All four together: 349 -> 154 and 691 -> 252 ms; while the 4K file plays, hardware-decoded as
+  mpv.conf has it, 695 -> 273 ms and no frame dropped or late in 6 of 6 runs. Numbers in doc/scripts.md.
+- The GPU through mpv.conf's own `hwdec` list: thumbfast's `hwdec=yes` means `auto`, which may pick a decoder
+  mpv.conf refuses (Vulkan decoding lost the GPU device here).
+- Not measured: the real renderer (gpu-next with the upscale chain) while the thumbnailer decodes; the bench had
+  no window. The gpu tier runs before a merge.
+
+## 2026-11-28: a quick move on the timeline
+
+- The owner: when the pointer rests on one place and quickly goes to another, does it stay fast, lag, or show the
+  wrong frame, with streams too? Measured with the same bench, now with what reached the screen: the log has each
+  draw and each removal, so each moment's picture is known, and each picture was matched against the exact frames
+  and every keyframe of clips whose colours change over time (a keyframe of one place looked like another's in the
+  first clips). 12 moves a run, after 20, 60, 120, 250 or 1000 ms on the first place.
+- Found: after a move the last place's picture showed at the new one in every move (1080p 56 ms, 4K 125 ms, a
+  40 Mbit/s stream 180 ms, a 15 Mbit/s one over a second); the exact frame waited for a timer; and every ~90 seeks
+  the thumbnailer stopped reading commands, its pipe full of event lines nothing read.
+- Tried and measured, 3 runs each: one seek at a time without stopping any (no wrong picture, the new place's
+  first picture later: 57 ms on 1080p); stopping a running exact seek (24 ms); stopping a keyframe seek too (no
+  faster, and mpv ends a keyframe seek it began anyway: its picture was taken for the new place's, 21 of 36 moves
+  on a stream); drawing a picture during a pointer movement after a recent request (wrong pictures from a flick);
+  drawing no first picture after a stop (no wrong picture, the first picture as late as the exact frame);
+  only pictures within 30 px (a fast 4K sweep blinked, 69-79 % shown) and the same movement too (99 %). Kept:
+  one seek at a time, an exact seek stopped, pictures at their place, within 30 px or in the same movement.
+- The thumbnailer's decoding on a stream: the GPU and every thread (2026-11-27) made each picture 100-200 ms later
+  there (298 vs 189 ms for the first); 2 threads alone changed nothing (293 ms), so a stream decodes as upstream.
+- Left: on 4K one move in 36 showed a stopped exact seek's picture for 67 ms (it was nearly done); and a slow
+  line's picture still takes as long as its download (thumbnailer cache 128 KiB, as upstream).

@@ -204,6 +204,11 @@ local file_check_period = 1 / 60
 
 local allow_fast_seek = true
 
+-- Local change (not upstream thumbfast): the seek the thumbnailer is doing (time, exact, at, lost_after, motion; spawn
+-- for its start, after for the place of a seek given up before it) and the one whose picture is the last (request_seek).
+local seek_running, seek_shown = nil, nil
+local duration = nil
+
 local client_script = [=[
 #!/usr/bin/env bash
 MPV_IPC_FD=0; MPV_IPC_PATH="%s"
@@ -560,6 +565,7 @@ local function spawn(time)
 	if path == nil then
 		return
 	end
+	local stream = properties['demuxer-via-network'] or fragment.target(path) ~= nil
 
 	if options.quit_after_inactivity > 0 then
 		if show_thumbnail or activity_timer:is_enabled() then
@@ -606,8 +612,11 @@ local function spawn(time)
 		'--vd-lavc-skiploopfilter=all',
 		'--vd-lavc-software-fallback=1',
 		'--vd-lavc-fast',
-		'--vd-lavc-threads=2',
-		'--hwdec=' .. (options.hwdec and 'auto' or 'no'),
+		-- Local change: for a file every CPU thread, and with hwdec=yes this mpv's own hwdec list (mpv.conf's, never one
+		-- it does not use), not 2 threads and auto: the exact frame of a long-GOP file comes in half the time. A stream
+		-- keeps upstream's 2 threads without the GPU: with it, each of its pictures came 100-200 ms later (doc/scripts.md).
+		'--vd-lavc-threads=' .. (stream and '2' or '0'),
+		'--hwdec=' .. ((options.hwdec and not stream) and mp.get_property('hwdec', 'no') or 'no'),
 		'--vf=' .. vf_string(filters_all, true),
 		'--sws-scaler=fast-bilinear',
 		'--video-rotate=' .. last_rotate,
@@ -667,6 +676,10 @@ local function spawn(time)
 
 	spawned = true
 	spawn_waiting = true
+	-- Local change: the first picture is the start's (a keyframe unless allow_fast_seek is off); it is waited for, the
+	-- pipe opens only then.
+	seek_running = { time = time, exact = not allow_fast_seek, at = mp.get_time(), lost_after = 10, spawn = true }
+	seek_shown = nil
 	if load then
 		send_when_open(load)
 	end
@@ -764,6 +777,18 @@ local function spawn(time)
 	end)
 end
 
+-- Local change (not upstream thumbfast): a pipe opened to the thumbnailer asks it for no events. Its mpv wrote an
+-- event line after every seek, which nothing here reads: once the pipe's 4 KB were full (about 90 seeks) it read no
+-- more commands until the pipe was opened again, and the seeks meanwhile got no picture (doc/scripts.md).
+local function open_pipe()
+	local pipe = io.open('\\\\.\\pipe\\' .. pipe_name, 'r+b')
+	if pipe then
+		pipe:write('{"command":["disable_event","all"]}\n')
+		pipe:flush()
+	end
+	return pipe
+end
+
 local function run(command)
 	if not spawned then
 		return
@@ -798,8 +823,8 @@ local function run(command)
 			file_bytes = 0
 		end
 		if not file then
-			-- Local change: pipe_name (spawn), not options.socket.
-			file = io.open('\\\\.\\pipe\\' .. pipe_name, 'r+b')
+			-- Local change: pipe_name (spawn), not options.socket; no events (open_pipe).
+			file = open_pipe()
 		end
 	elseif pre_0_33_0 then
 		subprocess({ '/usr/bin/env', 'sh', '-c', "echo '" .. command .. "' | socat - " .. options.socket })
@@ -828,7 +853,7 @@ send_when_open = function(load)
 			return
 		end
 		if not file then
-			local pipe = io.open('\\\\.\\pipe\\' .. pipe_name, 'r+b')
+			local pipe = open_pipe()
 			if not pipe then
 				return
 			end
@@ -841,6 +866,12 @@ send_when_open = function(load)
 		load_timer:kill()
 		if last_seek_time then
 			load.command[5].start = tostring(last_seek_time)
+			if seek_running and seek_running.spawn then
+				seek_running.time = last_seek_time
+			end
+		end
+		if seek_running and seek_running.spawn then
+			seek_running.at = mp.get_time()
 		end
 		run(mp.utils.format_json(load))
 	end)
@@ -940,42 +971,6 @@ local function move_file(from, to)
 	os.rename(from, to)
 end
 
-local function seek(fast)
-	if last_seek_time then
-		run('async seek ' .. last_seek_time .. (fast and ' absolute+keyframes' or ' absolute+exact'))
-	end
-end
-
-local seek_period = 3 / 60
-local seek_period_counter = 0
-local seek_timer
-seek_timer = mp.add_periodic_timer(seek_period, function()
-	if seek_period_counter == 0 then
-		seek(allow_fast_seek)
-		seek_period_counter = 1
-	else
-		if seek_period_counter == 2 then
-			if allow_fast_seek then
-				seek_timer:kill()
-				seek()
-			end
-		else
-			seek_period_counter = seek_period_counter + 1
-		end
-	end
-end)
-seek_timer:kill()
-
-local function request_seek()
-	if seek_timer:is_enabled() then
-		seek_period_counter = 0
-	else
-		seek_timer:resume()
-		seek(allow_fast_seek)
-		seek_period_counter = 1
-	end
-end
-
 local function check_new_thumb()
 	-- the slave might start writing to the file after checking existance and
 	-- validity but before actually moving the file, so move to a temporary
@@ -1006,16 +1001,127 @@ local function check_new_thumb()
 	return false
 end
 
+-- Local change (not upstream thumbfast): one seek at a time, each picture known by the seek that made it.
+-- Upstream sent a keyframe seek and the exact one on a 50 ms timer, whatever the thumbnailer was doing, and drew each
+-- picture that came at the pointer: after a quick move from one place to another it showed the old place's picture
+-- there, and the exact frame came late (doc/scripts.md). Here the next seek goes out when the last one's picture came:
+-- the pointer's keyframe, then its exact frame. A new place stops an exact seek still running elsewhere (mpv ends a
+-- keyframe seek it began anyway); a picture is drawn only at its own place, near it, or while the pointer still moves
+-- on from it without a jump, else the thumbnail is empty.
+local near_px = 30
+-- One pointer movement: a step farther than near_px starts the next one (thumb).
+local motion = 0
+
+-- How far apart two times are on the timeline, in pixels (the window's width stands for the timeline's).
+local function px_apart(a, b)
+	if not duration or duration <= 0 then
+		return math.huge
+	end
+	local width = mp.get_property_number('osd-width', 0)
+	return math.abs(a - b) / duration * (width > 0 and width or 1280)
+end
+
+local function seek(time, exact)
+	seek_running = {
+		time = time,
+		exact = exact,
+		at = mp.get_time(),
+		lost_after = (properties['demuxer-via-network'] or fragment.target(properties['path'])) and 10 or 2,
+		motion = motion,
+	}
+	run('async seek ' .. time .. (exact and ' absolute+exact' or ' absolute+keyframes'))
+end
+
+local function next_seek()
+	if seek_running or not last_seek_time or not spawned then
+		return
+	end
+	if seek_shown and seek_shown.time == last_seek_time then
+		-- The keyframe's picture is here: its exact frame next.
+		if not seek_shown.exact then
+			seek(last_seek_time, true)
+		end
+		return
+	end
+	seek(last_seek_time, not allow_fast_seek)
+end
+
+-- A sweep's pictures come a little behind the pointer; after a jump the last place's are of another place.
+local function fits(time)
+	-- No time: no pointer on the timeline (the start's picture before the first hover).
+	return seek_shown ~= nil
+		and time ~= nil
+		and (seek_shown.time == time or px_apart(seek_shown.time, time) <= near_px or seek_shown.motion == motion)
+end
+
+local function hide()
+	if pre_0_30_0 then
+		mp.command_native({ 'overlay-remove', options.overlay_id })
+	else
+		mp.command_native_async({ 'overlay-remove', options.overlay_id }, function() end)
+	end
+end
+
+-- A script that draws the thumbnail itself (thumbfast-render) gets every picture, as upstream.
+local function show_or_hide(time, script)
+	-- No hover: clear() took the thumbnail off.
+	if not show_thumbnail then
+		return
+	end
+	if script or fits(time) then
+		draw(real_w, real_h, script)
+	else
+		hide()
+	end
+end
+
+local function got_picture()
+	local given_up = nil
+	if seek_running then
+		given_up = seek_running.after
+		seek_shown = { time = seek_running.time, exact = seek_running.exact, motion = seek_running.motion }
+		seek_running = nil
+	end
+	-- The first picture after a seek given up may be that seek's: not drawn if that place is far from the pointer.
+	if given_up and show_thumbnail and not script_name and last_seek_time
+		and given_up ~= last_seek_time and px_apart(given_up, last_seek_time) > near_px then
+		hide()
+	else
+		show_or_hide(last_seek_time, script_name)
+	end
+	next_seek()
+end
+
+local function request_seek(time)
+	local running = seek_running
+	if running and running.exact and not running.spawn and running.time ~= time then
+		-- A picture already written is the running seek's; any later one is the new seek's.
+		if check_new_thumb() then
+			got_picture()
+		elseif seek_running == running then
+			seek_running = nil
+		end
+	end
+	next_seek()
+end
+
 file_timer = mp.add_periodic_timer(file_check_period, function()
 	if check_new_thumb() then
-		draw(real_w, real_h, script_name)
+		got_picture()
+	elseif seek_running and mp.get_time() - seek_running.at > seek_running.lost_after then
+		-- Given up (a command the thumbnailer never got, or a very slow line): the pointer's place again.
+		local given_up = seek_running.time
+		seek_running = nil
+		next_seek()
+		if seek_running then
+			seek_running.after = given_up
+		end
 	end
 end)
 file_timer:kill()
 
 local function clear()
 	file_timer:kill()
-	seek_timer:kill()
 	if options.quit_after_inactivity > 0 then
 		if show_thumbnail or activity_timer:is_enabled() then
 			activity_timer:kill()
@@ -1068,10 +1174,15 @@ local function thumb(time, r_x, r_y, script)
 	end
 
 	script_name = script
+	-- Local change: a jump starts a new movement (fits).
+	if time ~= last_seek_time and (not last_seek_time or px_apart(last_seek_time, time) > near_px) then
+		motion = motion + 1
+	end
 	if last_x ~= x or last_y ~= y or not show_thumbnail then
 		show_thumbnail = true
 		last_x, last_y = x, y
-		draw(real_w, real_h, script)
+		-- Local change: the last picture only where it belongs (request_seek).
+		show_or_hide(time, script)
 	end
 
 	if options.quit_after_inactivity > 0 then
@@ -1088,7 +1199,7 @@ local function thumb(time, r_x, r_y, script)
 	if not spawned then
 		spawn(time)
 	end
-	request_seek()
+	request_seek(time)
 	if not file_timer:is_enabled() then
 		file_timer:resume()
 	end
@@ -1216,6 +1327,7 @@ local function file_load()
 	last_real_w, last_real_h = nil, nil
 	last_tone_mapping = nil
 	last_seek_time = nil
+	seek_running, seek_shown = nil, nil
 	if info_timer then
 		info_timer:kill()
 		info_timer = nil
@@ -1235,6 +1347,7 @@ local function shutdown()
 end
 
 local function on_duration(prop, val)
+	duration = val
 	allow_fast_seek = (val or 30) >= 30
 end
 

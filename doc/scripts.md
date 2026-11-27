@@ -315,10 +315,45 @@ AGENTS.md; this file does not repeat them.
 
 ## thumbfast.lua (vendored)
 
-- The picture over the timeline while the pointer is on it (uosc asks for it). A second mpv, the thumbnailer, opens the same file on the first hover and seeks to the time under the pointer; its frames come through a file in TEMP. It stays up, paused, until the file ends.
-- Streams too (`network=yes`, `script-opts/thumbfast.conf`; local change): a web link, one from FastStream, and one played from the helper's playlist files (faststream-fragment.lua). The thumbnailer opens a stream as this mpv does: with the file's `http-header-fields`, `user-agent` and `referrer` (a CDN may refuse it without its Referer), `demuxer` and `demuxer-lavf-o` (FastStream's playlist files are read by ffmpeg with a protocol whitelist), and, for HLS, its lowest quality (`hls-bitrate=min`, `vid=auto`: an HLS stream's qualities are its video tracks, and `--vid` names this mpv's; this mpv's track changes are not passed on). So a stream is fetched a second time, at its lowest quality, for the frames hovered (measured on a public HLS stream: this mpv on 6.2 Mbit/s, the thumbnailer on 246 kbit/s; the first picture after 2.6-3.9 s, the next ones after 0.15 s).
+- The picture over the timeline while the pointer is on it (uosc asks for it). A second mpv, the thumbnailer, opens the same file as soon as it plays (`spawn_first=yes`) and seeks to the time under the pointer: to the keyframe before it, then to the exact frame; its frames come through a file in TEMP. It stays up, paused, until the file ends.
+- Streams too (`network=yes`, `script-opts/thumbfast.conf`; local change): a web link, one from FastStream, and one played from the helper's playlist files (faststream-fragment.lua). The thumbnailer opens a stream as this mpv does: with the file's `http-header-fields`, `user-agent` and `referrer` (a CDN may refuse it without its Referer), `demuxer` and `demuxer-lavf-o` (FastStream's playlist files are read by ffmpeg with a protocol whitelist), and, for HLS, its lowest quality (`hls-bitrate=min`, `vid=auto`: an HLS stream's qualities are its video tracks, and `--vid` names this mpv's; this mpv's track changes are not passed on). So a stream is fetched a second time, at its lowest quality, for the frames hovered (measured on a public HLS stream: this mpv on 6.2 Mbit/s, the thumbnailer on 246 kbit/s; the first picture after 2.6-3.9 s, the next ones after 0.15 s; that was before `spawn_first`, when the thumbnailer started on the first hover).
 - A stream is never on the thumbnailer's command line, which any program can read (a token in the address, a header). The thumbnailer starts idle and gets `loadfile` with the options over its pipe, once the pipe is up (up to 10 s), at the time the pointer is on then. Each stream thumbnailer has a pipe of its own name: one that quits because the video's size changed may hold its pipe a while. A local file stays on the command line, as upstream has it.
 - None for a private window's stream (its `fs-private=1` tag, faststream-fragment.lua; local change): it leaves no files behind (faststream-private.lua), and the frames go through a file in TEMP.
+- **Speed** (local change and `script-opts/thumbfast.conf`, 2026-11-27): the thumbnailer starts with the file (`spawn_first=yes`), decodes with every CPU thread (thumbfast: 2) and, with `hwdec=yes`, with this mpv's own hwdec list - mpv.conf's, never Vulkan decoding (thumbfast's own `auto` could pick a decoder mpv.conf rules out) - and (until the next bullet's change) sought the exact frame one timer period (50 ms) after its keyframe seek (thumbfast: two). Measured on the owner's PC (6-core Ryzen, Radeon RX 9070 XT) with a copy of this mpv without a window, the timeline hovered as uosc does: 12 places, then a 3-second sweep across it; 3 runs each, median (90th percentile):
+
+  | | Before | After |
+  |---|---|---|
+  | 1080p HEVC, a keyframe every 10 s: the exact frame | 349 ms (581) | 154 ms (205) |
+  | 4K 10-bit HEVC, a keyframe every 5 s: the exact frame | 691 ms (1020) | 252 ms (427) |
+  | the same while the 4K file plays (hardware-decoded, as mpv.conf has it) | 695 ms | 273 ms, no frame dropped or late either way |
+  | 4K: pictures while the pointer sweeps | 9 a second | 20 a second |
+  | the exact frame once the sweep stops (1080p / 4K) | 561 / 834 ms | 213 / 277 ms |
+  | an HLS stream over a 40 Mbit/s line: the first hover | 1160 ms | 102 ms |
+
+  Each alone: every thread 349 -> 190 ms (1080p) and 693 -> 326 ms (4K), 4 threads only 5 %; the GPU 188 and 313 ms, and twice the pictures in the 4K sweep; the shorter wait 50 ms where the keyframe's picture is quick (1080p), nothing on 4K without the GPU; `spawn_first` only the first hover (local files 69 -> 35 ms). On the stream the network decides every later hover (230-240 ms with any of them). What it costs: the thumbnailer is up from the start, not from the first hover, and holds about 100 MB of RAM for the 1080p file (71 MB with 2 threads and no GPU) and 260 MB for the 4K one (the same as before). The thumbnailer still has 128 KiB of demuxer cache and `--vd-lavc-skiploopfilter=all`, as upstream: what a picture costs is the decode from its keyframe.
+- **A quick move from one place to another** (local change, 2026-11-28; the owner: does it lag, get slower, or show the wrong frame, with streams too?). Upstream sent the keyframe seek and the exact one on a 50 ms timer whatever the thumbnailer was doing, and drew every picture that came at the pointer, also the last one at once on a move: after a move the last place's picture showed at the new one, until the new place's came. Now:
+  - One seek at a time: the pointer's keyframe, and as soon as its picture came the exact frame. No timer: nothing waits for a period.
+  - A new place stops an exact seek still running elsewhere: mpv drops the rest of its decode (1080p: the new place's first picture after 24 ms instead of 57). A keyframe seek is never stopped: mpv ends one it began anyway, and its picture came after the stop and was taken for the new place's (a stream: 21 of 36 moves).
+  - A picture is drawn only at its own place, within 30 px of it on the timeline (the window's width stands for the timeline's), or during the same movement (a step over 30 px between two hovers starts a new one): a sweep's pictures, a little behind the pointer, still show; after a jump the thumbnail stays empty until the new place's picture comes. Without the movement rule a fast 4K sweep showed its thumbnail 69-79 % of the time.
+  - The thumbnailer is asked for no events (`disable_event all`, each time its pipe opens). It wrote a line after every seek that nothing read; once its pipe's 4 KB were full (about 90 seeks) it read no more commands until upstream's reopen after 4096 bytes written, and the seeks meanwhile got no picture: with upstream's timer a short freeze now and then, with one seek at a time a 2 s wait (twice, both at exactly the 94th seek).
+  - A seek with no picture after 2 s (10 s for a stream or the thumbnailer's start) is given up; the first picture after it is not drawn if the given-up place is far from the pointer, as it may be that seek's.
+  - A stream decodes as upstream: 2 threads, no GPU. With the GPU each of its pictures came 100-200 ms later (the first one 298 ms instead of 189); a file keeps every thread and the GPU (the 2026-11-27 bullet above).
+
+  Measured as above, each run 12 moves from a place (after 20 ms to 1 s on it) to one far away, then the sweep; 3 runs each, median (90th percentile); "2026-11-27" is the bullet above:
+
+  | | Upstream | 2026-11-27 | Now |
+  |---|---|---|---|
+  | 1080p: a wrong picture after the move | 36 of 36 moves, 56 ms each | 36 of 36 | none |
+  | 1080p: the new place's first picture / exact frame | 65 / 436 ms (605) | 29 / 208 ms (237) | 26 / 132 ms (187) |
+  | 4K: a wrong picture | 36 of 36, 125 ms each | 36 of 36 | 1 of 36, 67 ms |
+  | 4K: first picture / exact frame | 133 / 674 ms (972) | 65 / 268 ms (330) | 65 / 259 ms (314) |
+  | the sweep: thumbnail shown; the exact frame after it (1080p / 4K) | 100 %; 599 / 786 ms | 100 %; 243 / 236 ms | 99 %; 166 / 211 ms |
+  | HLS, one 1080p quality, 40 Mbit/s and 30 ms per answer: a wrong picture | 33 of 36, 180 ms each | 33 of 36, 430 ms each | none |
+  | the same: first picture / exact frame | 196 / 649 ms (970) | 360 / 671 ms | 189 / 678 ms (1029) |
+  | the same over 15 Mbit/s and 100 ms per answer: a wrong picture | 30 of 36, 1.1 s each | 21 of 36, 1.3 s each | none |
+  | the same: the new place's picture within 1.5 s, and when | 15 of 36, 812 ms | 14 of 36, 1126 ms | 33 of 36, 629 ms (713) |
+
+  The script itself, with only a log added, in the same bench (3 runs each): 1080p 27 / 132 ms, 4K 66 / 265 ms, the 40 Mbit/s stream 198 / 689 ms; one wrong picture in 108 moves, for 1 ms; no seek given up. The 4K one above: the exact seek stopped was 0.1 s after its keyframe, nearly done, and its picture still came 27 ms after the stop; drawing no first picture after a stop (to be sure) cost every other move its keyframe picture (4K: 180 ms instead of 65), so it is not done.
 - For the tests: `user-data/thumbfast/stream-options` lists the names of the options the last stream thumbnailer got, never their values.
 
 ## Script modules

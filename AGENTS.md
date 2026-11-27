@@ -58,9 +58,9 @@ Keep it short: a new fact goes here in one line, its story into doc/history.
   screenshots, downloaded subtitles, yt-dlp cookies, root `*.txt` notes) is gitignored: a new kind of state
   file goes into `.gitignore` AND the static tier's sample list.
 - **Helpers.** Side work (reviews, drafts, second opinions) goes to Ollama's
-  `glm-5.3-flash:cloud` only (the owner's global instructions); no Claude
-  subagents unless he asks. Check every answer against the code: a glm finding,
-  and a glm "no findings" too, is a lead, never a fact.
+  `deepseek-v4.1-flash:1017-cloud` only (the owner's global instructions, since
+  2026-11-27); no Claude subagents unless he asks. Check every answer against the
+  code: a helper's finding, and its "no findings" too, is a lead, never a fact.
 - **Data, not guesses** (the owner, 2026-10-22). A cause, a fix or "it works" goes
   into a pull request, a commit or a report only once it was measured or run; until
   then it says "not established". Reproduce a bug before testing its fix, and show
